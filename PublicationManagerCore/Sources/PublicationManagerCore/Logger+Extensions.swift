@@ -22,6 +22,8 @@ public extension Logger {
     // MARK: - Data Layer
 
     static let persistence = Logger(subsystem: subsystem, category: "persistence")
+    static let library = Logger(subsystem: subsystem, category: "library")
+    static let smartSearch = Logger(subsystem: subsystem, category: "smartsearch")
 
     // MARK: - BibTeX
 

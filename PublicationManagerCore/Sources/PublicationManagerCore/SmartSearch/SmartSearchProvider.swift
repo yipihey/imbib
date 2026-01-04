@@ -7,6 +7,7 @@
 
 import Foundation
 import CoreData
+import OSLog
 
 // MARK: - Smart Search Provider
 
@@ -71,6 +72,7 @@ public actor SmartSearchProvider: PaperProvider {
     }
 
     public func refresh() async throws {
+        Logger.smartSearch.infoCapture("Executing smart search '\(name)': \(query)", category: "smartsearch")
         _isLoading = true
         defer { _isLoading = false }
 
@@ -79,25 +81,34 @@ public actor SmartSearchProvider: PaperProvider {
             sourceIDs: sourceIDs.isEmpty ? nil : sourceIDs
         )
 
+        let sourcesInfo = sourceIDs.isEmpty ? "all sources" : sourceIDs.joined(separator: ", ")
+        Logger.smartSearch.debugCapture("Smart search using: \(sourcesInfo)", category: "smartsearch")
+
         // Execute the search
-        let results = try await sourceManager.search(
-            query: query,
-            options: options
-        )
+        do {
+            let results = try await sourceManager.search(
+                query: query,
+                options: options
+            )
 
-        // Convert to OnlinePaper
-        cachedPapers = results.map { result in
-            OnlinePaper(result: result, smartSearchID: id)
+            // Convert to OnlinePaper
+            cachedPapers = results.map { result in
+                OnlinePaper(result: result, smartSearchID: id)
+            }
+
+            lastFetched = Date()
+            Logger.smartSearch.infoCapture("Smart search '\(name)' returned \(results.count) results", category: "smartsearch")
+
+            // Cache in SessionCache for PDF/BibTeX access
+            await SessionCache.shared.cacheSearchResults(
+                results,
+                for: query,
+                sourceIDs: sourceIDs
+            )
+        } catch {
+            Logger.smartSearch.errorCapture("Smart search '\(name)' failed: \(error.localizedDescription)", category: "smartsearch")
+            throw error
         }
-
-        lastFetched = Date()
-
-        // Cache in SessionCache for PDF/BibTeX access
-        await SessionCache.shared.cacheSearchResults(
-            results,
-            for: query,
-            sourceIDs: sourceIDs
-        )
     }
 
     // MARK: - Cache State
@@ -116,6 +127,7 @@ public actor SmartSearchProvider: PaperProvider {
 
     /// Clear cached results
     public func clearCache() {
+        Logger.smartSearch.debugCapture("Clearing cache for smart search '\(name)'", category: "smartsearch")
         cachedPapers = []
         lastFetched = nil
     }
@@ -159,6 +171,9 @@ public final class SmartSearchRepository: ObservableObject {
     public func loadSmartSearches(for library: CDLibrary?) {
         currentLibrary = library
 
+        let libraryName = library?.displayName ?? "all libraries"
+        Logger.smartSearch.debugCapture("Loading smart searches for: \(libraryName)", category: "smartsearch")
+
         let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
         request.sortDescriptors = [
             NSSortDescriptor(key: "order", ascending: true),
@@ -172,7 +187,9 @@ public final class SmartSearchRepository: ObservableObject {
 
         do {
             smartSearches = try persistenceController.viewContext.fetch(request)
+            Logger.smartSearch.infoCapture("Loaded \(smartSearches.count) smart searches for \(libraryName)", category: "smartsearch")
         } catch {
+            Logger.smartSearch.errorCapture("Failed to load smart searches: \(error.localizedDescription)", category: "smartsearch")
             smartSearches = []
         }
     }
@@ -188,6 +205,10 @@ public final class SmartSearchRepository: ObservableObject {
         library: CDLibrary? = nil
     ) -> CDSmartSearch {
         let context = persistenceController.viewContext
+        let targetLibrary = library ?? currentLibrary
+        let libraryName = targetLibrary?.displayName ?? "no library"
+
+        Logger.smartSearch.infoCapture("Creating smart search '\(name)' in \(libraryName)", category: "smartsearch")
 
         let smartSearch = CDSmartSearch(context: context)
         smartSearch.id = UUID()
@@ -195,15 +216,16 @@ public final class SmartSearchRepository: ObservableObject {
         smartSearch.query = query
         smartSearch.sources = sourceIDs
         smartSearch.dateCreated = Date()
-        smartSearch.library = library ?? currentLibrary
+        smartSearch.library = targetLibrary
 
         // Set order based on existing searches in this library
-        let existingCount = (library ?? currentLibrary)?.smartSearches?.count ?? smartSearches.count
+        let existingCount = targetLibrary?.smartSearches?.count ?? smartSearches.count
         smartSearch.order = Int16(existingCount)
 
         persistenceController.save()
         loadSmartSearches(for: currentLibrary)
 
+        Logger.smartSearch.infoCapture("Created smart search '\(name)' with ID: \(smartSearch.id)", category: "smartsearch")
         return smartSearch
     }
 
@@ -214,6 +236,8 @@ public final class SmartSearchRepository: ObservableObject {
         query: String? = nil,
         sourceIDs: [String]? = nil
     ) {
+        Logger.smartSearch.infoCapture("Updating smart search: \(smartSearch.name)", category: "smartsearch")
+
         if let name { smartSearch.name = name }
         if let query { smartSearch.query = query }
         if let sourceIDs { smartSearch.sources = sourceIDs }
@@ -224,6 +248,8 @@ public final class SmartSearchRepository: ObservableObject {
 
     /// Delete a smart search
     public func delete(_ smartSearch: CDSmartSearch) {
+        Logger.smartSearch.infoCapture("Deleting smart search: \(smartSearch.name)", category: "smartsearch")
+
         persistenceController.viewContext.delete(smartSearch)
         persistenceController.save()
         loadSmartSearches(for: currentLibrary)
@@ -231,6 +257,8 @@ public final class SmartSearchRepository: ObservableObject {
 
     /// Reorder smart searches
     public func reorder(_ searches: [CDSmartSearch]) {
+        Logger.smartSearch.debugCapture("Reordering \(searches.count) smart searches", category: "smartsearch")
+
         for (index, search) in searches.enumerated() {
             search.order = Int16(index)
         }
@@ -240,12 +268,15 @@ public final class SmartSearchRepository: ObservableObject {
 
     /// Mark a smart search as recently executed
     public func markExecuted(_ smartSearch: CDSmartSearch) {
+        Logger.smartSearch.debugCapture("Marking smart search executed: \(smartSearch.name)", category: "smartsearch")
         smartSearch.dateLastExecuted = Date()
         persistenceController.save()
     }
 
     /// Move a smart search to a different library
     public func move(_ smartSearch: CDSmartSearch, to library: CDLibrary) {
+        Logger.smartSearch.infoCapture("Moving smart search '\(smartSearch.name)' to library '\(library.displayName)'", category: "smartsearch")
+
         smartSearch.library = library
         persistenceController.save()
         loadSmartSearches(for: currentLibrary)

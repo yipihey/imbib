@@ -52,6 +52,8 @@ public final class LibraryManager {
 
     /// Load all libraries from Core Data
     public func loadLibraries() {
+        Logger.library.debugCapture("Loading libraries from Core Data", category: "library")
+
         let request = NSFetchRequest<CDLibrary>(entityName: "Library")
         request.sortDescriptors = [
             NSSortDescriptor(key: "dateLastOpened", ascending: false),
@@ -60,13 +62,17 @@ public final class LibraryManager {
 
         do {
             libraries = try persistenceController.viewContext.fetch(request)
+            Logger.library.infoCapture("Loaded \(libraries.count) libraries", category: "library")
 
             // Set active to default library if not set
             if activeLibrary == nil {
                 activeLibrary = libraries.first { $0.isDefault } ?? libraries.first
+                if let active = activeLibrary {
+                    Logger.library.infoCapture("Set active library: \(active.displayName)", category: "library")
+                }
             }
         } catch {
-            Logger.persistence.error("Failed to load libraries: \(error.localizedDescription)")
+            Logger.library.errorCapture("Failed to load libraries: \(error.localizedDescription)", category: "library")
             libraries = []
         }
     }
@@ -80,6 +86,8 @@ public final class LibraryManager {
         bibFileURL: URL? = nil,
         papersDirectoryURL: URL? = nil
     ) -> CDLibrary {
+        Logger.library.infoCapture("Creating library: \(name)", category: "library")
+
         let context = persistenceController.viewContext
 
         let library = CDLibrary(context: context)
@@ -97,25 +105,31 @@ public final class LibraryManager {
                 includingResourceValuesForKeys: nil,
                 relativeTo: nil
             )
+            Logger.library.debugCapture("Created security-scoped bookmark for: \(url.lastPathComponent)", category: "library")
         }
 
         persistenceController.save()
         loadLibraries()
 
+        Logger.library.infoCapture("Created library '\(name)' with ID: \(library.id)", category: "library")
         return library
     }
 
     /// Open an existing .bib file as a library
     @discardableResult
     public func openLibrary(at url: URL) throws -> CDLibrary {
+        Logger.library.infoCapture("Opening library at: \(url.lastPathComponent)", category: "library")
+
         // Check if already open
         if let existing = libraries.first(where: { $0.bibFilePath == url.path }) {
+            Logger.library.debugCapture("Library already open, switching to: \(existing.displayName)", category: "library")
             setActive(existing)
             return existing
         }
 
         // Create security-scoped bookmark
         guard url.startAccessingSecurityScopedResource() else {
+            Logger.library.errorCapture("Access denied to: \(url.lastPathComponent)", category: "library")
             throw LibraryError.accessDenied(url)
         }
         defer { url.stopAccessingSecurityScopedResource() }
@@ -135,11 +149,14 @@ public final class LibraryManager {
         persistenceController.save()
         setActive(library)
 
+        Logger.library.infoCapture("Opened library: \(library.displayName)", category: "library")
         return library
     }
 
     /// Set the active library
     public func setActive(_ library: CDLibrary) {
+        Logger.library.infoCapture("Switching to library: \(library.displayName)", category: "library")
+
         library.dateLastOpened = Date()
         activeLibrary = library
         persistenceController.save()
@@ -150,9 +167,14 @@ public final class LibraryManager {
 
     /// Close a library (remove from list but don't delete data)
     public func closeLibrary(_ library: CDLibrary) {
+        Logger.library.infoCapture("Closing library: \(library.displayName)", category: "library")
+
         if activeLibrary?.id == library.id {
             // Switch to another library
             activeLibrary = libraries.first { $0.id != library.id }
+            if let newActive = activeLibrary {
+                Logger.library.debugCapture("Switched to library: \(newActive.displayName)", category: "library")
+            }
         }
 
         persistenceController.viewContext.delete(library)
@@ -162,14 +184,18 @@ public final class LibraryManager {
 
     /// Delete a library and optionally its files
     public func deleteLibrary(_ library: CDLibrary, deleteFiles: Bool = false) throws {
+        Logger.library.warningCapture("Deleting library: \(library.displayName), deleteFiles: \(deleteFiles)", category: "library")
+
         if deleteFiles {
             // Delete .bib file
             if let path = library.bibFilePath {
                 try? FileManager.default.removeItem(atPath: path)
+                Logger.library.debugCapture("Deleted .bib file: \(path)", category: "library")
             }
             // Delete Papers directory
             if let path = library.papersDirectoryPath {
                 try? FileManager.default.removeItem(atPath: path)
+                Logger.library.debugCapture("Deleted Papers directory: \(path)", category: "library")
             }
         }
 
@@ -178,6 +204,8 @@ public final class LibraryManager {
 
     /// Set a library as the default
     public func setDefault(_ library: CDLibrary) {
+        Logger.library.infoCapture("Setting default library: \(library.displayName)", category: "library")
+
         // Clear existing default
         for lib in libraries {
             lib.isDefault = (lib.id == library.id)
@@ -187,6 +215,7 @@ public final class LibraryManager {
 
     /// Rename a library
     public func rename(_ library: CDLibrary, to name: String) {
+        Logger.library.infoCapture("Renaming library '\(library.displayName)' to '\(name)'", category: "library")
         library.name = name
         persistenceController.save()
     }
