@@ -321,12 +321,21 @@ public struct BibTeXParser: Sendable {
                 }
                 scanner.advance()
             } else if char == "\\" {
-                // Escape sequence
+                // Escape sequence - handle \{ \} and \\{ \\} robustly
                 result.append(char)
                 scanner.advance()
                 if let next = scanner.peek() {
                     result.append(next)
                     scanner.advance()
+                    // Handle \\{ and \\} - many BibTeX files use double backslash
+                    // before braces when they mean escaped braces. Treat the
+                    // following brace as non-structural for robustness.
+                    if next == "\\" {
+                        if let afterBackslash = scanner.peek(), afterBackslash == "{" || afterBackslash == "}" {
+                            result.append(afterBackslash)
+                            scanner.advance()
+                        }
+                    }
                 }
             } else {
                 result.append(char)
@@ -367,6 +376,13 @@ public struct BibTeXParser: Sendable {
                 if let next = scanner.peek() {
                     result.append(next)
                     scanner.advance()
+                    // Handle \\{ and \\} robustly (see parseBracedValue)
+                    if next == "\\" {
+                        if let afterBackslash = scanner.peek(), afterBackslash == "{" || afterBackslash == "}" {
+                            result.append(afterBackslash)
+                            scanner.advance()
+                        }
+                    }
                 }
             } else {
                 result.append(char)

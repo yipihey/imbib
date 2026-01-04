@@ -1,0 +1,95 @@
+name: imbib
+options:
+  bundleIdPrefix: com.imbib
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "15.0"
+  generateEmptyDirectories: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    SWIFT_STRICT_CONCURRENCY: complete
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_IDENTITY: "-"
+    CODE_SIGN_STYLE: Automatic
+
+packages:
+  PublicationManagerCore:
+    path: ../PublicationManagerCore
+
+targets:
+  imbib:
+    type: application
+    platform: macOS
+    sources:
+      - path: imbib
+        excludes:
+          - "**/*.entitlements"
+    dependencies:
+      - package: PublicationManagerCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app
+        PRODUCT_NAME: imbib
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: imbib
+        INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.productivity"
+        INFOPLIST_KEY_NSHumanReadableCopyright: "Copyright © 2026"
+        CODE_SIGN_ENTITLEMENTS: imbib/Resources/imbib.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+    entitlements:
+      path: imbib/Resources/imbib.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+        com.apple.security.files.bookmarks.app-scope: true
+        com.apple.security.network.client: true
+
+  imbibTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: imbibTests
+        optional: true
+    dependencies:
+      - target: imbib
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.tests
+
+  imbibUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: imbibUITests
+        optional: true
+    dependencies:
+      - target: imbib
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.uitests
+
+schemes:
+  imbib:
+    build:
+      targets:
+        imbib: all
+        imbibTests: [test]
+        imbibUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      gatherCoverageData: true
+      targets:
+        - imbibTests
+        - imbibUITests
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

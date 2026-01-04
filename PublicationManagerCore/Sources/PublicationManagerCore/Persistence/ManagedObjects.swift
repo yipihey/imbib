@@ -64,7 +64,20 @@ public extension CDPublication {
 
     /// Author string for display
     var authorString: String {
-        sortedAuthors.map { $0.displayName }.joined(separator: ", ")
+        // Prefer CDAuthor entities if they exist
+        let fromEntities = sortedAuthors.map { $0.displayName }.joined(separator: ", ")
+        if !fromEntities.isEmpty {
+            return fromEntities
+        }
+
+        // Fall back to parsed author field with braces stripped
+        guard let rawAuthor = fields["author"] else { return "" }
+
+        // Parse and clean author names (same logic as BibTeXEntry.authorList)
+        return rawAuthor
+            .components(separatedBy: " and ")
+            .map { BibTeXFieldCleaner.cleanAuthorName($0) }
+            .joined(separator: ", ")
     }
 
     /// Convert to BibTeXEntry
@@ -103,8 +116,8 @@ public extension CDPublication {
         entryType = entry.entryType
         rawBibTeX = entry.rawBibTeX
 
-        // Extract and set core fields
-        title = entry.fields["title"]
+        // Extract and set core fields (use cleaned properties, not raw fields)
+        title = entry.title
         if let yearStr = entry.fields["year"], let yearInt = Int16(yearStr) {
             year = yearInt
         }

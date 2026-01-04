@@ -165,6 +165,24 @@ public actor PublicationRepository {
         }
     }
 
+    /// Update a single field in a publication
+    public func updateField(_ publication: CDPublication, field: String, value: String?) async {
+        Logger.persistence.info("Updating field '\(field)' for: \(publication.citeKey)")
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            var currentFields = publication.fields
+            if let value = value, !value.isEmpty {
+                currentFields[field] = value
+            } else {
+                currentFields.removeValue(forKey: field)
+            }
+            publication.fields = currentFields
+            publication.dateModified = Date()
+            self.persistenceController.save()
+        }
+    }
+
     // MARK: - Delete Operations
 
     /// Delete a publication

@@ -49,17 +49,12 @@ public final class LibraryViewModel {
     // MARK: - Loading
 
     public func loadPublications() async {
-        Logger.viewModels.entering()
-        defer { Logger.viewModels.exiting() }
-
         isLoading = true
         error = nil
 
-        do {
-            let sortKey = sortOrder.sortKey
-            publications = await repository.fetchAll(sortedBy: sortKey, ascending: sortAscending)
-            Logger.viewModels.info("Loaded \(self.publications.count) publications")
-        }
+        let sortKey = sortOrder.sortKey
+        publications = await repository.fetchAll(sortedBy: sortKey, ascending: sortAscending)
+        Logger.viewModels.infoCapture("Loaded \(self.publications.count) publications", category: "library")
 
         isLoading = false
     }
@@ -81,21 +76,24 @@ public final class LibraryViewModel {
     // MARK: - Import
 
     public func importBibTeX(from url: URL) async throws -> Int {
-        Logger.viewModels.info("Importing BibTeX from \(url.lastPathComponent)")
+        Logger.viewModels.infoCapture("Importing BibTeX from \(url.lastPathComponent)", category: "import")
 
         let content = try String(contentsOf: url, encoding: .utf8)
         let parser = BibTeXParser()
+
+        Logger.viewModels.infoCapture("Parsing BibTeX file...", category: "import")
         let entries = try parser.parseEntries(content)
+        Logger.viewModels.infoCapture("Parsed \(entries.count) entries from file", category: "import")
 
         let imported = await repository.importEntries(entries)
         await loadPublications()
 
-        Logger.viewModels.info("Imported \(imported) entries")
+        Logger.viewModels.infoCapture("Successfully imported \(imported) entries", category: "import")
         return imported
     }
 
     public func importEntry(_ entry: BibTeXEntry) async {
-        Logger.viewModels.info("Importing entry: \(entry.citeKey)")
+        Logger.viewModels.infoCapture("Importing entry: \(entry.citeKey)", category: "import")
 
         await repository.create(from: entry)
         await loadPublications()
@@ -107,7 +105,7 @@ public final class LibraryViewModel {
         let toDelete = publications.filter { selectedPublications.contains($0.id) }
         guard !toDelete.isEmpty else { return }
 
-        Logger.viewModels.info("Deleting \(toDelete.count) publications")
+        Logger.viewModels.infoCapture("Deleting \(toDelete.count) publications", category: "library")
 
         await repository.delete(toDelete)
         selectedPublications.removeAll()
@@ -115,11 +113,40 @@ public final class LibraryViewModel {
     }
 
     public func delete(_ publication: CDPublication) async {
-        Logger.viewModels.info("Deleting: \(publication.citeKey)")
+        // Capture values before deletion since accessing deleted object crashes
+        let citeKey = publication.citeKey
+        let publicationID = publication.id
+
+        Logger.viewModels.infoCapture("Deleting: \(citeKey)", category: "library")
 
         await repository.delete(publication)
-        selectedPublications.remove(publication.id)
+        selectedPublications.remove(publicationID)
         await loadPublications()
+    }
+
+    public func delete(ids: Set<UUID>) async {
+        guard !ids.isEmpty else { return }
+
+        // Find publications to delete - capture them in a single pass
+        let toDelete = publications.filter { ids.contains($0.id) }
+        guard !toDelete.isEmpty else { return }
+
+        Logger.viewModels.infoCapture("Deleting \(toDelete.count) publications", category: "library")
+
+        // Remove from selection first
+        for id in ids {
+            selectedPublications.remove(id)
+        }
+
+        // Batch delete all at once (doesn't call loadPublications between deletions)
+        await repository.delete(toDelete)
+        await loadPublications()
+    }
+
+    // MARK: - Update
+
+    public func updateField(_ publication: CDPublication, field: String, value: String?) async {
+        await repository.updateField(publication, field: field, value: value)
     }
 
     // MARK: - Export
