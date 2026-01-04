@@ -186,7 +186,7 @@ public enum PDFViewerError: LocalizedError {
 
 #if os(macOS)
 
-/// macOS PDFKit wrapper
+/// macOS PDFKit wrapper (basic, read-only)
 struct PDFKitViewRepresentable: NSViewRepresentable {
     let document: PDFDocument
 
@@ -207,9 +207,95 @@ struct PDFKitViewRepresentable: NSViewRepresentable {
     }
 }
 
+/// macOS PDFKit wrapper with controls
+struct ControlledPDFKitView: NSViewRepresentable {
+    let document: PDFDocument
+    @Binding var currentPage: Int
+    @Binding var scaleFactor: CGFloat
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeNSView(context: Context) -> PDFView {
+        let pdfView = PDFView()
+        pdfView.document = document
+        pdfView.autoScales = true
+        pdfView.displayMode = .singlePageContinuous
+        pdfView.displayDirection = .vertical
+        pdfView.backgroundColor = .textBackgroundColor
+
+        // Observe page changes
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.pageChanged(_:)),
+            name: .PDFViewPageChanged,
+            object: pdfView
+        )
+
+        // Observe scale changes
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.scaleChanged(_:)),
+            name: .PDFViewScaleChanged,
+            object: pdfView
+        )
+
+        context.coordinator.pdfView = pdfView
+        return pdfView
+    }
+
+    func updateNSView(_ pdfView: PDFView, context: Context) {
+        if pdfView.document !== document {
+            pdfView.document = document
+        }
+
+        // Update page if changed externally
+        if let page = pdfView.document?.page(at: currentPage - 1),
+           pdfView.currentPage !== page {
+            pdfView.go(to: page)
+        }
+
+        // Update scale if changed externally
+        let targetScale = scaleFactor
+        if abs(pdfView.scaleFactor - targetScale) > 0.01 {
+            pdfView.scaleFactor = targetScale
+        }
+    }
+
+    class Coordinator: NSObject {
+        var parent: ControlledPDFKitView
+        weak var pdfView: PDFView?
+
+        init(_ parent: ControlledPDFKitView) {
+            self.parent = parent
+        }
+
+        @objc func pageChanged(_ notification: Notification) {
+            guard let pdfView = pdfView,
+                  let currentPage = pdfView.currentPage,
+                  let document = pdfView.document else { return }
+
+            let pageIndex = document.index(for: currentPage)
+
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.currentPage = pageIndex + 1
+            }
+        }
+
+        @objc func scaleChanged(_ notification: Notification) {
+            guard let pdfView = pdfView else { return }
+            let scale = pdfView.scaleFactor
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.scaleFactor = scale
+            }
+        }
+    }
+}
+
 #else
 
-/// iOS/iPadOS PDFKit wrapper
+/// iOS/iPadOS PDFKit wrapper (basic, read-only)
 struct PDFKitViewRepresentable: UIViewRepresentable {
     let document: PDFDocument
 
@@ -226,6 +312,92 @@ struct PDFKitViewRepresentable: UIViewRepresentable {
     func updateUIView(_ pdfView: PDFView, context: Context) {
         if pdfView.document !== document {
             pdfView.document = document
+        }
+    }
+}
+
+/// iOS PDFKit wrapper with controls
+struct ControlledPDFKitView: UIViewRepresentable {
+    let document: PDFDocument
+    @Binding var currentPage: Int
+    @Binding var scaleFactor: CGFloat
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeUIView(context: Context) -> PDFView {
+        let pdfView = PDFView()
+        pdfView.document = document
+        pdfView.autoScales = true
+        pdfView.displayMode = .singlePageContinuous
+        pdfView.displayDirection = .vertical
+        pdfView.backgroundColor = .systemBackground
+
+        // Observe page changes
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.pageChanged(_:)),
+            name: .PDFViewPageChanged,
+            object: pdfView
+        )
+
+        // Observe scale changes
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.scaleChanged(_:)),
+            name: .PDFViewScaleChanged,
+            object: pdfView
+        )
+
+        context.coordinator.pdfView = pdfView
+        return pdfView
+    }
+
+    func updateUIView(_ pdfView: PDFView, context: Context) {
+        if pdfView.document !== document {
+            pdfView.document = document
+        }
+
+        // Update page if changed externally
+        if let page = pdfView.document?.page(at: currentPage - 1),
+           pdfView.currentPage !== page {
+            pdfView.go(to: page)
+        }
+
+        // Update scale if changed externally
+        let targetScale = scaleFactor
+        if abs(pdfView.scaleFactor - targetScale) > 0.01 {
+            pdfView.scaleFactor = targetScale
+        }
+    }
+
+    class Coordinator: NSObject {
+        var parent: ControlledPDFKitView
+        weak var pdfView: PDFView?
+
+        init(_ parent: ControlledPDFKitView) {
+            self.parent = parent
+        }
+
+        @objc func pageChanged(_ notification: Notification) {
+            guard let pdfView = pdfView,
+                  let currentPage = pdfView.currentPage,
+                  let document = pdfView.document else { return }
+
+            let pageIndex = document.index(for: currentPage)
+
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.currentPage = pageIndex + 1
+            }
+        }
+
+        @objc func scaleChanged(_ notification: Notification) {
+            guard let pdfView = pdfView else { return }
+            let scale = pdfView.scaleFactor
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.scaleFactor = scale
+            }
         }
     }
 }
@@ -369,7 +541,11 @@ public struct PDFViewerWithControls: View {
                 } else if let error {
                     errorView(error)
                 } else if let document = pdfDocument {
-                    PDFKitViewRepresentable(document: document)
+                    ControlledPDFKitView(
+                        document: document,
+                        currentPage: $currentPage,
+                        scaleFactor: $scaleFactor
+                    )
                 } else {
                     errorView(.documentNotLoaded)
                 }
@@ -516,30 +692,25 @@ public struct PDFViewerWithControls: View {
     private func goToPreviousPage() {
         if currentPage > 1 {
             currentPage -= 1
-            // TODO: Sync with PDFView
         }
     }
 
     private func goToNextPage() {
         if currentPage < totalPages {
             currentPage += 1
-            // TODO: Sync with PDFView
         }
     }
 
     private func zoomIn() {
         scaleFactor = min(scaleFactor * 1.25, 4.0)
-        // TODO: Sync with PDFView
     }
 
     private func zoomOut() {
         scaleFactor = max(scaleFactor / 1.25, 0.25)
-        // TODO: Sync with PDFView
     }
 
     private func resetZoom() {
         scaleFactor = 1.0
-        // TODO: Sync with PDFView
     }
 
     private func openInExternalApp(url: URL) {
