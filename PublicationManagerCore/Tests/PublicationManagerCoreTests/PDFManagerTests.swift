@@ -249,4 +249,56 @@ final class PDFManagerTests: XCTestCase {
     // controller or are designed to not create new stores.
 
     // Integration tests for import/link operations are in BibTeXIntegrationTests
+
+    // MARK: - PDF Viewer Error Tests
+
+    func testPDFViewerError_fileNotFound_hasDescription() {
+        // Given
+        let url = URL(fileURLWithPath: "/path/to/missing.pdf")
+        let error = PDFViewerError.fileNotFound(url)
+
+        // Then
+        XCTAssertNotNil(error.errorDescription)
+        XCTAssertTrue(error.errorDescription!.contains("missing.pdf"))
+    }
+
+    func testPDFViewerError_invalidPDF_hasDescription() {
+        // Given
+        let url = URL(fileURLWithPath: "/path/to/corrupt.pdf")
+        let error = PDFViewerError.invalidPDF(url)
+
+        // Then
+        XCTAssertNotNil(error.errorDescription)
+        XCTAssertTrue(error.errorDescription!.contains("corrupt.pdf"))
+    }
+
+    func testPDFViewerError_invalidData_hasDescription() {
+        // Given
+        let error = PDFViewerError.invalidData
+
+        // Then
+        XCTAssertNotNil(error.errorDescription)
+        XCTAssertTrue(error.errorDescription!.contains("Invalid"))
+    }
+
+    func testPDFViewerError_documentNotLoaded_hasDescription() {
+        // Given
+        let error = PDFViewerError.documentNotLoaded
+
+        // Then
+        XCTAssertNotNil(error.errorDescription)
+        XCTAssertTrue(error.errorDescription!.contains("not be loaded"))
+    }
+
+    func testPDFViewerError_loadFailed_includesUnderlyingError() {
+        // Given
+        struct TestError: LocalizedError {
+            var errorDescription: String? { "test error message" }
+        }
+        let error = PDFViewerError.loadFailed(TestError())
+
+        // Then
+        XCTAssertNotNil(error.errorDescription)
+        XCTAssertTrue(error.errorDescription!.contains("test error message"))
+    }
 }
