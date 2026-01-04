@@ -199,7 +199,8 @@ struct BibTeXEntry: Sendable {
 - [x] Session cache for online papers
 
 ### Phase 3: Polish
-- [ ] PDF viewer with annotation
+- [x] PDF viewer (basic viewing complete, annotation pending)
+- [ ] PDF annotation support
 - [ ] BibTeX editor with syntax highlighting
 - [ ] Smart collections
 - [ ] Export templates
@@ -287,7 +288,17 @@ Update the changelog below after significant work:
 - Human-readable filenames: {Author}_{Year}_{Title}.pdf
 - linkExistingPDF() for non-copying imports from BibDesk
 - Download PDFs from online sources with importOnlinePaper()
-- All 147 tests passing
+- Added comprehensive tests for Phase 2 features (38 new tests)
+  - PDFManagerTests (11 tests)
+  - LibraryManagerTests (8 tests)
+  - SmartSearchRepositoryTests (6 tests)
+  - SessionCacheTests (13 tests)
+- Created cross-platform PDFViewer using PDFKit
+  - PDFKitViewer: Basic viewer for local files
+  - PDFViewerWithControls: Toolbar with page navigation/zoom
+  - OnlinePaperPDFViewer: Downloads from SessionCache
+  - NSViewRepresentable (macOS) / UIViewRepresentable (iOS)
+- All 185 tests passing
 
 ### 2026-01-04 (Session 2)
 - ADR-012: Unified library and online search experience
