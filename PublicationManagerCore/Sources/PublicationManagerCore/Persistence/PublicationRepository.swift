@@ -117,12 +117,21 @@ public actor PublicationRepository {
     // MARK: - Create Operations
 
     /// Create a new publication from BibTeX entry
+    ///
+    /// - Parameters:
+    ///   - entry: The BibTeX entry to create from
+    ///   - library: Optional library for resolving file paths
+    ///   - processLinkedFiles: If true, process Bdsk-File-* fields to create linked file records
     @discardableResult
-    public func create(from entry: BibTeXEntry) async -> CDPublication {
+    public func create(
+        from entry: BibTeXEntry,
+        in library: CDLibrary? = nil,
+        processLinkedFiles: Bool = true
+    ) async -> CDPublication {
         Logger.persistence.info("Creating publication: \(entry.citeKey)")
         let context = persistenceController.viewContext
 
-        return await context.perform {
+        let publication = await context.perform {
             let publication = CDPublication(context: context)
             publication.id = UUID()
             publication.dateAdded = Date()
@@ -131,17 +140,30 @@ public actor PublicationRepository {
             self.persistenceController.save()
             return publication
         }
+
+        // Process linked files on MainActor
+        if processLinkedFiles {
+            await MainActor.run {
+                PDFManager.shared.processBdskFiles(from: entry, for: publication, in: library)
+            }
+        }
+
+        return publication
     }
 
     /// Import multiple entries
-    public func importEntries(_ entries: [BibTeXEntry]) async -> Int {
+    ///
+    /// - Parameters:
+    ///   - entries: BibTeX entries to import
+    ///   - library: Optional library for resolving file paths (for Bdsk-File-* fields)
+    public func importEntries(_ entries: [BibTeXEntry], in library: CDLibrary? = nil) async -> Int {
         Logger.persistence.info("Importing \(entries.count) entries")
 
         var imported = 0
         for entry in entries {
             // Check for duplicate
             if await fetch(byCiteKey: entry.citeKey) == nil {
-                await create(from: entry)
+                await create(from: entry, in: library)
                 imported += 1
             } else {
                 Logger.persistence.debug("Skipping duplicate: \(entry.citeKey)")

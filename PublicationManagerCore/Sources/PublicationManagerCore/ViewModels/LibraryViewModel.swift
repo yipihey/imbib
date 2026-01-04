@@ -115,6 +115,63 @@ public final class LibraryViewModel {
         await loadPublications()
     }
 
+    /// Import a PDF file and attach it to a publication.
+    public func importPDF(from url: URL, for publication: CDPublication, in library: CDLibrary? = nil) async throws {
+        Logger.viewModels.infoCapture("Importing PDF for: \(publication.citeKey)", category: "import")
+
+        try PDFManager.shared.importPDF(from: url, for: publication, in: library)
+        await loadPublications()
+    }
+
+    /// Import a paper from online search with optional PDF.
+    ///
+    /// This imports the paper's BibTeX and optionally downloads and attaches the PDF.
+    public func importOnlinePaper(
+        _ paper: OnlinePaper,
+        downloadPDF: Bool = true,
+        in library: CDLibrary? = nil
+    ) async throws -> CDPublication {
+        Logger.viewModels.infoCapture("Importing online paper: \(paper.title)", category: "import")
+
+        // Fetch BibTeX
+        let bibtex = try await paper.bibtex()
+        let parser = BibTeXParser()
+        let entries = try parser.parseEntries(bibtex)
+
+        guard let entry = entries.first else {
+            throw ImportError.noBibTeXEntry
+        }
+
+        // Create publication
+        let publication = await repository.create(from: entry)
+
+        // Apply pending metadata if any
+        if let metadata = await SessionCache.shared.getMetadata(for: paper.id) {
+            if let customKey = metadata.customCiteKey {
+                await repository.updateField(publication, field: "citeKey", value: customKey)
+            }
+            if !metadata.notes.isEmpty {
+                await repository.updateField(publication, field: "notes", value: metadata.notes)
+            }
+            // TODO: Apply tags when tag support is fully implemented
+            await SessionCache.shared.clearMetadata(for: paper.id)
+        }
+
+        // Download PDF if available and requested
+        if downloadPDF, let pdfURL = paper.remotePDFURL {
+            do {
+                try await PDFManager.shared.downloadAndImport(from: pdfURL, for: publication, in: library)
+                Logger.viewModels.infoCapture("Downloaded and attached PDF", category: "import")
+            } catch {
+                // Log but don't fail the import - paper is still added without PDF
+                Logger.viewModels.warningCapture("Failed to download PDF: \(error.localizedDescription)", category: "import")
+            }
+        }
+
+        await loadPublications()
+        return publication
+    }
+
     // MARK: - Delete
 
     public func deleteSelected() async {
@@ -223,6 +280,25 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
         case .title: return "title"
         case .year: return "year"
         case .citeKey: return "citeKey"
+        }
+    }
+}
+
+// MARK: - Import Error
+
+public enum ImportError: LocalizedError {
+    case noBibTeXEntry
+    case fileNotFound(URL)
+    case invalidBibTeX(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .noBibTeXEntry:
+            return "No BibTeX entry found in the fetched data"
+        case .fileNotFound(let url):
+            return "File not found: \(url.lastPathComponent)"
+        case .invalidBibTeX(let reason):
+            return "Invalid BibTeX: \(reason)"
         }
     }
 }
