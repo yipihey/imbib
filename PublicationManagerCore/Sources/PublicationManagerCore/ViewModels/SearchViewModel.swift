@@ -18,7 +18,12 @@ public final class SearchViewModel {
 
     // MARK: - Published State
 
+    /// Raw deduplicated results from search
     public private(set) var results: [DeduplicatedResult] = []
+
+    /// OnlinePaper wrappers for unified view layer
+    public private(set) var papers: [OnlinePaper] = []
+
     public private(set) var isSearching = false
     public private(set) var error: Error?
 
@@ -57,30 +62,46 @@ public final class SearchViewModel {
     public func search() async {
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
             results = []
+            papers = []
             return
         }
 
         Logger.viewModels.entering()
         defer { Logger.viewModels.exiting() }
 
+        // Check session cache first
+        let sourceIDs = Array(selectedSourceIDs)
+        if let cached = await SessionCache.shared.getCachedResults(for: query, sourceIDs: sourceIDs) {
+            Logger.viewModels.infoCapture("Using cached results for: \(query)", category: "search")
+            results = await deduplicationService.deduplicate(cached)
+            papers = OnlinePaper.from(results: results)
+            return
+        }
+
         isSearching = true
         error = nil
         results = []
+        papers = []
 
         do {
             let options = SearchOptions(
                 maxResults: 100,
                 sortOrder: .relevance,
-                sourceIDs: selectedSourceIDs.isEmpty ? nil : Array(selectedSourceIDs)
+                sourceIDs: selectedSourceIDs.isEmpty ? nil : sourceIDs
             )
 
             let rawResults = try await sourceManager.search(query: query, options: options)
-            results = await deduplicationService.deduplicate(rawResults)
 
-            Logger.viewModels.info("Search returned \(self.results.count) deduplicated results")
+            // Cache the raw results
+            await SessionCache.shared.cacheSearchResults(rawResults, for: query, sourceIDs: sourceIDs)
+
+            results = await deduplicationService.deduplicate(rawResults)
+            papers = OnlinePaper.from(results: results)
+
+            Logger.viewModels.infoCapture("Search returned \(self.results.count) deduplicated results", category: "search")
         } catch {
             self.error = error
-            Logger.viewModels.error("Search failed: \(error.localizedDescription)")
+            Logger.viewModels.errorCapture("Search failed: \(error.localizedDescription)", category: "search")
         }
 
         isSearching = false
@@ -89,14 +110,41 @@ public final class SearchViewModel {
     // MARK: - Import
 
     public func importResult(_ result: DeduplicatedResult) async throws {
-        Logger.viewModels.info("Importing: \(result.primary.title)")
+        Logger.viewModels.infoCapture("Importing: \(result.primary.title)", category: "import")
+
+        // Get any pending metadata from session cache
+        let pendingMetadata = await SessionCache.shared.getMetadata(for: result.id)
 
         let entry = try await sourceManager.fetchBibTeX(for: result.primary)
-        await repository.create(from: entry)
+        let publication = await repository.create(from: entry)
+
+        // Apply pending metadata if any
+        if let metadata = pendingMetadata, !metadata.isEmpty {
+            // Apply custom cite key
+            if let customKey = metadata.customCiteKey {
+                await repository.updateField(publication, field: "citeKey", value: customKey)
+            }
+            // Apply notes
+            if !metadata.notes.isEmpty {
+                await repository.updateField(publication, field: "notes", value: metadata.notes)
+            }
+            // Clear the pending metadata
+            await SessionCache.shared.clearMetadata(for: result.id)
+        }
+
+        // Invalidate the library lookup cache so the indicator updates
+        await DefaultLibraryLookupService.shared.invalidateCache()
+    }
+
+    public func importPaper(_ paper: OnlinePaper) async throws {
+        guard let result = results.first(where: { $0.id == paper.id }) else {
+            throw SearchViewModelError.paperNotFound
+        }
+        try await importResult(result)
     }
 
     public func importSelected() async throws -> Int {
-        Logger.viewModels.info("Importing \(self.selectedResults.count) results")
+        Logger.viewModels.infoCapture("Importing \(self.selectedResults.count) results", category: "import")
 
         var imported = 0
 
@@ -107,12 +155,24 @@ public final class SearchViewModel {
                 try await importResult(result)
                 imported += 1
             } catch {
-                Logger.viewModels.error("Failed to import \(result.primary.title): \(error.localizedDescription)")
+                Logger.viewModels.errorCapture("Failed to import \(result.primary.title): \(error.localizedDescription)", category: "import")
             }
         }
 
         selectedResults.removeAll()
         return imported
+    }
+
+    // MARK: - Pending Metadata
+
+    /// Set temporary metadata for a paper before import
+    public func setPendingMetadata(for paperID: String, tags: Set<String>? = nil, notes: String? = nil, customCiteKey: String? = nil) async {
+        await SessionCache.shared.updateMetadata(for: paperID, tags: tags, notes: notes, customCiteKey: customCiteKey)
+    }
+
+    /// Get pending metadata for a paper
+    public func getPendingMetadata(for paperID: String) async -> PendingPaperMetadata? {
+        await SessionCache.shared.getMetadata(for: paperID)
     }
 
     // MARK: - Selection
@@ -149,5 +209,18 @@ public final class SearchViewModel {
 
     public func clearSourceSelection() {
         selectedSourceIDs.removeAll()
+    }
+}
+
+// MARK: - Search View Model Error
+
+public enum SearchViewModelError: LocalizedError {
+    case paperNotFound
+
+    public var errorDescription: String? {
+        switch self {
+        case .paperNotFound:
+            return "Paper not found in search results"
+        }
     }
 }

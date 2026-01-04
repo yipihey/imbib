@@ -19,6 +19,9 @@ final class SearchViewModelTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
 
+        // Clear session cache from previous tests
+        await SessionCache.shared.clearAll()
+
         // Setup source manager with mock plugin (no credentials needed)
         let credentialManager = CredentialManager(keyPrefix: "test.\(UUID().uuidString)")
         sourceManager = SourceManager(credentialManager: credentialManager)
