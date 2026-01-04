@@ -192,11 +192,11 @@ struct BibTeXEntry: Sendable {
 - [x] Unified paper abstraction (ADR-012)
 
 ### Phase 2: Core Features (Current)
-- [ ] PDF import and auto-filing
+- [x] PDF import and auto-filing (PDFManager with BibDesk compatibility)
 - [ ] CloudKit sync with conflict resolution
-- [ ] Multiple library support (LibraryManager)
-- [ ] Smart searches (stored queries)
-- [ ] Session cache for online papers
+- [x] Multiple library support (LibraryManager)
+- [x] Smart searches (stored queries)
+- [x] Session cache for online papers
 
 ### Phase 3: Polish
 - [ ] PDF viewer with annotation
@@ -275,6 +275,19 @@ When resuming work, check:
 Update the changelog below after significant work:
 
 ## Changelog
+
+### 2026-01-04 (Session 3)
+- Added LibraryManager for multiple library support
+- Added CDLibrary entity with security-scoped bookmarks
+- Added CDSmartSearch entity with library relationship
+- Implemented SmartSearchProvider and SmartSearchRepository
+- Added comprehensive logging for library and smart search features
+- Created PDFManager for PDF import and auto-filing (ADR-004)
+- BibDesk compatibility: processBdskFiles() preserves existing PDF links
+- Human-readable filenames: {Author}_{Year}_{Title}.pdf
+- linkExistingPDF() for non-copying imports from BibDesk
+- Download PDFs from online sources with importOnlinePaper()
+- All 147 tests passing
 
 ### 2026-01-04 (Session 2)
 - ADR-012: Unified library and online search experience
