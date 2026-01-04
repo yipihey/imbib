@@ -18,7 +18,12 @@ public final class LibraryViewModel {
 
     // MARK: - Published State
 
+    /// Raw Core Data publications
     public private(set) var publications: [CDPublication] = []
+
+    /// LocalPaper wrappers for unified view layer
+    public private(set) var papers: [LocalPaper] = []
+
     public private(set) var isLoading = false
     public private(set) var error: Error?
 
@@ -36,14 +41,20 @@ public final class LibraryViewModel {
 
     public var selectedPublications: Set<UUID> = []
 
+    // MARK: - Library Identity
+
+    /// Unique identifier for this library (used by LocalPaper)
+    public let libraryID: UUID
+
     // MARK: - Dependencies
 
     private let repository: PublicationRepository
 
     // MARK: - Initialization
 
-    public init(repository: PublicationRepository = PublicationRepository()) {
+    public init(repository: PublicationRepository = PublicationRepository(), libraryID: UUID = UUID()) {
         self.repository = repository
+        self.libraryID = libraryID
     }
 
     // MARK: - Loading
@@ -54,6 +65,10 @@ public final class LibraryViewModel {
 
         let sortKey = sortOrder.sortKey
         publications = await repository.fetchAll(sortedBy: sortKey, ascending: sortAscending)
+
+        // Create LocalPaper wrappers for unified view layer
+        papers = LocalPaper.from(publications: publications, libraryID: libraryID)
+
         Logger.viewModels.infoCapture("Loaded \(self.publications.count) publications", category: "library")
 
         isLoading = false
@@ -68,6 +83,7 @@ public final class LibraryViewModel {
             } else {
                 isLoading = true
                 publications = await repository.search(query: searchQuery)
+                papers = LocalPaper.from(publications: publications, libraryID: libraryID)
                 isLoading = false
             }
         }

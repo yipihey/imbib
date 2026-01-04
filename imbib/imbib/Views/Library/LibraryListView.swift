@@ -29,7 +29,7 @@ struct LibraryListView: View {
             if viewModel.isLoading {
                 ProgressView("Loading...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if viewModel.publications.isEmpty {
+            } else if viewModel.papers.isEmpty {
                 emptyState
             } else {
                 publicationList
@@ -51,9 +51,13 @@ struct LibraryListView: View {
     // MARK: - Publication List
 
     private var publicationList: some View {
-        List(viewModel.publications, id: \.id, selection: $multiSelection) { publication in
-            PublicationRow(publication: publication)
-                .tag(publication.id)
+        List(viewModel.papers, id: \.uuid, selection: $multiSelection) { paper in
+            UnifiedPaperRow(
+                paper: paper,
+                showLibraryIndicator: false, // Already in library
+                showSourceBadges: false      // Local papers don't need source badges
+            )
+            .tag(paper.uuid)
         }
         .onChange(of: multiSelection) { oldValue, newValue in
             if let first = newValue.first {
@@ -65,8 +69,8 @@ struct LibraryListView: View {
         } primaryAction: { ids in
             // Double-click to open PDF
             if let first = ids.first,
-               let publication = viewModel.publications.first(where: { $0.id == first }) {
-                openPDF(for: publication)
+               let paper = viewModel.papers.first(where: { $0.uuid == first }) {
+                openPDF(for: paper)
             }
         }
     }
@@ -115,15 +119,15 @@ struct LibraryListView: View {
     private func contextMenuItems(for ids: Set<UUID>) -> some View {
         Button("Open PDF") {
             if let first = ids.first,
-               let publication = viewModel.publications.first(where: { $0.id == first }) {
-                openPDF(for: publication)
+               let paper = viewModel.papers.first(where: { $0.uuid == first }) {
+                openPDF(for: paper)
             }
         }
 
         Button("Copy Cite Key") {
             if let first = ids.first,
-               let publication = viewModel.publications.first(where: { $0.id == first }) {
-                copyToClipboard(publication.citeKey)
+               let paper = viewModel.papers.first(where: { $0.uuid == first }) {
+                copyToClipboard(paper.citeKey)
             }
         }
 
@@ -138,8 +142,9 @@ struct LibraryListView: View {
 
     // MARK: - Helpers
 
-    private func openPDF(for publication: CDPublication) {
+    private func openPDF(for paper: LocalPaper) {
         // TODO: Implement PDF opening
+        // paper.primaryPDFPath contains the relative path if available
     }
 
     private func copyToClipboard(_ text: String) {
@@ -150,62 +155,7 @@ struct LibraryListView: View {
     }
 }
 
-// MARK: - Publication Row
-
-struct PublicationRow: View {
-    let publication: CDPublication
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(publication.title ?? "Untitled")
-                .font(.headline)
-                .lineLimit(1)
-
-            HStack(spacing: 8) {
-                Text(formatAuthors(publication.authorString))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                if publication.year > 0 {
-                    Text("(\(String(publication.year)))")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            HStack(spacing: 8) {
-                Text(publication.entryType.capitalized)
-                    .font(.caption)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(Color.gray.opacity(0.2))
-                    .clipShape(Capsule())
-
-                if let venue = venue {
-                    Text(venue)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private var venue: String? {
-        publication.fields["journal"] ?? publication.fields["booktitle"]
-    }
-
-    private func formatAuthors(_ authors: String) -> String {
-        if authors.isEmpty { return "Unknown authors" }
-        let authorList = authors.components(separatedBy: ", ")
-        if authorList.count > 2 {
-            return "\(authorList[0]) et al."
-        }
-        return authors
-    }
-}
+// MARK: - Preview
 
 #Preview {
     LibraryListView(selection: .constant(nil))

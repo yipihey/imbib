@@ -91,12 +91,20 @@ struct SearchResultsListView: View {
         if viewModel.isSearching {
             ProgressView("Searching...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if viewModel.results.isEmpty {
+        } else if viewModel.papers.isEmpty {
             emptyState
         } else {
-            List(viewModel.results, selection: $viewModel.selectedResults) { result in
-                SearchResultRow(result: result)
-                    .tag(result.id)
+            List(viewModel.papers, selection: $viewModel.selectedResults) { paper in
+                UnifiedPaperRow(
+                    paper: paper,
+                    showLibraryIndicator: true,
+                    showSourceBadges: true
+                ) {
+                    Task {
+                        try? await viewModel.importPaper(paper)
+                    }
+                }
+                .tag(paper.id)
             }
         }
     }
@@ -181,86 +189,7 @@ struct SourceChip: View {
     }
 }
 
-// MARK: - Search Result Row
-
-struct SearchResultRow: View {
-    let result: DeduplicatedResult
-
-    @Environment(SearchViewModel.self) private var viewModel
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // Title
-            Text(result.primary.title)
-                .font(.headline)
-                .lineLimit(2)
-
-            // Authors
-            Text(formatAuthors(result.primary.authors))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-
-            // Metadata row
-            HStack(spacing: 8) {
-                // Source badges
-                ForEach(result.sourceIDs, id: \.self) { sourceID in
-                    Text(sourceID.capitalized)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.accentColor.opacity(0.2))
-                        .clipShape(Capsule())
-                }
-
-                // Year
-                if let year = result.primary.year {
-                    Text(String(year))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                // Venue
-                if let venue = result.primary.venue {
-                    Text(venue)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                // Import button
-                Button {
-                    Task {
-                        try? await viewModel.importResult(result)
-                    }
-                } label: {
-                    Label("Import", systemImage: "plus.circle")
-                        .labelStyle(.iconOnly)
-                }
-                .buttonStyle(.plain)
-            }
-
-            // Abstract (if available)
-            if let abstract = result.primary.abstract, !abstract.isEmpty {
-                Text(abstract)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func formatAuthors(_ authors: [String]) -> String {
-        if authors.isEmpty { return "Unknown authors" }
-        if authors.count > 2 {
-            return "\(authors[0]) et al."
-        }
-        return authors.joined(separator: ", ")
-    }
-}
+// MARK: - Preview
 
 #Preview {
     SearchResultsListView()
