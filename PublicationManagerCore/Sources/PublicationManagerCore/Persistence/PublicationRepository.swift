@@ -315,9 +315,36 @@ public actor CollectionRepository {
         }
     }
 
+    /// Fetch only smart collections
+    public func fetchSmartCollections() async -> [CDCollection] {
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let request = NSFetchRequest<CDCollection>(entityName: "Collection")
+            request.predicate = NSPredicate(format: "isSmartCollection == YES")
+            request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+
+            return (try? context.fetch(request)) ?? []
+        }
+    }
+
+    /// Fetch only static collections
+    public func fetchStaticCollections() async -> [CDCollection] {
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let request = NSFetchRequest<CDCollection>(entityName: "Collection")
+            request.predicate = NSPredicate(format: "isSmartCollection == NO")
+            request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+
+            return (try? context.fetch(request)) ?? []
+        }
+    }
+
     /// Create a new collection
     @discardableResult
     public func create(name: String, isSmartCollection: Bool = false, predicate: String? = nil) async -> CDCollection {
+        Logger.persistence.info("Creating collection: \(name) (smart: \(isSmartCollection))")
         let context = persistenceController.viewContext
 
         return await context.perform {
@@ -328,6 +355,95 @@ public actor CollectionRepository {
             collection.predicate = predicate
             self.persistenceController.save()
             return collection
+        }
+    }
+
+    /// Update a collection
+    public func update(_ collection: CDCollection, name: String? = nil, predicate: String? = nil) async {
+        Logger.persistence.info("Updating collection: \(collection.name)")
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            if let name = name {
+                collection.name = name
+            }
+            if collection.isSmartCollection {
+                collection.predicate = predicate
+            }
+            self.persistenceController.save()
+        }
+    }
+
+    /// Delete a collection
+    public func delete(_ collection: CDCollection) async {
+        Logger.persistence.info("Deleting collection: \(collection.name)")
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            context.delete(collection)
+            self.persistenceController.save()
+        }
+    }
+
+    /// Execute a smart collection query
+    public func executeSmartCollection(_ collection: CDCollection) async -> [CDPublication] {
+        guard collection.isSmartCollection, let predicateString = collection.predicate else {
+            // For static collections, return the assigned publications
+            return Array(collection.publications ?? [])
+        }
+
+        Logger.persistence.debug("Executing smart collection: \(collection.name)")
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+
+            // Parse and apply the predicate
+            do {
+                request.predicate = NSPredicate(format: predicateString)
+            } catch {
+                Logger.persistence.error("Invalid predicate: \(predicateString)")
+                return []
+            }
+
+            request.sortDescriptors = [NSSortDescriptor(key: "dateModified", ascending: false)]
+
+            do {
+                return try context.fetch(request)
+            } catch {
+                Logger.persistence.error("Smart collection query failed: \(error.localizedDescription)")
+                return []
+            }
+        }
+    }
+
+    /// Add publications to a static collection
+    public func addPublications(_ publications: [CDPublication], to collection: CDCollection) async {
+        guard !collection.isSmartCollection else { return }
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            var current = collection.publications ?? []
+            for pub in publications {
+                current.insert(pub)
+            }
+            collection.publications = current
+            self.persistenceController.save()
+        }
+    }
+
+    /// Remove publications from a static collection
+    public func removePublications(_ publications: [CDPublication], from collection: CDCollection) async {
+        guard !collection.isSmartCollection else { return }
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            var current = collection.publications ?? []
+            for pub in publications {
+                current.remove(pub)
+            }
+            collection.publications = current
+            self.persistenceController.save()
         }
     }
 }

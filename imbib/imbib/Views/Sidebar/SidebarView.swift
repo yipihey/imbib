@@ -26,6 +26,8 @@ struct SidebarView: View {
     @State private var showingNewSmartSearch = false
     @State private var editingSmartSearch: CDSmartSearch?
     @State private var showingLibraryPicker = false
+    @State private var showingNewSmartCollection = false
+    @State private var editingCollection: CDCollection?
 
     // MARK: - Body
 
@@ -83,12 +85,43 @@ struct SidebarView: View {
             }
 
             // Collections Section
-            if !collections.isEmpty {
-                Section("Collections") {
-                    ForEach(collections, id: \.id) { collection in
-                        CollectionRow(collection: collection)
-                            .tag(SidebarSection.collection(collection))
+            Section {
+                ForEach(collections, id: \.id) { collection in
+                    CollectionRow(collection: collection)
+                        .tag(SidebarSection.collection(collection))
+                        .contextMenu {
+                            if collection.isSmartCollection {
+                                Button("Edit") {
+                                    editingCollection = collection
+                                }
+                            }
+                            Button("Delete", role: .destructive) {
+                                deleteCollection(collection)
+                            }
+                        }
+                }
+            } header: {
+                HStack {
+                    Text("Collections")
+                    Spacer()
+                    Menu {
+                        Button {
+                            showingNewSmartCollection = true
+                        } label: {
+                            Label("New Smart Collection", systemImage: "folder.badge.gearshape")
+                        }
+                        Button {
+                            createStaticCollection()
+                        } label: {
+                            Label("New Collection", systemImage: "folder.badge.plus")
+                        }
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.caption)
                     }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
                 }
             }
 
@@ -125,6 +158,21 @@ struct SidebarView: View {
         }
         .sheet(isPresented: $showingLibraryPicker) {
             LibraryPickerView()
+        }
+        .sheet(isPresented: $showingNewSmartCollection) {
+            SmartCollectionEditor(isPresented: $showingNewSmartCollection) { name, predicate in
+                Task {
+                    await createSmartCollection(name: name, predicate: predicate)
+                }
+            }
+        }
+        .sheet(item: $editingCollection) { collection in
+            SmartCollectionEditor(isPresented: .constant(true), collection: collection) { name, predicate in
+                Task {
+                    await updateCollection(collection, name: name, predicate: predicate)
+                }
+                editingCollection = nil
+            }
         }
     }
 
@@ -173,6 +221,41 @@ struct SidebarView: View {
     private func deleteSmartSearch(_ smartSearch: CDSmartSearch) {
         SmartSearchRepository.shared.delete(smartSearch)
         loadSmartSearches()
+    }
+
+    // MARK: - Collection Management
+
+    private func loadCollections() async {
+        let collectionRepo = CollectionRepository()
+        collections = await collectionRepo.fetchAll()
+    }
+
+    private func createSmartCollection(name: String, predicate: String) async {
+        let collectionRepo = CollectionRepository()
+        await collectionRepo.create(name: name, isSmartCollection: true, predicate: predicate)
+        await loadCollections()
+    }
+
+    private func createStaticCollection() {
+        Task {
+            let collectionRepo = CollectionRepository()
+            await collectionRepo.create(name: "New Collection", isSmartCollection: false)
+            await loadCollections()
+        }
+    }
+
+    private func updateCollection(_ collection: CDCollection, name: String, predicate: String) async {
+        let collectionRepo = CollectionRepository()
+        await collectionRepo.update(collection, name: name, predicate: predicate)
+        await loadCollections()
+    }
+
+    private func deleteCollection(_ collection: CDCollection) {
+        Task {
+            let collectionRepo = CollectionRepository()
+            await collectionRepo.delete(collection)
+            await loadCollections()
+        }
     }
 }
 
