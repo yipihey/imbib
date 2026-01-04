@@ -203,8 +203,8 @@ struct BibTeXEntry: Sendable {
 - [ ] PDF annotation support
 - [x] BibTeX editor with syntax highlighting
 - [x] Smart collections
-- [ ] Export templates
-- [ ] DBLP source
+- [x] Export templates
+- [x] DBLP source (implemented + tests)
 
 ### Phase 4: Extensibility
 - [ ] JSON config bundles for user sources
@@ -311,7 +311,20 @@ Update the changelog below after significant work:
   - RuleField/RuleComparison enums for type-safe rule building
   - CollectionViewModel for managing collections
   - Sidebar integration with create/edit/delete
-- All 223 tests passing
+- Added export templates with multiple formats (BibTeX, RIS, Plain Text, Markdown, HTML, CSV)
+  - ExportFormat enum with file extensions and MIME types
+  - ExportTemplate struct for custom templates
+  - TemplateEngine with placeholder substitution
+  - ExportView with format picker and preview
+  - ExportTemplateEditor for custom templates
+  - ExportTemplateTests (19 tests)
+- Added comprehensive DBLPSourceTests (25 tests)
+  - Metadata tests (ID, name, credential requirements)
+  - Response parsing tests (title, authors, year, venue, DOI, URLs)
+  - Error handling tests (network errors, server errors, malformed JSON)
+  - BibTeX fetch tests
+  - URL query parameter tests
+- All 267 tests passing
 
 ### 2026-01-04 (Session 2)
 - ADR-012: Unified library and online search experience
