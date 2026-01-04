@@ -176,23 +176,27 @@ struct BibTeXEntry: Sendable {
 
 ## Project Phases
 
-### Phase 1: Foundation (Current)
+### Phase 1: Foundation (Complete)
 - [x] Project structure and Swift Package
-- [x] Architecture decisions documented (ADR-001 through ADR-009)
-- [ ] Core Data model + PersistenceController
-- [ ] BibTeXParser (import)
-- [ ] BibTeXExporter (export with Bdsk-File-*)
-- [ ] SourcePlugin protocol
-- [ ] ArXivSource implementation
-- [ ] CredentialManager + Keychain storage
-- [ ] Basic SwiftUI: LibraryView, PublicationDetailView
+- [x] Architecture decisions documented (ADR-001 through ADR-012)
+- [x] Core Data model + PersistenceController
+- [x] BibTeXParser (import)
+- [x] BibTeXExporter (export with Bdsk-File-*)
+- [x] SourcePlugin protocol
+- [x] ArXivSource implementation
+- [x] CredentialManager + Keychain storage
+- [x] Basic SwiftUI: LibraryView, PublicationDetailView
+- [x] All built-in sources: Crossref, ADS, Semantic Scholar, OpenAlex, DBLP
+- [x] Search deduplication service
+- [x] Console window for debugging (ADR-011)
+- [x] Unified paper abstraction (ADR-012)
 
-### Phase 2: Core Features
-- [ ] Additional sources: Crossref, PubMed, ADS, Semantic Scholar, OpenAlex
+### Phase 2: Core Features (Current)
 - [ ] PDF import and auto-filing
 - [ ] CloudKit sync with conflict resolution
-- [ ] Search deduplication service
-- [ ] Search and filtering
+- [ ] Multiple library support (LibraryManager)
+- [ ] Smart searches (stored queries)
+- [ ] Session cache for online papers
 
 ### Phase 3: Polish
 - [ ] PDF viewer with annotation
@@ -258,6 +262,8 @@ swift package generate-xcodeproj
 | 008 | API key management (Keychain storage, graceful degradation) |
 | 009 | Cross-source deduplication (identifier graph + fuzzy matching) |
 | 010 | Custom Swift BibTeX parser using swift-parsing (not btparse) |
+| 011 | Console window for debugging (LogStore + dual logging) |
+| 012 | Unified library/online experience (PaperRepresentable, SessionCache) |
 
 ## Session Continuity
 
@@ -270,7 +276,25 @@ Update the changelog below after significant work:
 
 ## Changelog
 
-### 2026-01-04
+### 2026-01-04 (Session 2)
+- ADR-012: Unified library and online search experience
+- Implemented PaperRepresentable protocol for unified paper abstraction
+- Implemented PaperProvider protocol for paper collections
+- Created LocalPaper wrapper for CDPublication
+- Created OnlinePaper wrapper for SearchResult
+- Implemented SessionCache actor for temp PDFs and metadata
+- Fixed BibTeX parser for `\\{` escape sequences
+- Fixed delete crash when deleting multiple publications
+- Fixed BibTeX view not updating on selection change
+- Added notes persistence
+- Added console window for debugging (ADR-011)
+- Fixed year formatting (removed thousands separator)
+- All 147 tests passing
+
+### 2026-01-04 (Session 1)
 - Initial documentation structure
-- Architecture decisions documented
+- Architecture decisions documented (ADR-001 through ADR-010)
 - SourcePlugin protocol designed
+- All built-in sources implemented
+- Core Data model and repository pattern
+- Basic SwiftUI views
