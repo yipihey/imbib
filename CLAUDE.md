@@ -202,7 +202,7 @@ struct BibTeXEntry: Sendable {
 - [x] PDF viewer (basic viewing complete, annotation pending)
 - [ ] PDF annotation support
 - [x] BibTeX editor with syntax highlighting
-- [ ] Smart collections
+- [x] Smart collections
 - [ ] Export templates
 - [ ] DBLP source
 
@@ -305,7 +305,13 @@ Update the changelog below after significant work:
   - BibTeXHighlighter: Colors for entry types, cite keys, fields, values
   - BibTeXValidator: Real-time validation with error bar
   - Edit/view modes with save functionality
-- All 204 tests passing
+- Implemented smart collections with predicate builder
+  - SmartCollectionEditor: Rule-based UI for building predicates
+  - SmartCollectionRule: field + comparison + value → NSPredicate
+  - RuleField/RuleComparison enums for type-safe rule building
+  - CollectionViewModel for managing collections
+  - Sidebar integration with create/edit/delete
+- All 223 tests passing
 
 ### 2026-01-04 (Session 2)
 - ADR-012: Unified library and online search experience
