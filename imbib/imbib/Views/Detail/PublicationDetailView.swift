@@ -120,7 +120,7 @@ struct MetadataTabView: View {
                 // Year
                 if publication.year > 0 {
                     metadataSection("Year") {
-                        Text("\(publication.year)")
+                        Text(String(publication.year))
                     }
                 }
 

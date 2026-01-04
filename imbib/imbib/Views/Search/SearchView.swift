@@ -215,7 +215,7 @@ struct SearchResultRow: View {
 
                 // Year
                 if let year = result.primary.year {
-                    Text("\(year)")
+                    Text(String(year))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

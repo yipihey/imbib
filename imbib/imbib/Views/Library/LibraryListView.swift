@@ -168,7 +168,7 @@ struct PublicationRow: View {
                     .lineLimit(1)
 
                 if publication.year > 0 {
-                    Text("(\(publication.year))")
+                    Text("(\(String(publication.year)))")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
