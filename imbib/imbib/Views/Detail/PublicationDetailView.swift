@@ -203,20 +203,28 @@ struct BibTeXTabView: View {
 
 struct PDFTabView: View {
     let publication: CDPublication
+    @Environment(LibraryManager.self) private var libraryManager
 
     var body: some View {
         let linkedFiles = publication.linkedFiles ?? []
-        if let firstFile = linkedFiles.first {
-            PDFViewer(file: firstFile)
+        if let firstFile = linkedFiles.first(where: { $0.isPDF }) ?? linkedFiles.first {
+            PDFViewerWithControls(
+                linkedFile: firstFile,
+                library: libraryManager.activeLibrary
+            )
         } else {
-            ContentUnavailableView {
-                Label("No PDF", systemImage: "doc.richtext")
-            } description: {
-                Text("This publication has no linked PDF file.")
-            } actions: {
-                Button("Add PDF...") {
-                    // TODO: Implement PDF linking
-                }
+            noPDFView
+        }
+    }
+
+    private var noPDFView: some View {
+        ContentUnavailableView {
+            Label("No PDF", systemImage: "doc.richtext")
+        } description: {
+            Text("This publication has no linked PDF file.")
+        } actions: {
+            Button("Add PDF...") {
+                // TODO: Implement PDF linking
             }
         }
     }
@@ -253,18 +261,6 @@ struct NotesTabView: View {
                     await viewModel.updateField(publication, field: "note", value: newValue)
                 }
             }
-    }
-}
-
-// MARK: - PDF Viewer Placeholder
-
-struct PDFViewer: View {
-    let file: CDLinkedFile
-
-    var body: some View {
-        // TODO: Implement PDFKit viewer
-        Text("PDF Viewer: \(file.relativePath)")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
