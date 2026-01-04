@@ -33,7 +33,7 @@ public final class SearchViewModel {
 
     // MARK: - Dependencies
 
-    private let sourceManager: SourceManager
+    public let sourceManager: SourceManager
     private let deduplicationService: DeduplicationService
     private let repository: PublicationRepository
 

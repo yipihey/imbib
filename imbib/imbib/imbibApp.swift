@@ -13,6 +13,7 @@ struct imbibApp: App {
 
     // MARK: - State
 
+    @State private var libraryManager: LibraryManager
     @State private var libraryViewModel: LibraryViewModel
     @State private var searchViewModel: SearchViewModel
     @State private var settingsViewModel: SettingsViewModel
@@ -25,6 +26,9 @@ struct imbibApp: App {
         let sourceManager = SourceManager(credentialManager: credentialManager)
         let repository = PublicationRepository()
         let deduplicationService = DeduplicationService()
+
+        // Initialize LibraryManager first
+        _libraryManager = State(initialValue: LibraryManager())
 
         // Initialize ViewModels
         _libraryViewModel = State(initialValue: LibraryViewModel(repository: repository))
@@ -49,6 +53,7 @@ struct imbibApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(libraryManager)
                 .environment(libraryViewModel)
                 .environment(searchViewModel)
                 .environment(settingsViewModel)

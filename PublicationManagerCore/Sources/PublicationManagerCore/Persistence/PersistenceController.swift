@@ -75,6 +75,8 @@ public final class PersistenceController: @unchecked Sendable {
         let linkedFileEntity = createLinkedFileEntity()
         let tagEntity = createTagEntity()
         let collectionEntity = createCollectionEntity()
+        let libraryEntity = createLibraryEntity()
+        let smartSearchEntity = createSmartSearchEntity()
 
         // Set up relationships
         setupRelationships(
@@ -86,6 +88,12 @@ public final class PersistenceController: @unchecked Sendable {
             collection: collectionEntity
         )
 
+        // Set up library-smart search relationship
+        setupLibrarySmartSearchRelationship(
+            library: libraryEntity,
+            smartSearch: smartSearchEntity
+        )
+
         model.entities = [
             publicationEntity,
             authorEntity,
@@ -93,6 +101,8 @@ public final class PersistenceController: @unchecked Sendable {
             linkedFileEntity,
             tagEntity,
             collectionEntity,
+            libraryEntity,
+            smartSearchEntity,
         ]
 
         return model
@@ -365,7 +375,152 @@ public final class PersistenceController: @unchecked Sendable {
         return entity
     }
 
+    private static func createLibraryEntity() -> NSEntityDescription {
+        let entity = NSEntityDescription()
+        entity.name = "Library"
+        entity.managedObjectClassName = "PublicationManagerCore.CDLibrary"
+
+        var properties: [NSPropertyDescription] = []
+
+        let id = NSAttributeDescription()
+        id.name = "id"
+        id.attributeType = .UUIDAttributeType
+        id.isOptional = false
+        properties.append(id)
+
+        let name = NSAttributeDescription()
+        name.name = "name"
+        name.attributeType = .stringAttributeType
+        name.isOptional = false
+        name.defaultValue = ""
+        properties.append(name)
+
+        let bibFilePath = NSAttributeDescription()
+        bibFilePath.name = "bibFilePath"
+        bibFilePath.attributeType = .stringAttributeType
+        bibFilePath.isOptional = true
+        properties.append(bibFilePath)
+
+        let papersDirectoryPath = NSAttributeDescription()
+        papersDirectoryPath.name = "papersDirectoryPath"
+        papersDirectoryPath.attributeType = .stringAttributeType
+        papersDirectoryPath.isOptional = true
+        properties.append(papersDirectoryPath)
+
+        let bookmarkData = NSAttributeDescription()
+        bookmarkData.name = "bookmarkData"
+        bookmarkData.attributeType = .binaryDataAttributeType
+        bookmarkData.isOptional = true
+        properties.append(bookmarkData)
+
+        let dateCreated = NSAttributeDescription()
+        dateCreated.name = "dateCreated"
+        dateCreated.attributeType = .dateAttributeType
+        dateCreated.isOptional = false
+        dateCreated.defaultValue = Date()
+        properties.append(dateCreated)
+
+        let dateLastOpened = NSAttributeDescription()
+        dateLastOpened.name = "dateLastOpened"
+        dateLastOpened.attributeType = .dateAttributeType
+        dateLastOpened.isOptional = true
+        properties.append(dateLastOpened)
+
+        let isDefault = NSAttributeDescription()
+        isDefault.name = "isDefault"
+        isDefault.attributeType = .booleanAttributeType
+        isDefault.isOptional = false
+        isDefault.defaultValue = false
+        properties.append(isDefault)
+
+        entity.properties = properties
+        return entity
+    }
+
+    private static func createSmartSearchEntity() -> NSEntityDescription {
+        let entity = NSEntityDescription()
+        entity.name = "SmartSearch"
+        entity.managedObjectClassName = "PublicationManagerCore.CDSmartSearch"
+
+        var properties: [NSPropertyDescription] = []
+
+        let id = NSAttributeDescription()
+        id.name = "id"
+        id.attributeType = .UUIDAttributeType
+        id.isOptional = false
+        properties.append(id)
+
+        let name = NSAttributeDescription()
+        name.name = "name"
+        name.attributeType = .stringAttributeType
+        name.isOptional = false
+        properties.append(name)
+
+        let query = NSAttributeDescription()
+        query.name = "query"
+        query.attributeType = .stringAttributeType
+        query.isOptional = false
+        properties.append(query)
+
+        let sourceIDs = NSAttributeDescription()
+        sourceIDs.name = "sourceIDs"
+        sourceIDs.attributeType = .stringAttributeType
+        sourceIDs.isOptional = true
+        properties.append(sourceIDs)
+
+        let dateCreated = NSAttributeDescription()
+        dateCreated.name = "dateCreated"
+        dateCreated.attributeType = .dateAttributeType
+        dateCreated.isOptional = false
+        dateCreated.defaultValue = Date()
+        properties.append(dateCreated)
+
+        let dateLastExecuted = NSAttributeDescription()
+        dateLastExecuted.name = "dateLastExecuted"
+        dateLastExecuted.attributeType = .dateAttributeType
+        dateLastExecuted.isOptional = true
+        properties.append(dateLastExecuted)
+
+        let order = NSAttributeDescription()
+        order.name = "order"
+        order.attributeType = .integer16AttributeType
+        order.isOptional = false
+        order.defaultValue = 0
+        properties.append(order)
+
+        entity.properties = properties
+        return entity
+    }
+
     // MARK: - Relationship Setup
+
+    private static func setupLibrarySmartSearchRelationship(
+        library: NSEntityDescription,
+        smartSearch: NSEntityDescription
+    ) {
+        // Library -> SmartSearches (one-to-many)
+        let libraryToSmartSearches = NSRelationshipDescription()
+        libraryToSmartSearches.name = "smartSearches"
+        libraryToSmartSearches.destinationEntity = smartSearch
+        libraryToSmartSearches.isOptional = true
+        libraryToSmartSearches.deleteRule = .cascadeDeleteRule
+
+        // SmartSearch -> Library (many-to-one)
+        let smartSearchToLibrary = NSRelationshipDescription()
+        smartSearchToLibrary.name = "library"
+        smartSearchToLibrary.destinationEntity = library
+        smartSearchToLibrary.maxCount = 1
+        smartSearchToLibrary.isOptional = true
+        smartSearchToLibrary.deleteRule = .nullifyDeleteRule
+
+        // Set inverse relationships
+        libraryToSmartSearches.inverseRelationship = smartSearchToLibrary
+        smartSearchToLibrary.inverseRelationship = libraryToSmartSearches
+
+        // Add to entities
+        library.properties.append(libraryToSmartSearches)
+        smartSearch.properties.append(smartSearchToLibrary)
+    }
 
     private static func setupRelationships(
         publication: NSEntityDescription,

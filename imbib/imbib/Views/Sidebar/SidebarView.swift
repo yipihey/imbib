@@ -14,15 +14,28 @@ struct SidebarView: View {
 
     @Binding var selection: SidebarSection?
 
+    // MARK: - Environment
+
+    @Environment(LibraryManager.self) private var libraryManager
+
     // MARK: - State
 
     @State private var collections: [CDCollection] = []
     @State private var tags: [CDTag] = []
+    @State private var smartSearches: [CDSmartSearch] = []
+    @State private var showingNewSmartSearch = false
+    @State private var editingSmartSearch: CDSmartSearch?
+    @State private var showingLibraryPicker = false
 
     // MARK: - Body
 
     var body: some View {
         List(selection: $selection) {
+            // Library Header with Picker
+            Section {
+                libraryHeaderButton
+            }
+
             // Library Section
             Section("Library") {
                 Label("All Publications", systemImage: "books.vertical")
@@ -39,6 +52,34 @@ struct SidebarView: View {
             Section("Search") {
                 Label("Search Sources", systemImage: "magnifyingglass")
                     .tag(SidebarSection.search)
+            }
+
+            // Smart Searches Section (library-specific)
+            Section {
+                ForEach(smartSearches, id: \.id) { smartSearch in
+                    SmartSearchRow(smartSearch: smartSearch)
+                        .tag(SidebarSection.smartSearch(smartSearch))
+                        .contextMenu {
+                            Button("Edit") {
+                                editingSmartSearch = smartSearch
+                            }
+                            Button("Delete", role: .destructive) {
+                                deleteSmartSearch(smartSearch)
+                            }
+                        }
+                }
+            } header: {
+                HStack {
+                    Text("Smart Searches")
+                    Spacer()
+                    Button {
+                        showingNewSmartSearch = true
+                    } label: {
+                        Image(systemName: "plus")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
 
             // Collections Section
@@ -67,18 +108,91 @@ struct SidebarView: View {
         .navigationSplitViewColumnWidth(min: 180, ideal: 200, max: 300)
         #endif
         .task {
-            await loadCollectionsAndTags()
+            await loadData()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .activeLibraryChanged)) { _ in
+            loadSmartSearches()
+        }
+        .sheet(isPresented: $showingNewSmartSearch) {
+            SmartSearchEditorView(smartSearch: nil, library: libraryManager.activeLibrary) {
+                loadSmartSearches()
+            }
+        }
+        .sheet(item: $editingSmartSearch) { smartSearch in
+            SmartSearchEditorView(smartSearch: smartSearch, library: libraryManager.activeLibrary) {
+                loadSmartSearches()
+            }
+        }
+        .sheet(isPresented: $showingLibraryPicker) {
+            LibraryPickerView()
+        }
+    }
+
+    // MARK: - Library Header
+
+    private var libraryHeaderButton: some View {
+        Button {
+            showingLibraryPicker = true
+        } label: {
+            HStack {
+                Image(systemName: "building.columns")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(libraryManager.activeLibrary?.displayName ?? "No Library")
+                        .font(.headline)
+                    if libraryManager.libraries.count > 1 {
+                        Text("\(libraryManager.libraries.count) libraries")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Data Loading
 
-    private func loadCollectionsAndTags() async {
+    private func loadData() async {
         let collectionRepo = CollectionRepository()
         let tagRepo = TagRepository()
 
         collections = await collectionRepo.fetchAll()
         tags = await tagRepo.fetchAll()
+        loadSmartSearches()
+    }
+
+    private func loadSmartSearches() {
+        SmartSearchRepository.shared.loadSmartSearches(for: libraryManager.activeLibrary)
+        smartSearches = SmartSearchRepository.shared.smartSearches
+    }
+
+    private func deleteSmartSearch(_ smartSearch: CDSmartSearch) {
+        SmartSearchRepository.shared.delete(smartSearch)
+        loadSmartSearches()
+    }
+}
+
+// MARK: - Smart Search Row
+
+struct SmartSearchRow: View {
+    let smartSearch: CDSmartSearch
+
+    var body: some View {
+        Label {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(smartSearch.name)
+                Text(smartSearch.query)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        } icon: {
+            Image(systemName: "magnifyingglass.circle.fill")
+        }
     }
 }
 
@@ -118,4 +232,5 @@ struct TagRow: View {
 
 #Preview {
     SidebarView(selection: .constant(.library))
+        .environment(LibraryManager())
 }

@@ -279,3 +279,104 @@ public extension CDCollection {
         return NSPredicate(format: predicateString)
     }
 }
+
+// MARK: - Library
+
+@objc(CDLibrary)
+public class CDLibrary: NSManagedObject, Identifiable {
+    @NSManaged public var id: UUID
+    @NSManaged public var name: String
+    @NSManaged public var bibFilePath: String?         // Path to .bib file (may be nil for new libraries)
+    @NSManaged public var papersDirectoryPath: String? // Path to Papers folder
+    @NSManaged public var bookmarkData: Data?          // Security-scoped bookmark for file access
+    @NSManaged public var dateCreated: Date
+    @NSManaged public var dateLastOpened: Date?
+    @NSManaged public var isDefault: Bool              // Is this the default library?
+
+    // Relationships
+    @NSManaged public var smartSearches: Set<CDSmartSearch>?
+}
+
+// MARK: - Library Helpers
+
+public extension CDLibrary {
+
+    /// Display name (uses .bib filename if name is empty)
+    var displayName: String {
+        if !name.isEmpty {
+            return name
+        }
+        if let path = bibFilePath {
+            return URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        }
+        return "Untitled Library"
+    }
+
+    /// Resolve the .bib file URL using the security-scoped bookmark
+    func resolveURL() -> URL? {
+        guard let bookmarkData else {
+            // Fall back to path if no bookmark
+            if let path = bibFilePath {
+                return URL(fileURLWithPath: path)
+            }
+            return nil
+        }
+
+        var isStale = false
+        guard let url = try? URL(
+            resolvingBookmarkData: bookmarkData,
+            options: .withSecurityScope,
+            relativeTo: nil,
+            bookmarkDataIsStale: &isStale
+        ) else {
+            return nil
+        }
+
+        // If bookmark is stale, we should refresh it (handled elsewhere)
+        return url
+    }
+}
+
+// MARK: - Smart Search
+
+@objc(CDSmartSearch)
+public class CDSmartSearch: NSManagedObject, Identifiable {
+    @NSManaged public var id: UUID
+    @NSManaged public var name: String
+    @NSManaged public var query: String
+    @NSManaged public var sourceIDs: String?           // JSON array of source IDs
+    @NSManaged public var dateCreated: Date
+    @NSManaged public var dateLastExecuted: Date?
+    @NSManaged public var order: Int16                  // For sidebar ordering
+
+    // Relationships
+    @NSManaged public var library: CDLibrary?
+}
+
+// MARK: - Smart Search Helpers
+
+public extension CDSmartSearch {
+
+    /// Get source IDs as array
+    var sources: [String] {
+        get {
+            guard let json = sourceIDs,
+                  let data = json.data(using: .utf8),
+                  let array = try? JSONDecoder().decode([String].self, from: data) else {
+                return []
+            }
+            return array
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue),
+               let json = String(data: data, encoding: .utf8) {
+                sourceIDs = json
+            }
+        }
+    }
+
+    /// Whether this search uses all available sources
+    var usesAllSources: Bool {
+        sources.isEmpty
+    }
+}

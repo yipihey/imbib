@@ -59,6 +59,9 @@ struct ContentView: View {
         case .search:
             SearchResultsListView()
 
+        case .smartSearch(let smartSearch):
+            SmartSearchResultsView(smartSearch: smartSearch)
+
         case .collection(let collection):
             CollectionListView(collection: collection, selection: $selectedPublication)
 
@@ -138,6 +141,7 @@ enum SidebarSection: Hashable {
     case recentlyAdded
     case recentlyRead
     case search
+    case smartSearch(CDSmartSearch)
     case collection(CDCollection)
     case tag(CDTag)
 }
@@ -182,6 +186,7 @@ struct SearchDetailView: View {
 
 #Preview {
     ContentView()
+        .environment(LibraryManager())
         .environment(LibraryViewModel())
         .environment(SearchViewModel(
             sourceManager: SourceManager(),
