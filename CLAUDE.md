@@ -201,7 +201,7 @@ struct BibTeXEntry: Sendable {
 ### Phase 3: Polish
 - [x] PDF viewer (basic viewing complete, annotation pending)
 - [ ] PDF annotation support
-- [ ] BibTeX editor with syntax highlighting
+- [x] BibTeX editor with syntax highlighting
 - [ ] Smart collections
 - [ ] Export templates
 - [ ] DBLP source
@@ -298,7 +298,14 @@ Update the changelog below after significant work:
   - PDFViewerWithControls: Toolbar with page navigation/zoom
   - OnlinePaperPDFViewer: Downloads from SessionCache
   - NSViewRepresentable (macOS) / UIViewRepresentable (iOS)
-- All 185 tests passing
+- Added bidirectional toolbar sync for PDF viewer
+  - ControlledPDFKitView with coordinator for two-way binding
+  - Uses PDFViewPageChanged and PDFViewScaleChanged notifications
+- Created BibTeXEditor with syntax highlighting
+  - BibTeXHighlighter: Colors for entry types, cite keys, fields, values
+  - BibTeXValidator: Real-time validation with error bar
+  - Edit/view modes with save functionality
+- All 204 tests passing
 
 ### 2026-01-04 (Session 2)
 - ADR-012: Unified library and online search experience
