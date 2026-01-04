@@ -183,18 +183,95 @@ struct MetadataTabView: View {
 struct BibTeXTabView: View {
     let publication: CDPublication
 
-    private var bibtexContent: String {
+    @Environment(LibraryViewModel.self) private var viewModel
+    @State private var bibtexContent: String = ""
+    @State private var isEditing = false
+    @State private var hasChanges = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Toolbar
+            HStack {
+                if isEditing {
+                    Button("Cancel") {
+                        // Revert to original
+                        bibtexContent = generateBibTeX()
+                        isEditing = false
+                        hasChanges = false
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer()
+
+                    Button("Save") {
+                        saveBibTeX()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!hasChanges)
+                } else {
+                    Spacer()
+
+                    Button {
+                        isEditing = true
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 8)
+            .background(.bar)
+
+            // Editor
+            BibTeXEditor(
+                text: $bibtexContent,
+                isEditable: isEditing,
+                showLineNumbers: true
+            ) { newContent in
+                saveBibTeX()
+            }
+            .onChange(of: bibtexContent) { _, _ in
+                if isEditing {
+                    hasChanges = true
+                }
+            }
+        }
+        .onAppear {
+            bibtexContent = generateBibTeX()
+        }
+        .onChange(of: publication.id) { _, _ in
+            bibtexContent = generateBibTeX()
+            isEditing = false
+            hasChanges = false
+        }
+    }
+
+    private func generateBibTeX() -> String {
         let entry = publication.toBibTeXEntry()
         return BibTeXExporter().export([entry])
     }
 
-    var body: some View {
-        ScrollView {
-            Text(bibtexContent)
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding()
+    private func saveBibTeX() {
+        Task {
+            do {
+                // Parse the edited BibTeX
+                let entries = try BibTeXParser().parse(bibtexContent)
+                guard let entry = entries.first else {
+                    return
+                }
+
+                // Update the publication with new values
+                await viewModel.updateFromBibTeX(publication, entry: entry)
+
+                await MainActor.run {
+                    isEditing = false
+                    hasChanges = false
+                }
+            } catch {
+                // TODO: Show error to user
+                print("Failed to parse BibTeX: \(error)")
+            }
         }
     }
 }

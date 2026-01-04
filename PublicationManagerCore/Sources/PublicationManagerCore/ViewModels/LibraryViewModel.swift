@@ -222,6 +222,16 @@ public final class LibraryViewModel {
         await repository.updateField(publication, field: field, value: value)
     }
 
+    /// Update a publication from an edited BibTeX entry.
+    ///
+    /// This replaces all fields in the publication with values from the entry.
+    public func updateFromBibTeX(_ publication: CDPublication, entry: BibTeXEntry) async {
+        Logger.viewModels.infoCapture("Updating publication from BibTeX: \(entry.citeKey)", category: "update")
+
+        await repository.update(publication, with: entry)
+        await loadPublications()
+    }
+
     // MARK: - Export
 
     public func exportAll() async -> String {
