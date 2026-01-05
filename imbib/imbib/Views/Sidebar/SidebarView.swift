@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import CoreData
 import PublicationManagerCore
 
 struct SidebarView: View {
@@ -28,6 +29,8 @@ struct SidebarView: View {
     @State private var showingNewLibrary = false
     @State private var libraryToDelete: CDLibrary?
     @State private var showDeleteConfirmation = false
+    @State private var dropTargetedCollection: UUID?
+    @State private var dropTargetedLibrary: UUID?
 
     // MARK: - Body
 
@@ -116,6 +119,18 @@ struct SidebarView: View {
             // All Publications
             Label("All Publications", systemImage: "books.vertical")
                 .tag(SidebarSection.library(library))
+                .dropDestination(for: UUID.self) { uuids, _ in
+                    Task {
+                        await movePublications(uuids, to: library)
+                    }
+                    return true
+                } isTargeted: { isTargeted in
+                    dropTargetedLibrary = isTargeted ? library.id : nil
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(dropTargetedLibrary == library.id ? Color.accentColor.opacity(0.2) : .clear)
+                )
 
             // Unread with badge
             HStack {
@@ -156,6 +171,18 @@ struct SidebarView: View {
                 ForEach(Array(collections).sorted(by: { $0.name < $1.name }), id: \.id) { collection in
                     CollectionRow(collection: collection)
                         .tag(SidebarSection.collection(collection))
+                        .modifier(CollectionDropModifier(
+                            collection: collection,
+                            isTargeted: dropTargetedCollection == collection.id,
+                            onDrop: { uuids in
+                                Task {
+                                    await addPublications(uuids, to: collection)
+                                }
+                            },
+                            onTargetChange: { isTargeted in
+                                dropTargetedCollection = isTargeted ? collection.id : nil
+                            }
+                        ))
                         .contextMenu {
                             if collection.isSmartCollection {
                                 Button("Edit") {
@@ -193,6 +220,18 @@ struct SidebarView: View {
             .buttonStyle(.plain)
         } label: {
             Label(library.displayName, systemImage: "building.columns")
+                .dropDestination(for: UUID.self) { uuids, _ in
+                    Task {
+                        await movePublications(uuids, to: library)
+                    }
+                    return true
+                } isTargeted: { isTargeted in
+                    dropTargetedLibrary = isTargeted ? library.id : nil
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(dropTargetedLibrary == library.id ? Color.accentColor.opacity(0.2) : .clear)
+                )
                 .contextMenu {
                     Button("Delete Library", role: .destructive) {
                         libraryToDelete = library
@@ -321,6 +360,47 @@ struct SidebarView: View {
             selection = nil
         }
     }
+
+    // MARK: - Drop Handlers
+
+    /// Add publications to a static collection
+    private func addPublications(_ uuids: [UUID], to collection: CDCollection) async {
+        guard !collection.isSmartCollection else { return }
+        let context = PersistenceController.shared.viewContext
+
+        await context.perform {
+            for uuid in uuids {
+                let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+                request.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
+                request.fetchLimit = 1
+
+                if let publication = try? context.fetch(request).first {
+                    var current = collection.publications ?? []
+                    current.insert(publication)
+                    collection.publications = current
+                }
+            }
+            try? context.save()
+        }
+    }
+
+    /// Move publications to a different library
+    private func movePublications(_ uuids: [UUID], to library: CDLibrary) async {
+        let context = PersistenceController.shared.viewContext
+
+        await context.perform {
+            for uuid in uuids {
+                let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+                request.predicate = NSPredicate(format: "id == %@", uuid as CVarArg)
+                request.fetchLimit = 1
+
+                if let publication = try? context.fetch(request).first {
+                    publication.owningLibrary = library
+                }
+            }
+            try? context.save()
+        }
+    }
 }
 
 // MARK: - Smart Search Row
@@ -353,6 +433,35 @@ struct CollectionRow: View {
             Text(collection.name)
         } icon: {
             Image(systemName: collection.isSmartCollection ? "folder.badge.gearshape" : "folder")
+        }
+    }
+}
+
+// MARK: - Collection Drop Modifier
+
+/// View modifier that adds drop destination to static collections only
+struct CollectionDropModifier: ViewModifier {
+    let collection: CDCollection
+    let isTargeted: Bool
+    let onDrop: ([UUID]) -> Void
+    let onTargetChange: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        if collection.isSmartCollection {
+            // Smart collections don't accept drops
+            content
+        } else {
+            content
+                .dropDestination(for: UUID.self) { uuids, _ in
+                    onDrop(uuids)
+                    return true
+                } isTargeted: { targeted in
+                    onTargetChange(targeted)
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(isTargeted ? Color.accentColor.opacity(0.2) : .clear)
+                )
         }
     }
 }

@@ -6,6 +6,19 @@
 //
 
 import SwiftUI
+import UniformTypeIdentifiers
+
+// MARK: - UUID Transferable Extension
+
+extension UTType {
+    static let publicationID = UTType(exportedAs: "com.imbib.publication-id")
+}
+
+extension UUID: Transferable {
+    public static var transferRepresentation: some TransferRepresentation {
+        CodableRepresentation(contentType: .publicationID)
+    }
+}
 
 /// A publication row styled after Apple Mail message rows
 ///
@@ -104,6 +117,12 @@ public struct MailStylePublicationRow: View {
         }
         .padding(.vertical, MailStyleTokens.rowVerticalPadding)
         .contentShape(Rectangle())
+        .draggable(publication.id) {
+            // Drag preview
+            Label(publication.title ?? "Publication", systemImage: "doc.text")
+                .padding(8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        }
         .contextMenu {
             contextMenuContent
         }

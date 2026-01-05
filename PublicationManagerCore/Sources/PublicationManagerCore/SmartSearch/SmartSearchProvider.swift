@@ -313,10 +313,50 @@ public final class SmartSearchRepository: ObservableObject {
     }
 
     /// Delete a smart search
+    ///
+    /// Publications in the smart search's result collection are only deleted if they
+    /// are not members of any other collection. This preserves publications that have
+    /// been dragged to user-created collections.
     public func delete(_ smartSearch: CDSmartSearch) {
         Logger.smartSearch.infoCapture("Deleting smart search: \(smartSearch.name)", category: "smartsearch")
 
-        persistenceController.viewContext.delete(smartSearch)
+        let context = persistenceController.viewContext
+
+        // Check if this smart search has a result collection with publications
+        if let resultCollection = smartSearch.resultCollection,
+           let resultPubs = resultCollection.publications as? Set<CDPublication>, !resultPubs.isEmpty {
+
+            var deletedCount = 0
+            var preservedCount = 0
+
+            for pub in resultPubs {
+                // Check if this publication is in ANY other collection (excluding result collection)
+                let otherCollections = (pub.collections ?? []).filter { $0.id != resultCollection.id }
+
+                if otherCollections.isEmpty {
+                    // Publication is ONLY in this smart search's result collection - safe to delete
+                    context.delete(pub)
+                    deletedCount += 1
+                } else {
+                    // Publication is in other collections - preserve it, just remove from result collection
+                    var updatedCollections = pub.collections ?? []
+                    updatedCollections.remove(resultCollection)
+                    pub.collections = updatedCollections
+                    preservedCount += 1
+                }
+            }
+
+            Logger.smartSearch.infoCapture(
+                "Smart search cleanup: deleted \(deletedCount) publications, preserved \(preservedCount) in other collections",
+                category: "smartsearch"
+            )
+
+            // Delete the result collection
+            context.delete(resultCollection)
+        }
+
+        // Delete the smart search itself
+        context.delete(smartSearch)
         persistenceController.save()
         loadSmartSearches(for: currentLibrary)
     }
