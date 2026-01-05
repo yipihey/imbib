@@ -231,7 +231,7 @@ struct RISEntry: Sendable {
 - [ ] Shortcuts/Siri integration (iOS)
 
 ### ADR-013: RIS Integration (Next Steps)
-Phase 1 (Core Module) and Phase 2 (Integration) are complete.
+Phases 1 (Core Module), 2 (Integration), and 3 (Online Source Integration) are complete.
 
 **Phase 2: Integration** ✅ COMPLETE
 - [x] Update `PublicationRepository` to import `.ris` files
@@ -239,10 +239,12 @@ Phase 1 (Core Module) and Phase 2 (Integration) are complete.
 - [x] Add RIS import to file picker / drag-drop handlers
 - [x] Wire up RIS ↔ BibTeX conversion in import flow
 
-**Phase 3: Online Source Integration**
-- [ ] Audit which sources return RIS data
-- [ ] Add RIS parsing to relevant source plugins
-- [ ] Update `SessionCache` to handle RIS metadata
+**Phase 3: Online Source Integration** ✅ COMPLETE
+- [x] Audit which sources return RIS data (Crossref, ADS)
+- [x] Add `fetchRIS`/`supportsRIS` to SourcePlugin protocol
+- [x] Implement fetchRIS in CrossrefSource (DOI content negotiation)
+- [x] Implement fetchRIS in ADSSource (/export/ris endpoint)
+- [x] Update `SessionCache` to handle RIS metadata
 
 **Phase 4: UI Polish**
 - [ ] RIS preview in import dialog
@@ -332,9 +334,15 @@ Update the changelog below after significant work:
   - Added missing files to Xcode project (SmartSearchResultsView, SmartSearchEditorView, LibraryPickerView)
   - Added `Identifiable` conformance to `CDCollection` for SwiftUI sheet binding
   - Fixed `BibTeXParser` usage: extract `BibTeXEntry` from `BibTeXItem` enum
+- Completed ADR-013 Phase 3: Online Source Integration
+  - Added `fetchRIS`/`supportsRIS` to SourcePlugin protocol
+  - Added `SourceError.unsupportedFormat` for unsupported format errors
+  - Implemented fetchRIS in CrossrefSource (DOI content negotiation)
+  - Implemented fetchRIS in ADSSource (/export/ris endpoint)
+  - Added RIS caching to SessionCache (risCache, cacheRIS, getCachedRIS)
 - All 370 tests passing
 - Xcode build succeeds
-- ADR-013 Phase 2 complete
+- ADR-013 Phase 2 & Phase 3 complete
 
 ### 2026-01-04 (Session 4)
 - Implemented ADR-013: First-class RIS format support
