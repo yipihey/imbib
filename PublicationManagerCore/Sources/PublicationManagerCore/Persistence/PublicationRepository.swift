@@ -247,6 +247,88 @@ public actor PublicationRepository {
         let entries = publications.map { $0.toBibTeXEntry() }
         return BibTeXExporter().export(entries)
     }
+
+    // MARK: - RIS Import Operations
+
+    /// Create a new publication from RIS entry
+    ///
+    /// Converts the RIS entry to BibTeX internally for storage.
+    ///
+    /// - Parameters:
+    ///   - entry: The RIS entry to create from
+    ///   - library: Optional library for resolving file paths
+    @discardableResult
+    public func create(from entry: RISEntry, in library: CDLibrary? = nil) async -> CDPublication {
+        // Convert RIS to BibTeX for storage
+        let bibtexEntry = RISBibTeXConverter.toBibTeX(entry)
+        Logger.persistence.info("Creating publication from RIS: \(bibtexEntry.citeKey)")
+        return await create(from: bibtexEntry, in: library, processLinkedFiles: false)
+    }
+
+    /// Import multiple RIS entries
+    ///
+    /// - Parameters:
+    ///   - entries: RIS entries to import
+    ///   - library: Optional library for resolving file paths
+    public func importRISEntries(_ entries: [RISEntry], in library: CDLibrary? = nil) async -> Int {
+        Logger.persistence.info("Importing \(entries.count) RIS entries")
+
+        var imported = 0
+        for entry in entries {
+            // Convert to BibTeX to get cite key
+            let bibtexEntry = RISBibTeXConverter.toBibTeX(entry)
+
+            // Check for duplicate
+            if await fetch(byCiteKey: bibtexEntry.citeKey) == nil {
+                await create(from: entry, in: library)
+                imported += 1
+            } else {
+                Logger.persistence.debug("Skipping duplicate: \(bibtexEntry.citeKey)")
+            }
+        }
+
+        Logger.persistence.info("Imported \(imported) new RIS entries")
+        return imported
+    }
+
+    /// Import RIS content from string
+    ///
+    /// - Parameters:
+    ///   - content: RIS formatted string
+    ///   - library: Optional library for resolving file paths
+    /// - Returns: Number of entries imported
+    public func importRIS(_ content: String, in library: CDLibrary? = nil) async throws -> Int {
+        let parser = RISParser()
+        let entries = try parser.parse(content)
+        return await importRISEntries(entries, in: library)
+    }
+
+    /// Import RIS file from URL
+    ///
+    /// - Parameters:
+    ///   - url: URL to the .ris file
+    ///   - library: Optional library for resolving file paths
+    /// - Returns: Number of entries imported
+    public func importRISFile(at url: URL, in library: CDLibrary? = nil) async throws -> Int {
+        Logger.persistence.info("Importing RIS file: \(url.lastPathComponent)")
+        let content = try String(contentsOf: url, encoding: .utf8)
+        return try await importRIS(content, in: library)
+    }
+
+    // MARK: - RIS Export Operations
+
+    /// Export all publications to RIS string
+    public func exportAllToRIS() async -> String {
+        let publications = await fetchAll(sortedBy: "citeKey", ascending: true)
+        return exportToRIS(publications)
+    }
+
+    /// Export selected publications to RIS string
+    public func exportToRIS(_ publications: [CDPublication]) -> String {
+        let bibtexEntries = publications.map { $0.toBibTeXEntry() }
+        let risEntries = RISBibTeXConverter.toRIS(bibtexEntries)
+        return RISExporter().export(risEntries)
+    }
 }
 
 // MARK: - Tag Repository

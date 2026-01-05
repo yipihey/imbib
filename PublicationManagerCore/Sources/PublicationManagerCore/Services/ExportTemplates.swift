@@ -125,8 +125,22 @@ public final class TemplateEngine {
 
     /// Export publications using a built-in format.
     public func export(_ publications: [CDPublication], format: ExportFormat) -> String {
-        let template = builtInTemplate(for: format)
-        return export(publications, using: template)
+        // Use proper exporters for BibTeX and RIS instead of templates
+        switch format {
+        case .bibtex:
+            let entries = publications.map { $0.toBibTeXEntry() }
+            return BibTeXExporter().export(entries)
+
+        case .ris:
+            let bibtexEntries = publications.map { $0.toBibTeXEntry() }
+            let risEntries = RISBibTeXConverter.toRIS(bibtexEntries)
+            return RISExporter().export(risEntries)
+
+        default:
+            // Use template-based export for other formats
+            let template = builtInTemplate(for: format)
+            return export(publications, using: template)
+        }
     }
 
     // MARK: - Template Processing

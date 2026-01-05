@@ -91,6 +91,23 @@ public final class LibraryViewModel {
 
     // MARK: - Import
 
+    /// Import a bibliography file (BibTeX or RIS) based on file extension.
+    ///
+    /// - Parameter url: URL to the .bib or .ris file
+    /// - Returns: Number of entries imported
+    public func importFile(from url: URL) async throws -> Int {
+        let ext = url.pathExtension.lowercased()
+
+        switch ext {
+        case "bib", "bibtex":
+            return try await importBibTeX(from: url)
+        case "ris":
+            return try await importRIS(from: url)
+        default:
+            throw ImportError.unsupportedFormat(ext)
+        }
+    }
+
     public func importBibTeX(from url: URL) async throws -> Int {
         Logger.viewModels.infoCapture("Importing BibTeX from \(url.lastPathComponent)", category: "import")
 
@@ -105,6 +122,23 @@ public final class LibraryViewModel {
         await loadPublications()
 
         Logger.viewModels.infoCapture("Successfully imported \(imported) entries", category: "import")
+        return imported
+    }
+
+    public func importRIS(from url: URL) async throws -> Int {
+        Logger.viewModels.infoCapture("Importing RIS from \(url.lastPathComponent)", category: "import")
+
+        let content = try String(contentsOf: url, encoding: .utf8)
+        let parser = RISParser()
+
+        Logger.viewModels.infoCapture("Parsing RIS file...", category: "import")
+        let entries = try parser.parse(content)
+        Logger.viewModels.infoCapture("Parsed \(entries.count) entries from file", category: "import")
+
+        let imported = await repository.importRISEntries(entries)
+        await loadPublications()
+
+        Logger.viewModels.infoCapture("Successfully imported \(imported) RIS entries", category: "import")
         return imported
     }
 
@@ -300,6 +334,7 @@ public enum ImportError: LocalizedError {
     case noBibTeXEntry
     case fileNotFound(URL)
     case invalidBibTeX(String)
+    case unsupportedFormat(String)
 
     public var errorDescription: String? {
         switch self {
@@ -309,6 +344,8 @@ public enum ImportError: LocalizedError {
             return "File not found: \(url.lastPathComponent)"
         case .invalidBibTeX(let reason):
             return "Invalid BibTeX: \(reason)"
+        case .unsupportedFormat(let ext):
+            return "Unsupported file format: .\(ext)"
         }
     }
 }
