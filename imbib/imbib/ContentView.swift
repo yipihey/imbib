@@ -20,6 +20,8 @@ struct ContentView: View {
     @State private var selectedSection: SidebarSection? = .library
     @State private var selectedPublication: CDPublication?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var showImportPreview = false
+    @State private var importFileURL: URL?
 
     // MARK: - Body
 
@@ -42,6 +44,16 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .exportBibTeX)) { _ in
             showExportPanel()
+        }
+        .sheet(isPresented: $showImportPreview) {
+            if let url = importFileURL {
+                ImportPreviewView(
+                    isPresented: $showImportPreview,
+                    fileURL: url
+                ) { entries in
+                    try await importPreviewEntries(entries)
+                }
+            }
         }
         .task {
             await libraryViewModel.loadPublications()
@@ -105,16 +117,31 @@ struct ContentView: View {
         panel.message = "Select a BibTeX (.bib) or RIS (.ris) file to import"
 
         if panel.runModal() == .OK, let url = panel.url {
-            Task {
-                do {
-                    let count = try await libraryViewModel.importFile(from: url)
-                    print("Imported \(count) entries from \(url.pathExtension) file")
-                } catch {
-                    print("Import failed: \(error)")
-                }
-            }
+            importFileURL = url
+            showImportPreview = true
         }
         #endif
+    }
+
+    private func importPreviewEntries(_ entries: [ImportPreviewEntry]) async throws -> Int {
+        var count = 0
+
+        for entry in entries {
+            switch entry.source {
+            case .bibtex(let bibtex):
+                await libraryViewModel.importEntry(bibtex)
+                count += 1
+
+            case .ris(let ris):
+                // Convert RIS to BibTeX and import
+                let bibtex = RISBibTeXConverter.toBibTeX(ris)
+                await libraryViewModel.importEntry(bibtex)
+                count += 1
+            }
+        }
+
+        await libraryViewModel.loadPublications()
+        return count
     }
 
     private func showExportPanel() {

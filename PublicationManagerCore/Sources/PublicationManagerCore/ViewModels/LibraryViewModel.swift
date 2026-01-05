@@ -330,11 +330,13 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
 
 // MARK: - Import Error
 
-public enum ImportError: LocalizedError {
+public enum ImportError: LocalizedError, Sendable {
     case noBibTeXEntry
     case fileNotFound(URL)
     case invalidBibTeX(String)
     case unsupportedFormat(String)
+    case parseError(String)
+    case cancelled
 
     public var errorDescription: String? {
         switch self {
@@ -346,6 +348,10 @@ public enum ImportError: LocalizedError {
             return "Invalid BibTeX: \(reason)"
         case .unsupportedFormat(let ext):
             return "Unsupported file format: .\(ext)"
+        case .parseError(let message):
+            return "Parse error: \(message)"
+        case .cancelled:
+            return "Import cancelled"
         }
     }
 }
