@@ -100,6 +100,15 @@ All business logic, models, view models, and shared views live in Core.
 - Extensive test fixtures from BibDesk and real-world files
 - See `010-bibtex-parser-strategy.md`
 
+### RIS Format Support
+- First-class RIS (Research Information Systems) format support
+- `RISParser`: Parse `.ris` files from EndNote, Zotero, Mendeley
+- `RISExporter`: Export to RIS with proper tag formatting
+- `RISBibTeXConverter`: Bidirectional RIS ↔ BibTeX conversion
+- 50+ reference types (JOUR, BOOK, CONF, THES, etc.)
+- 65+ tags with metadata (AU, TI, PY, DO, etc.)
+- See `013-ris-format-support.md` (ADR-013)
+
 ## Coding Conventions
 
 ### Swift Style
@@ -172,6 +181,14 @@ struct BibTeXEntry: Sendable {
     var fields: [String: String]
     var rawBibTeX: String?      // Preserve for round-trip
 }
+
+// RIS interchange format
+struct RISEntry: Sendable {
+    var type: RISReferenceType  // JOUR, BOOK, CONF, etc.
+    var tags: [RISTagValue]     // Ordered list of tag-value pairs
+    var rawRIS: String?         // Preserve for round-trip
+    // Convenience: authors, title, year, doi, etc.
+}
 ```
 
 ## Project Phases
@@ -197,6 +214,7 @@ struct BibTeXEntry: Sendable {
 - [x] Multiple library support (LibraryManager)
 - [x] Smart searches (stored queries)
 - [x] Session cache for online papers
+- [x] RIS format core module (ADR-013 Phase 1)
 
 ### Phase 3: Polish
 - [x] PDF viewer (basic viewing complete, annotation pending)
@@ -211,6 +229,24 @@ struct BibTeXEntry: Sendable {
 - [ ] JavaScriptCore for complex transformations
 - [ ] Keyboard shortcuts (macOS)
 - [ ] Shortcuts/Siri integration (iOS)
+
+### ADR-013: RIS Integration (Next Steps)
+Phase 1 (Core Module) is complete. Remaining work:
+
+**Phase 2: Integration**
+- [ ] Update `PublicationRepository` to import `.ris` files
+- [ ] Replace template-based RIS export with `RISExporter`
+- [ ] Add RIS import to file picker / drag-drop handlers
+- [ ] Wire up RIS ↔ BibTeX conversion in import flow
+
+**Phase 3: Online Source Integration**
+- [ ] Audit which sources return RIS data
+- [ ] Add RIS parsing to relevant source plugins
+- [ ] Update `SessionCache` to handle RIS metadata
+
+**Phase 4: UI Polish**
+- [ ] RIS preview in import dialog
+- [ ] Format selection (BibTeX vs RIS) in export
 
 ## DO NOT Implement Yet
 - CloudKit sync (phase 2)
@@ -265,6 +301,7 @@ swift package generate-xcodeproj
 | 010 | Custom Swift BibTeX parser using swift-parsing (not btparse) |
 | 011 | Console window for debugging (LogStore + dual logging) |
 | 012 | Unified library/online experience (PaperRepresentable, SessionCache) |
+| 013 | First-class RIS format (RISParser, RISExporter, RISBibTeXConverter) |
 
 ## Session Continuity
 
@@ -276,6 +313,27 @@ When resuming work, check:
 Update the changelog below after significant work:
 
 ## Changelog
+
+### 2026-01-04 (Session 4)
+- Implemented ADR-013: First-class RIS format support
+- Created RIS module (`PublicationManagerCore/Sources/PublicationManagerCore/RIS/`)
+  - RISTypes.swift: RISEntry, RISTag (65+ tags), RISReferenceType (50+ types)
+  - RISParser.swift: Parse RIS content with multi-line value support
+  - RISExporter.swift: Export entries with builder API
+  - RISBibTeXConverter.swift: Bidirectional RIS ↔ BibTeX conversion
+- RIS features:
+  - Full RIS specification support (TY/ER tags, repeatable AU/KW/UR)
+  - Type mapping (JOUR↔article, BOOK↔book, CONF↔inproceedings, etc.)
+  - Field mapping (authors, pages, keywords, DOI, abstract)
+  - Cite key generation from RIS entries
+  - Round-trip preservation with rawRIS field
+  - Convenience extensions on RISEntry and BibTeXEntry
+- Added comprehensive RIS tests (103 new tests)
+  - RISParserTests.swift (49 tests)
+  - RISExporterTests.swift (32 tests)
+  - RISBibTeXConverterTests.swift (42 tests)
+- Added RIS fixture files (sample.ris, multiple_authors.ris, all_types.ris)
+- All 370 tests passing
 
 ### 2026-01-04 (Session 3)
 - Added LibraryManager for multiple library support
