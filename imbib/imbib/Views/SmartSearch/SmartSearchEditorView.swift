@@ -119,6 +119,10 @@ struct SmartSearchEditorView: View {
                 query: query,
                 sourceIDs: sourceIDs
             )
+            // Invalidate cached results so next view loads fresh data
+            Task {
+                await SmartSearchProviderCache.shared.invalidate(smartSearch.id)
+            }
         } else {
             SmartSearchRepository.shared.create(
                 name: name,

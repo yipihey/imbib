@@ -219,7 +219,12 @@ struct SidebarView: View {
     }
 
     private func deleteSmartSearch(_ smartSearch: CDSmartSearch) {
+        let searchID = smartSearch.id
         SmartSearchRepository.shared.delete(smartSearch)
+        // Clear cached results
+        Task {
+            await SmartSearchProviderCache.shared.invalidate(searchID)
+        }
         loadSmartSearches()
     }
 

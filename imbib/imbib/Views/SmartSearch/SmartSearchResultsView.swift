@@ -14,7 +14,7 @@ private let logger = Logger(subsystem: "com.imbib.app", category: "smartsearch")
 // MARK: - Provider Cache
 
 /// Caches SmartSearchProvider instances to avoid re-fetching when switching between views
-private actor SmartSearchProviderCache {
+actor SmartSearchProviderCache {
     static let shared = SmartSearchProviderCache()
 
     private var providers: [UUID: SmartSearchProvider] = [:]
@@ -28,6 +28,7 @@ private actor SmartSearchProviderCache {
         return provider
     }
 
+    /// Invalidate cached provider (call when smart search is edited)
     func invalidate(_ id: UUID) {
         providers.removeValue(forKey: id)
     }
