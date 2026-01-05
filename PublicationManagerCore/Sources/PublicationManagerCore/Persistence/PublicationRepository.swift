@@ -478,9 +478,10 @@ public actor PublicationRepository {
     /// - Parameters:
     ///   - result: The search result to create from
     ///   - library: Optional library for file paths
+    ///   - abstractOverride: Optional abstract to use instead of result.abstract (for merging from alternates)
     /// - Returns: The created CDPublication
     @discardableResult
-    public func createFromSearchResult(_ result: SearchResult, in library: CDLibrary? = nil) async -> CDPublication {
+    public func createFromSearchResult(_ result: SearchResult, in library: CDLibrary? = nil, abstractOverride: String? = nil) async -> CDPublication {
         Logger.persistence.info("Creating publication from search result: \(result.title)")
         let context = persistenceController.viewContext
 
@@ -502,7 +503,8 @@ public actor PublicationRepository {
             if let year = result.year {
                 publication.year = Int16(year)
             }
-            publication.abstract = result.abstract
+            // Use abstract override if provided (for merged abstracts from deduplication)
+            publication.abstract = abstractOverride ?? result.abstract
             publication.doi = result.doi
 
             // Build fields dictionary

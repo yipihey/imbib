@@ -135,7 +135,11 @@ public final class SearchViewModel {
                     existingCount += 1
                 } else {
                     // Create new publication and add to collection
-                    let publication = await repository.createFromSearchResult(result.primary)
+                    // Use bestAbstract to merge abstracts from alternates (e.g., ADS has abstract but Crossref doesn't)
+                    let publication = await repository.createFromSearchResult(
+                        result.primary,
+                        abstractOverride: result.bestAbstract
+                    )
                     await repository.addToCollection(publication, collection: collection)
                     importedCount += 1
                 }

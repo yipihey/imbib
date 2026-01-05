@@ -312,4 +312,13 @@ public struct DeduplicatedResult: Sendable, Identifiable, Equatable {
     public var bestBibTeXURL: URL? {
         primary.bibtexURL ?? alternates.first(where: { $0.bibtexURL != nil })?.bibtexURL
     }
+
+    /// Best available abstract across all sources
+    /// Checks primary first, then alternates (abstracts often missing from Crossref but present in ADS)
+    public var bestAbstract: String? {
+        if let abstract = primary.abstract, !abstract.isEmpty {
+            return abstract
+        }
+        return alternates.first(where: { $0.abstract != nil && !($0.abstract?.isEmpty ?? true) })?.abstract
+    }
 }
