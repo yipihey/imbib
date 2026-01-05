@@ -96,15 +96,19 @@ struct ContentView: View {
     private func showImportPanel() {
         #if os(macOS)
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.init(filenameExtension: "bib")!]
+        panel.allowedContentTypes = [
+            .init(filenameExtension: "bib")!,
+            .init(filenameExtension: "ris")!
+        ]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
+        panel.message = "Select a BibTeX (.bib) or RIS (.ris) file to import"
 
         if panel.runModal() == .OK, let url = panel.url {
             Task {
                 do {
-                    let count = try await libraryViewModel.importBibTeX(from: url)
-                    print("Imported \(count) entries")
+                    let count = try await libraryViewModel.importFile(from: url)
+                    print("Imported \(count) entries from \(url.pathExtension) file")
                 } catch {
                     print("Import failed: \(error)")
                 }
