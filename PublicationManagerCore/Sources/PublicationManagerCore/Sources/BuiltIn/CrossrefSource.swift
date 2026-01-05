@@ -127,6 +127,49 @@ public actor CrossrefSource: SourcePlugin {
         return entry
     }
 
+    public nonisolated var supportsRIS: Bool { true }
+
+    public func fetchRIS(for result: SearchResult) async throws -> RISEntry {
+        Logger.sources.entering()
+        defer { Logger.sources.exiting() }
+
+        guard let doi = result.doi else {
+            throw SourceError.notFound("No DOI available")
+        }
+
+        await rateLimiter.waitIfNeeded()
+
+        // Use content negotiation to get RIS directly
+        let url = URL(string: "https://doi.org/\(doi)")!
+
+        var request = URLRequest(url: url)
+        request.setValue("application/x-research-info-systems", forHTTPHeaderField: "Accept")
+
+        Logger.network.httpRequest("GET", url: url)
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
+
+        guard httpResponse.statusCode == 200,
+              let risString = String(data: data, encoding: .utf8) else {
+            throw SourceError.notFound("Could not fetch RIS")
+        }
+
+        let parser = RISParser()
+        let entries = try parser.parse(risString)
+
+        guard let entry = entries.first else {
+            throw SourceError.parseError("No entry in RIS response")
+        }
+
+        return entry
+    }
+
     public nonisolated func normalize(_ entry: BibTeXEntry) -> BibTeXEntry {
         // Crossref entries are generally well-formed
         entry

@@ -35,6 +35,7 @@ public actor SessionCache {
 
     private var searchResults: [String: CachedSearchResults] = [:]
     private var bibtexCache: [String: String] = [:]
+    private var risCache: [String: String] = [:]
     private var pdfCache: [String: URL] = [:]
     private var pendingMetadata: [String: PendingPaperMetadata] = [:]
 
@@ -105,6 +106,18 @@ public actor SessionCache {
     /// Get cached BibTeX
     public func getCachedBibTeX(for paperID: String) -> String? {
         bibtexCache[paperID]
+    }
+
+    // MARK: - RIS Cache
+
+    /// Cache RIS for a paper
+    public func cacheRIS(_ ris: String, for paperID: String) {
+        risCache[paperID] = ris
+    }
+
+    /// Get cached RIS
+    public func getCachedRIS(for paperID: String) -> String? {
+        risCache[paperID]
     }
 
     // MARK: - PDF Cache
@@ -189,6 +202,7 @@ public actor SessionCache {
         // Clear in-memory caches
         searchResults.removeAll()
         bibtexCache.removeAll()
+        risCache.removeAll()
         pdfCache.removeAll()
         pendingMetadata.removeAll()
 
@@ -207,6 +221,7 @@ public actor SessionCache {
     public func clearAll() {
         searchResults.removeAll()
         bibtexCache.removeAll()
+        risCache.removeAll()
         pendingMetadata.removeAll()
 
         // Clear PDF files

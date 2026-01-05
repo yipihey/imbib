@@ -26,6 +26,15 @@ public protocol SourcePlugin: Sendable {
     /// - Returns: Parsed BibTeX entry
     func fetchBibTeX(for result: SearchResult) async throws -> BibTeXEntry
 
+    /// Fetch RIS entry for a specific search result
+    /// Not all sources support RIS; default implementation throws unsupportedFormat
+    /// - Parameter result: The search result to fetch RIS for
+    /// - Returns: Parsed RIS entry
+    func fetchRIS(for result: SearchResult) async throws -> RISEntry
+
+    /// Whether this source supports RIS export
+    var supportsRIS: Bool { get }
+
     /// Normalize a BibTeX entry (add source-specific fields, fix formatting)
     /// Default implementation returns entry unchanged
     func normalize(_ entry: BibTeXEntry) -> BibTeXEntry
@@ -36,6 +45,14 @@ public protocol SourcePlugin: Sendable {
 public extension SourcePlugin {
     func normalize(_ entry: BibTeXEntry) -> BibTeXEntry {
         entry
+    }
+
+    var supportsRIS: Bool {
+        false
+    }
+
+    func fetchRIS(for result: SearchResult) async throws -> RISEntry {
+        throw SourceError.unsupportedFormat("RIS")
     }
 }
 

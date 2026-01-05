@@ -39,6 +39,7 @@ public enum SourceError: LocalizedError, Sendable {
     case invalidRequest(String)
     case unknownSource(String)
     case authenticationRequired(String)
+    case unsupportedFormat(String)
 
     public var errorDescription: String? {
         switch self {
@@ -63,6 +64,8 @@ public enum SourceError: LocalizedError, Sendable {
             return "Unknown source: \(sourceID)"
         case .authenticationRequired(let sourceID):
             return "Authentication required for \(sourceID)"
+        case .unsupportedFormat(let format):
+            return "Format not supported by this source: \(format)"
         }
     }
 }

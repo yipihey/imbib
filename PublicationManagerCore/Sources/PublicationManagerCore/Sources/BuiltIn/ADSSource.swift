@@ -147,6 +147,62 @@ public actor ADSSource: SourcePlugin {
         return entry
     }
 
+    public nonisolated var supportsRIS: Bool { true }
+
+    public func fetchRIS(for result: SearchResult) async throws -> RISEntry {
+        Logger.sources.entering()
+        defer { Logger.sources.exiting() }
+
+        guard let apiKey = await credentialManager.apiKey(for: "ads") else {
+            throw SourceError.authenticationRequired("ads")
+        }
+
+        guard let bibcode = result.bibcode else {
+            throw SourceError.notFound("No bibcode")
+        }
+
+        await rateLimiter.waitIfNeeded()
+
+        let url = URL(string: "\(baseURL)/export/ris")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = ["bibcode": [bibcode]]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        Logger.network.httpRequest("POST", url: url)
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
+
+        guard httpResponse.statusCode == 200 else {
+            throw SourceError.notFound("Could not fetch RIS")
+        }
+
+        // ADS returns JSON with "export" field containing RIS
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let risString = json["export"] as? String else {
+            throw SourceError.parseError("Invalid RIS response")
+        }
+
+        let parser = RISParser()
+        let entries = try parser.parse(risString)
+
+        guard let entry = entries.first else {
+            throw SourceError.parseError("No entry in RIS response")
+        }
+
+        return entry
+    }
+
     public nonisolated func normalize(_ entry: BibTeXEntry) -> BibTeXEntry {
         var fields = entry.fields
 
