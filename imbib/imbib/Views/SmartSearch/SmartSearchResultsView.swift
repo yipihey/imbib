@@ -7,16 +7,21 @@
 
 import SwiftUI
 import PublicationManagerCore
+import OSLog
+
+private let logger = Logger(subsystem: "com.imbib.app", category: "smartsearch")
 
 struct SmartSearchResultsView: View {
 
     // MARK: - Properties
 
     let smartSearch: CDSmartSearch
+    @Binding var selectedPaper: OnlinePaper?
 
     // MARK: - Environment
 
     @Environment(SearchViewModel.self) private var searchViewModel
+    @Environment(LibraryViewModel.self) private var libraryViewModel
 
     // MARK: - State
 
@@ -54,10 +59,11 @@ struct SmartSearchResultsView: View {
                     UnifiedPaperRow(
                         paper: paper,
                         showLibraryIndicator: true,
-                        showSourceBadges: true
-                    ) {
-                        Task { await importPaper(paper) }
-                    }
+                        showSourceBadges: true,
+                        onImport: {
+                            Task { await importPaper(paper) }
+                        }
+                    )
                     .tag(paper.id)
                 }
             }
@@ -86,6 +92,16 @@ struct SmartSearchResultsView: View {
         .task(id: smartSearch.id) {
             await executeSearch()
         }
+        .onChange(of: selectedPaperIDs) { _, newValue in
+            Logger.viewModels.infoCapture("[SmartSearch] selectedPaperIDs changed: \(newValue.joined(separator: ", "))", category: "selection")
+            if let firstID = newValue.first {
+                let found = papers.first { $0.id == firstID }
+                Logger.viewModels.infoCapture("[SmartSearch] Found paper: \(found?.title ?? "nil") id: \(found?.id ?? "nil")", category: "selection")
+                selectedPaper = found
+            } else {
+                selectedPaper = nil
+            }
+        }
     }
 
     // MARK: - Search Execution
@@ -112,8 +128,35 @@ struct SmartSearchResultsView: View {
     // MARK: - Import
 
     private func importPaper(_ paper: OnlinePaper) async {
-        // TODO: Implement paper import
-        print("Would import: \(paper.title)")
+        do {
+            // Create a SearchResult to use with SourceManager
+            let searchResult = SearchResult(
+                id: paper.id,
+                sourceID: paper.sourceID,
+                title: paper.title,
+                authors: paper.authors,
+                year: paper.year,
+                venue: paper.venue,
+                abstract: paper.abstract,
+                doi: paper.doi,
+                arxivID: paper.arxivID,
+                pmid: paper.pmid,
+                bibcode: paper.bibcode,
+                pdfURL: paper.remotePDFURL,
+                webURL: paper.webURL,
+                bibtexURL: paper.bibtexURL
+            )
+
+            // Use source plugin to fetch BibTeX properly
+            let entry = try await searchViewModel.sourceManager.fetchBibTeX(for: searchResult)
+
+            // Import the BibTeX entry to the library
+            let publication = await libraryViewModel.importBibTeXEntry(entry)
+
+            print("Imported: \(paper.title) as \(publication.citeKey)")
+        } catch {
+            print("Failed to import \(paper.title): \(error)")
+        }
     }
 }
 
@@ -127,7 +170,7 @@ struct SmartSearchResultsView: View {
     smartSearch.dateCreated = Date()
 
     return NavigationStack {
-        SmartSearchResultsView(smartSearch: smartSearch)
+        SmartSearchResultsView(smartSearch: smartSearch, selectedPaper: .constant(nil))
     }
     .environment(SearchViewModel(
         sourceManager: SourceManager(),

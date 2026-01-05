@@ -124,15 +124,15 @@ struct MetadataTabView: View {
                     }
                 }
 
-                // Journal/Venue
+                // Journal/Venue (expand macros to full names)
                 if let journal = publication.fields["journal"] {
                     metadataSection("Journal") {
-                        Text(journal)
+                        Text(JournalMacros.expand(journal))
                             .textSelection(.enabled)
                     }
                 } else if let booktitle = publication.fields["booktitle"] {
                     metadataSection("Book/Proceedings") {
-                        Text(booktitle)
+                        Text(JournalMacros.expand(booktitle))
                             .textSelection(.enabled)
                     }
                 }
@@ -141,6 +141,29 @@ struct MetadataTabView: View {
                 if let doi = publication.doi {
                     metadataSection("DOI") {
                         Link(doi, destination: URL(string: "https://doi.org/\(doi)")!)
+                    }
+                }
+
+                // URL field
+                if let urlString = publication.fields["url"], let url = URL(string: urlString) {
+                    metadataSection("URL") {
+                        Link(url.host ?? urlString, destination: url)
+                    }
+                }
+
+                // BibDesk URLs (bdsk-url-1, bdsk-url-2, etc.)
+                let bdskURLs = publication.fields
+                    .filter { $0.key.hasPrefix("bdsk-url-") }
+                    .sorted { $0.key < $1.key }
+                    .compactMap { URL(string: $0.value) }
+
+                if !bdskURLs.isEmpty {
+                    metadataSection("Web Links") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            ForEach(bdskURLs, id: \.absoluteString) { url in
+                                Link(url.host ?? url.absoluteString, destination: url)
+                            }
+                        }
                     }
                 }
 
@@ -187,6 +210,11 @@ struct BibTeXTabView: View {
     @State private var bibtexContent: String = ""
     @State private var isEditing = false
     @State private var hasChanges = false
+
+    // Use ObjectIdentifier for safe comparison (avoids Core Data UUID bridging issues)
+    private var publicationIdentity: ObjectIdentifier {
+        ObjectIdentifier(publication)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -240,7 +268,7 @@ struct BibTeXTabView: View {
         .onAppear {
             bibtexContent = generateBibTeX()
         }
-        .onChange(of: publication.id) { _, _ in
+        .onChange(of: publicationIdentity) { _, _ in
             bibtexContent = generateBibTeX()
             isEditing = false
             hasChanges = false

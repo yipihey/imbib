@@ -206,6 +206,22 @@ public final class LibraryViewModel {
         return publication
     }
 
+    /// Import a paper from a BibTeX entry directly.
+    ///
+    /// Use this when you have already fetched/parsed the BibTeX entry.
+    @discardableResult
+    public func importBibTeXEntry(_ entry: BibTeXEntry) async -> CDPublication {
+        Logger.viewModels.infoCapture("Importing BibTeX entry: \(entry.citeKey)", category: "import")
+
+        let publication = await repository.create(from: entry)
+        await loadPublications()
+
+        // Invalidate library lookup cache
+        await DefaultLibraryLookupService.shared.invalidateCache()
+
+        return publication
+    }
+
     // MARK: - Delete
 
     public func deleteSelected() async {

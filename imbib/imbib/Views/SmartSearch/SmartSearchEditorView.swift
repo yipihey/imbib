@@ -45,10 +45,17 @@ struct SmartSearchEditorView: View {
                 Section("Sources") {
                     Toggle("All Sources", isOn: Binding(
                         get: { selectedSourceIDs.isEmpty },
-                        set: { if $0 { selectedSourceIDs.removeAll() } }
+                        set: { useAll in
+                            if useAll {
+                                selectedSourceIDs.removeAll()
+                            } else {
+                                // Select all sources so user can deselect unwanted ones
+                                selectedSourceIDs = Set(availableSources.map { $0.id })
+                            }
+                        }
                     ))
 
-                    if !selectedSourceIDs.isEmpty || !availableSources.isEmpty {
+                    if !availableSources.isEmpty {
                         ForEach(availableSources, id: \.id) { source in
                             Toggle(source.name, isOn: Binding(
                                 get: { selectedSourceIDs.contains(source.id) },
@@ -60,7 +67,6 @@ struct SmartSearchEditorView: View {
                                     }
                                 }
                             ))
-                            .disabled(selectedSourceIDs.isEmpty)
                         }
                     }
                 }

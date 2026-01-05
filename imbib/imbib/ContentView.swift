@@ -7,6 +7,9 @@
 
 import SwiftUI
 import PublicationManagerCore
+import OSLog
+
+private let contentLogger = Logger(subsystem: "com.imbib.app", category: "content")
 
 struct ContentView: View {
 
@@ -19,6 +22,7 @@ struct ContentView: View {
 
     @State private var selectedSection: SidebarSection? = .library
     @State private var selectedPublication: CDPublication?
+    @State private var selectedOnlinePaper: OnlinePaper?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showImportPreview = false
     @State private var importFileURL: URL?
@@ -58,6 +62,20 @@ struct ContentView: View {
         .task {
             await libraryViewModel.loadPublications()
         }
+        .onAppear {
+            contentLogger.info("ContentView appeared - main window is visible")
+        }
+        .onChange(of: selectedSection) { _, newValue in
+            // Clear online paper selection when switching away from smart search
+            if case .smartSearch = newValue {
+                // Keep selection
+            } else {
+                selectedOnlinePaper = nil
+            }
+        }
+        .onChange(of: selectedOnlinePaper) { _, newValue in
+            Logger.viewModels.infoCapture("[ContentView] selectedOnlinePaper changed: \(newValue?.title ?? "nil") id: \(newValue?.id ?? "nil")", category: "selection")
+        }
     }
 
     // MARK: - Content List
@@ -72,7 +90,7 @@ struct ContentView: View {
             SearchResultsListView()
 
         case .smartSearch(let smartSearch):
-            SmartSearchResultsView(smartSearch: smartSearch)
+            SmartSearchResultsView(smartSearch: smartSearch, selectedPaper: $selectedOnlinePaper)
 
         case .collection(let collection):
             CollectionListView(collection: collection, selection: $selectedPublication)
@@ -92,6 +110,9 @@ struct ContentView: View {
     private var detailView: some View {
         if let publication = selectedPublication {
             PublicationDetailView(publication: publication)
+        } else if let onlinePaper = selectedOnlinePaper {
+            PaperDetailView(paper: onlinePaper)
+                .id(onlinePaper.id)
         } else if case .search = selectedSection {
             SearchDetailView()
         } else {

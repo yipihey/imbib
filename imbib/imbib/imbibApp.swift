@@ -7,6 +7,12 @@
 
 import SwiftUI
 import PublicationManagerCore
+import OSLog
+#if os(macOS)
+import AppKit
+#endif
+
+private let appLogger = Logger(subsystem: "com.imbib.app", category: "app")
 
 @main
 struct imbibApp: App {
@@ -21,14 +27,20 @@ struct imbibApp: App {
     // MARK: - Initialization
 
     init() {
+        appLogger.info("imbib app initializing...")
+
         // Create shared dependencies
         let credentialManager = CredentialManager()
         let sourceManager = SourceManager(credentialManager: credentialManager)
         let repository = PublicationRepository()
         let deduplicationService = DeduplicationService()
 
+        appLogger.info("Created shared dependencies")
+
         // Initialize LibraryManager first
         _libraryManager = State(initialValue: LibraryManager())
+
+        appLogger.info("LibraryManager initialized")
 
         // Initialize ViewModels
         _libraryViewModel = State(initialValue: LibraryViewModel(repository: repository))
@@ -42,10 +54,15 @@ struct imbibApp: App {
             credentialManager: credentialManager
         ))
 
+        appLogger.info("ViewModels initialized")
+
         // Register built-in sources
         Task {
             await sourceManager.registerBuiltInSources()
+            appLogger.info("Built-in sources registered")
         }
+
+        appLogger.info("imbib app initialization complete")
     }
 
     // MARK: - Body
@@ -57,6 +74,9 @@ struct imbibApp: App {
                 .environment(libraryViewModel)
                 .environment(searchViewModel)
                 .environment(settingsViewModel)
+                .onAppear {
+                    ensureMainWindowVisible()
+                }
         }
         .commands {
             AppCommands()
@@ -75,6 +95,36 @@ struct imbibApp: App {
         .defaultSize(width: 800, height: 400)
         #endif
     }
+
+    // MARK: - Window Management
+
+    #if os(macOS)
+    /// Ensure the main window is visible and frontmost on launch
+    private func ensureMainWindowVisible() {
+        DispatchQueue.main.async {
+            // Find the main window (the one with ContentView)
+            if let mainWindow = NSApplication.shared.windows.first(where: { window in
+                window.contentView?.subviews.contains(where: { $0.className.contains("ContentView") }) ?? false
+                    || window.title.isEmpty || window.title == "imbib"
+            }) {
+                mainWindow.makeKeyAndOrderFront(nil)
+                appLogger.info("Main window made visible and frontmost")
+            } else if NSApplication.shared.windows.isEmpty {
+                // No windows at all - this shouldn't happen with WindowGroup
+                appLogger.warning("No windows found on launch")
+            } else {
+                // Fallback: make any non-console window visible
+                for window in NSApplication.shared.windows {
+                    if window.title != "Console" {
+                        window.makeKeyAndOrderFront(nil)
+                        appLogger.info("Made window '\(window.title)' visible")
+                        break
+                    }
+                }
+            }
+        }
+    }
+    #endif
 }
 
 // MARK: - App Commands

@@ -46,6 +46,12 @@ public final class LibraryManager {
     public init(persistenceController: PersistenceController = .shared) {
         self.persistenceController = persistenceController
         loadLibraries()
+
+        // Create default library if none exist (first run)
+        if libraries.isEmpty {
+            Logger.library.infoCapture("No libraries found, creating default library", category: "library")
+            _ = createLibrary(name: "My Library")
+        }
     }
 
     // MARK: - Library Loading
