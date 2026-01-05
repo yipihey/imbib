@@ -230,8 +230,8 @@ struct RISEntry: Sendable {
 - [ ] Keyboard shortcuts (macOS)
 - [ ] Shortcuts/Siri integration (iOS)
 
-### ADR-013: RIS Integration (Next Steps)
-Phases 1 (Core Module), 2 (Integration), and 3 (Online Source Integration) are complete.
+### ADR-013: RIS Integration ✅ COMPLETE
+All phases complete: Core Module, Integration, Online Source Integration, and UI Polish.
 
 **Phase 2: Integration** ✅ COMPLETE
 - [x] Update `PublicationRepository` to import `.ris` files
@@ -246,9 +246,9 @@ Phases 1 (Core Module), 2 (Integration), and 3 (Online Source Integration) are c
 - [x] Implement fetchRIS in ADSSource (/export/ris endpoint)
 - [x] Update `SessionCache` to handle RIS metadata
 
-**Phase 4: UI Polish**
-- [ ] RIS preview in import dialog
-- [ ] Format selection (BibTeX vs RIS) in export
+**Phase 4: UI Polish** ✅ COMPLETE
+- [x] RIS preview in import dialog (ImportPreviewView)
+- [x] Format selection (BibTeX vs RIS) in export (ExportView already supports)
 
 ## DO NOT Implement Yet
 - CloudKit sync (phase 2)
@@ -340,9 +340,17 @@ Update the changelog below after significant work:
   - Implemented fetchRIS in CrossrefSource (DOI content negotiation)
   - Implemented fetchRIS in ADSSource (/export/ris endpoint)
   - Added RIS caching to SessionCache (risCache, cacheRIS, getCachedRIS)
+- Completed ADR-013 Phase 4: UI Polish
+  - Created ImportPreviewView for BibTeX/RIS file preview
+  - Parse file and show entries before import
+  - Toggle entries for selective import
+  - Detail panel with raw BibTeX/RIS content
+  - Updated ContentView to use preview sheet before import
+  - Added ImportError.parseError and ImportError.cancelled cases
+  - Note: ExportView already had format selection including RIS
 - All 370 tests passing
 - Xcode build succeeds
-- ADR-013 Phase 2 & Phase 3 complete
+- ADR-013 complete (all 4 phases)
 
 ### 2026-01-04 (Session 4)
 - Implemented ADR-013: First-class RIS format support
