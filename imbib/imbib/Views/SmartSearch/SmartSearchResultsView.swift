@@ -80,73 +80,107 @@ struct SmartSearchResultsView: View {
     // MARK: - Body
 
     var body: some View {
-        Group {
-            if isLoading && publications.isEmpty {
-                ProgressView("Searching...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error {
-                ContentUnavailableView {
-                    Label("Search Failed", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(error.localizedDescription)
-                } actions: {
-                    Button("Retry") {
-                        Task { await loadOrRefresh(forceRefresh: true) }
-                    }
-                }
-            } else if publications.isEmpty {
-                ContentUnavailableView(
-                    "No Results",
-                    systemImage: "magnifyingglass",
-                    description: Text("No papers found for \"\(smartSearch.query)\".\nClick refresh to search.")
-                ) {
-                    Button("Search Now") {
-                        Task { await loadOrRefresh(forceRefresh: true) }
-                    }
-                }
-            } else {
-                List(publications, id: \.id, selection: $selectedPublicationIDs) { publication in
-                    PublicationRow(publication: publication)
-                        .tag(publication.id)
+        contentView
+            .navigationTitle(smartSearch.name)
+            .toolbar {
+                toolbarContent
+            }
+            .task(id: smartSearch.id) {
+                // Only auto-refresh if collection is empty (first time or after clear)
+                if publications.isEmpty {
+                    await loadOrRefresh(forceRefresh: true)
                 }
             }
-        }
-        .navigationTitle(smartSearch.name)
-        .toolbar {
-            ToolbarItem(placement: .automatic) {
-                if isLoading {
-                    ProgressView()
-                        .controlSize(.small)
-                } else {
-                    Button {
-                        Task { await loadOrRefresh(forceRefresh: true) }
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                    }
-                    .help("Refresh search results")
-                }
+            .onChange(of: selectedPublicationIDs) { _, newValue in
+                handleSelectionChange(newValue)
             }
+    }
 
-            ToolbarItem(placement: .automatic) {
-                Text("\(publications.count) results")
-                    .foregroundStyle(.secondary)
+    // MARK: - Content View
+
+    @ViewBuilder
+    private var contentView: some View {
+        if isLoading && publications.isEmpty {
+            loadingView
+        } else if let error {
+            errorView(error)
+        } else if publications.isEmpty {
+            emptyView
+        } else {
+            listView
+        }
+    }
+
+    private var loadingView: some View {
+        ProgressView("Searching...")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func errorView(_ error: Error) -> some View {
+        ContentUnavailableView {
+            Label("Search Failed", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(error.localizedDescription)
+        } actions: {
+            Button("Retry") {
+                Task { await loadOrRefresh(forceRefresh: true) }
             }
         }
-        .task(id: smartSearch.id) {
-            // Only auto-refresh if collection is empty (first time or after clear)
-            if publications.isEmpty {
-                await loadOrRefresh(forceRefresh: true)
+    }
+
+    private var emptyView: some View {
+        ContentUnavailableView {
+            Label("No Results", systemImage: "magnifyingglass")
+        } description: {
+            Text("No papers found for \"\(smartSearch.query)\".\nClick refresh to search.")
+        } actions: {
+            Button("Search Now") {
+                Task { await loadOrRefresh(forceRefresh: true) }
             }
         }
-        .onChange(of: selectedPublicationIDs) { _, newValue in
-            Logger.viewModels.infoCapture("[SmartSearch] selectedPublicationIDs changed: \(newValue.map { $0.uuidString }.joined(separator: ", "))", category: "selection")
-            if let firstID = newValue.first {
-                let found = publications.first { $0.id == firstID }
-                Logger.viewModels.infoCapture("[SmartSearch] Found publication: \(found?.title ?? "nil")", category: "selection")
-                selectedPublication = found
+    }
+
+    private var listView: some View {
+        List(publications, id: \.id, selection: $selectedPublicationIDs) { publication in
+            PublicationRow(publication: publication)
+                .tag(publication.id)
+        }
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .automatic) {
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
             } else {
-                selectedPublication = nil
+                Button {
+                    Task { await loadOrRefresh(forceRefresh: true) }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .help("Refresh search results")
             }
+        }
+
+        ToolbarItem(placement: .automatic) {
+            Text("\(publications.count) results")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Selection Handling
+
+    private func handleSelectionChange(_ newValue: Set<UUID>) {
+        Logger.viewModels.infoCapture("[SmartSearch] selectedPublicationIDs changed: \(newValue.map { $0.uuidString }.joined(separator: ", "))", category: "selection")
+        if let firstID = newValue.first {
+            let found = publications.first { $0.id == firstID }
+            Logger.viewModels.infoCapture("[SmartSearch] Found publication: \(found?.title ?? "nil")", category: "selection")
+            selectedPublication = found
+        } else {
+            selectedPublication = nil
         }
     }
 

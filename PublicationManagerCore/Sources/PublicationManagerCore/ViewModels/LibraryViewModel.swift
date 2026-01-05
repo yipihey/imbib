@@ -48,7 +48,7 @@ public final class LibraryViewModel {
 
     // MARK: - Dependencies
 
-    private let repository: PublicationRepository
+    public let repository: PublicationRepository
 
     // MARK: - Initialization
 
