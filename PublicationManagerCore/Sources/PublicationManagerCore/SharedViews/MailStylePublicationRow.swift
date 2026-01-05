@@ -11,7 +11,8 @@ import UniformTypeIdentifiers
 // MARK: - UUID Transferable Extension
 
 extension UTType {
-    static let publicationID = UTType(exportedAs: "com.imbib.publication-id")
+    /// UTType for dragging publication UUIDs between views
+    public static let publicationID = UTType(exportedAs: "com.imbib.publication-id")
 }
 
 extension UUID: Transferable {

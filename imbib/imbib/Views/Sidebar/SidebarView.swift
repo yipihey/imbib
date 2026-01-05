@@ -8,6 +8,7 @@
 import SwiftUI
 import CoreData
 import PublicationManagerCore
+import UniformTypeIdentifiers
 
 struct SidebarView: View {
 
@@ -31,6 +32,7 @@ struct SidebarView: View {
     @State private var showDeleteConfirmation = false
     @State private var dropTargetedCollection: UUID?
     @State private var dropTargetedLibrary: UUID?
+    @State private var dropTargetedLibraryHeader: UUID?
 
     // MARK: - Body
 
@@ -116,21 +118,22 @@ struct SidebarView: View {
         DisclosureGroup(
             isExpanded: expansionBinding(for: library.id)
         ) {
-            // All Publications
-            Label("All Publications", systemImage: "books.vertical")
-                .tag(SidebarSection.library(library))
-                .dropDestination(for: UUID.self) { uuids, _ in
+            // All Publications - drop target for moving papers to library
+            SidebarDropTarget(
+                isTargeted: dropTargetedLibrary == library.id,
+                showPlusBadge: true
+            ) {
+                Label("All Publications", systemImage: "books.vertical")
+            }
+            .tag(SidebarSection.library(library))
+            .onDrop(of: [.publicationID], isTargeted: makeLibraryTargetBinding(library.id)) { providers in
+                handleDrop(providers: providers) { uuids in
                     Task {
                         await movePublications(uuids, to: library)
                     }
-                    return true
-                } isTargeted: { isTargeted in
-                    dropTargetedLibrary = isTargeted ? library.id : nil
                 }
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(dropTargetedLibrary == library.id ? Color.accentColor.opacity(0.2) : .clear)
-                )
+                return true
+            }
 
             // Unread with badge
             HStack {
@@ -169,20 +172,8 @@ struct SidebarView: View {
             // Collections for this library
             if let collections = library.collections as? Set<CDCollection>, !collections.isEmpty {
                 ForEach(Array(collections).sorted(by: { $0.name < $1.name }), id: \.id) { collection in
-                    CollectionRow(collection: collection)
+                    collectionDropTarget(for: collection)
                         .tag(SidebarSection.collection(collection))
-                        .modifier(CollectionDropModifier(
-                            collection: collection,
-                            isTargeted: dropTargetedCollection == collection.id,
-                            onDrop: { uuids in
-                                Task {
-                                    await addPublications(uuids, to: collection)
-                                }
-                            },
-                            onTargetChange: { isTargeted in
-                                dropTargetedCollection = isTargeted ? collection.id : nil
-                            }
-                        ))
                         .contextMenu {
                             if collection.isSmartCollection {
                                 Button("Edit") {
@@ -219,25 +210,130 @@ struct SidebarView: View {
             }
             .buttonStyle(.plain)
         } label: {
-            Label(library.displayName, systemImage: "building.columns")
-                .dropDestination(for: UUID.self) { uuids, _ in
-                    Task {
-                        await movePublications(uuids, to: library)
-                    }
-                    return true
-                } isTargeted: { isTargeted in
-                    dropTargetedLibrary = isTargeted ? library.id : nil
-                }
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(dropTargetedLibrary == library.id ? Color.accentColor.opacity(0.2) : .clear)
-                )
+            // Library header - also a drop target
+            libraryHeaderDropTarget(for: library)
                 .contextMenu {
                     Button("Delete Library", role: .destructive) {
                         libraryToDelete = library
                         showDeleteConfirmation = true
                     }
                 }
+        }
+    }
+
+    // MARK: - Library Header Drop Target
+
+    @ViewBuilder
+    private func libraryHeaderDropTarget(for library: CDLibrary) -> some View {
+        SidebarDropTarget(
+            isTargeted: dropTargetedLibraryHeader == library.id,
+            showPlusBadge: true
+        ) {
+            Label(library.displayName, systemImage: "building.columns")
+        }
+        .onDrop(of: [.publicationID], isTargeted: makeLibraryHeaderTargetBinding(library.id)) { providers in
+            // Auto-expand collapsed library when dropping on header
+            if !expandedLibraries.contains(library.id) {
+                expandedLibraries.insert(library.id)
+            }
+            handleDrop(providers: providers) { uuids in
+                Task {
+                    await movePublications(uuids, to: library)
+                }
+            }
+            return true
+        }
+    }
+
+    // MARK: - Collection Drop Target
+
+    @ViewBuilder
+    private func collectionDropTarget(for collection: CDCollection) -> some View {
+        if collection.isSmartCollection {
+            // Smart collections don't accept drops
+            CollectionRow(collection: collection)
+        } else {
+            // Static collections accept drops
+            SidebarDropTarget(
+                isTargeted: dropTargetedCollection == collection.id,
+                showPlusBadge: true
+            ) {
+                CollectionRow(collection: collection)
+            }
+            .onDrop(of: [.publicationID], isTargeted: makeCollectionTargetBinding(collection.id)) { providers in
+                handleDrop(providers: providers) { uuids in
+                    Task {
+                        await addPublications(uuids, to: collection)
+                    }
+                }
+                return true
+            }
+        }
+    }
+
+    // MARK: - Drop Target Bindings
+
+    private func makeLibraryTargetBinding(_ libraryID: UUID) -> Binding<Bool> {
+        Binding(
+            get: { dropTargetedLibrary == libraryID },
+            set: { isTargeted in
+                dropTargetedLibrary = isTargeted ? libraryID : nil
+            }
+        )
+    }
+
+    private func makeLibraryHeaderTargetBinding(_ libraryID: UUID) -> Binding<Bool> {
+        Binding(
+            get: { dropTargetedLibraryHeader == libraryID },
+            set: { isTargeted in
+                dropTargetedLibraryHeader = isTargeted ? libraryID : nil
+                // Auto-expand after hovering for a moment
+                if isTargeted && !expandedLibraries.contains(libraryID) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                        if dropTargetedLibraryHeader == libraryID {
+                            expandedLibraries.insert(libraryID)
+                        }
+                    }
+                }
+            }
+        )
+    }
+
+    private func makeCollectionTargetBinding(_ collectionID: UUID) -> Binding<Bool> {
+        Binding(
+            get: { dropTargetedCollection == collectionID },
+            set: { isTargeted in
+                dropTargetedCollection = isTargeted ? collectionID : nil
+            }
+        )
+    }
+
+    // MARK: - Drop Handler
+
+    private func handleDrop(providers: [NSItemProvider], action: @escaping ([UUID]) -> Void) {
+        var collectedUUIDs: [UUID] = []
+        let group = DispatchGroup()
+
+        for provider in providers {
+            // Try to load as our custom publication ID type
+            if provider.hasItemConformingToTypeIdentifier(UTType.publicationID.identifier) {
+                group.enter()
+                provider.loadDataRepresentation(forTypeIdentifier: UTType.publicationID.identifier) { data, error in
+                    defer { group.leave() }
+                    if let data = data {
+                        // UUID is encoded as JSON via CodableRepresentation
+                        if let uuid = try? JSONDecoder().decode(UUID.self, from: data) {
+                            collectedUUIDs.append(uuid)
+                        }
+                    }
+                }
+            }
+        }
+
+        group.notify(queue: .main) {
+            if !collectedUUIDs.isEmpty {
+                action(collectedUUIDs)
+            }
         }
     }
 
@@ -437,32 +533,50 @@ struct CollectionRow: View {
     }
 }
 
-// MARK: - Collection Drop Modifier
+// MARK: - Sidebar Drop Target
 
-/// View modifier that adds drop destination to static collections only
-struct CollectionDropModifier: ViewModifier {
-    let collection: CDCollection
+/// A view wrapper that provides visual feedback for drag and drop targets
+struct SidebarDropTarget<Content: View>: View {
     let isTargeted: Bool
-    let onDrop: ([UUID]) -> Void
-    let onTargetChange: (Bool) -> Void
+    let showPlusBadge: Bool
+    @ViewBuilder let content: () -> Content
 
-    func body(content: Content) -> some View {
-        if collection.isSmartCollection {
-            // Smart collections don't accept drops
-            content
-        } else {
-            content
-                .dropDestination(for: UUID.self) { uuids, _ in
-                    onDrop(uuids)
-                    return true
-                } isTargeted: { targeted in
-                    onTargetChange(targeted)
-                }
-                .background(
-                    RoundedRectangle(cornerRadius: 4)
-                        .fill(isTargeted ? Color.accentColor.opacity(0.2) : .clear)
-                )
+    init(
+        isTargeted: Bool,
+        showPlusBadge: Bool = true,
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.isTargeted = isTargeted
+        self.showPlusBadge = showPlusBadge
+        self.content = content
+    }
+
+    var body: some View {
+        HStack(spacing: 0) {
+            content()
+
+            Spacer()
+
+            // Green plus badge when targeted
+            if isTargeted && showPlusBadge {
+                Image(systemName: "plus.circle.fill")
+                    .foregroundStyle(.green)
+                    .font(.system(size: 14))
+                    .transition(.scale.combined(with: .opacity))
+            }
         }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 2)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isTargeted ? Color.accentColor.opacity(0.2) : .clear)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 6)
+                .strokeBorder(isTargeted ? Color.accentColor : .clear, lineWidth: 2)
+        )
+        .animation(.easeInOut(duration: 0.15), value: isTargeted)
+        .contentShape(Rectangle())
     }
 }
 
