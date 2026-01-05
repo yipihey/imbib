@@ -30,6 +30,7 @@ struct SmartSearchResultsView: View {
     @State private var isLoading = false
     @State private var error: Error?
     @State private var selectedPaperIDs: Set<String> = []
+    @State private var libraryRefreshTrigger = 0
 
     // MARK: - Body
 
@@ -62,7 +63,8 @@ struct SmartSearchResultsView: View {
                         showSourceBadges: true,
                         onImport: {
                             Task { await importPaper(paper) }
-                        }
+                        },
+                        libraryCheckTrigger: libraryRefreshTrigger
                     )
                     .tag(paper.id)
                 }
@@ -128,35 +130,12 @@ struct SmartSearchResultsView: View {
     // MARK: - Import
 
     private func importPaper(_ paper: OnlinePaper) async {
-        do {
-            // Create a SearchResult to use with SourceManager
-            let searchResult = SearchResult(
-                id: paper.id,
-                sourceID: paper.sourceID,
-                title: paper.title,
-                authors: paper.authors,
-                year: paper.year,
-                venue: paper.venue,
-                abstract: paper.abstract,
-                doi: paper.doi,
-                arxivID: paper.arxivID,
-                pmid: paper.pmid,
-                bibcode: paper.bibcode,
-                pdfURL: paper.remotePDFURL,
-                webURL: paper.webURL,
-                bibtexURL: paper.bibtexURL
-            )
+        // Fast local import - no network request needed
+        let publication = await libraryViewModel.importPaperLocally(paper)
+        Logger.viewModels.infoCapture("[SmartSearch] Imported: \(publication.citeKey)", category: "import")
 
-            // Use source plugin to fetch BibTeX properly
-            let entry = try await searchViewModel.sourceManager.fetchBibTeX(for: searchResult)
-
-            // Import the BibTeX entry to the library
-            let publication = await libraryViewModel.importBibTeXEntry(entry)
-
-            print("Imported: \(paper.title) as \(publication.citeKey)")
-        } catch {
-            print("Failed to import \(paper.title): \(error)")
-        }
+        // Trigger library state re-check for all rows
+        libraryRefreshTrigger += 1
     }
 }
 

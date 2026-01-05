@@ -38,6 +38,9 @@ public struct UnifiedPaperRow<Paper: PaperRepresentable>: View {
     /// Action when citation badge is tapped to refresh enrichment
     public var onRefreshEnrichment: (() async -> Void)?
 
+    /// Trigger to force library state re-check (increment after import)
+    public var libraryCheckTrigger: Int = 0
+
     // MARK: - State
 
     @State private var libraryState: LibraryState = .checking
@@ -53,7 +56,8 @@ public struct UnifiedPaperRow<Paper: PaperRepresentable>: View {
         citationCount: Int? = nil,
         enrichmentDate: Date? = nil,
         onImport: (() -> Void)? = nil,
-        onRefreshEnrichment: (() async -> Void)? = nil
+        onRefreshEnrichment: (() async -> Void)? = nil,
+        libraryCheckTrigger: Int = 0
     ) {
         self.paper = paper
         self.showLibraryIndicator = showLibraryIndicator
@@ -63,6 +67,7 @@ public struct UnifiedPaperRow<Paper: PaperRepresentable>: View {
         self.enrichmentDate = enrichmentDate
         self.onImport = onImport
         self.onRefreshEnrichment = onRefreshEnrichment
+        self.libraryCheckTrigger = libraryCheckTrigger
     }
 
     // MARK: - Body
@@ -148,7 +153,7 @@ public struct UnifiedPaperRow<Paper: PaperRepresentable>: View {
             }
         }
         .padding(.vertical, 4)
-        .task {
+        .task(id: libraryCheckTrigger) {
             await checkLibraryState()
         }
     }

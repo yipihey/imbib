@@ -222,6 +222,32 @@ public final class LibraryViewModel {
         return publication
     }
 
+    /// Import an online paper locally without network requests.
+    ///
+    /// This is the fast path for importing papers from smart search results:
+    /// - Generates BibTeX locally from OnlinePaper metadata (no network fetch)
+    /// - Creates single publication in Core Data
+    /// - Updates UI without reloading entire library
+    @discardableResult
+    public func importPaperLocally(_ paper: OnlinePaper) async -> CDPublication {
+        Logger.viewModels.infoCapture("Importing paper locally: \(paper.title)", category: "import")
+
+        // Generate BibTeX locally - no network request needed
+        let entry = BibTeXExporter.generateEntry(from: paper)
+
+        // Create single publication
+        let publication = await repository.create(from: entry)
+
+        // Insert at beginning of both arrays without full reload
+        publications.insert(publication, at: 0)
+        papers.insert(LocalPaper(publication: publication, libraryID: libraryID), at: 0)
+
+        // Invalidate library lookup cache so the paper shows as "in library"
+        await DefaultLibraryLookupService.shared.invalidateCache()
+
+        return publication
+    }
+
     // MARK: - Delete
 
     public func deleteSelected() async {

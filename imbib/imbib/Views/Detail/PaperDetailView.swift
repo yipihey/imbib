@@ -11,78 +11,6 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "paperdetail")
 
-// MARK: - BibTeX Generation Helper
-
-/// Generate a BibTeX entry from an OnlinePaper's metadata without network fetch
-private func generateBibTeXEntry(from paper: OnlinePaper) -> BibTeXEntry {
-    // Generate cite key: LastName + Year + FirstTitleWord
-    let lastNamePart = paper.authors.first?
-        .components(separatedBy: ",").first?
-        .components(separatedBy: " ").last?
-        .filter { $0.isLetter } ?? "Unknown"
-    let yearPart = paper.year.map { String($0) } ?? ""
-    let titleWord = paper.title
-        .components(separatedBy: .whitespaces)
-        .first { $0.count > 3 }?
-        .filter { $0.isLetter }
-        .capitalized ?? ""
-    let citeKey = "\(lastNamePart)\(yearPart)\(titleWord)"
-
-    // Determine entry type
-    let entryType: String
-    if paper.arxivID != nil {
-        entryType = "article"
-    } else if let venue = paper.venue?.lowercased() {
-        if venue.contains("proceedings") || venue.contains("conference") {
-            entryType = "inproceedings"
-        } else {
-            entryType = "article"
-        }
-    } else {
-        entryType = "article"
-    }
-
-    // Build fields
-    var fields: [String: String] = [:]
-    fields["title"] = paper.title
-
-    // Format authors as "Last, First and Last, First"
-    if !paper.authors.isEmpty {
-        fields["author"] = paper.authors.joined(separator: " and ")
-    }
-
-    if let year = paper.year {
-        fields["year"] = String(year)
-    }
-
-    if let venue = paper.venue {
-        if entryType == "inproceedings" {
-            fields["booktitle"] = venue
-        } else {
-            fields["journal"] = venue
-        }
-    }
-
-    if let abstract = paper.abstract {
-        fields["abstract"] = abstract
-    }
-
-    if let doi = paper.doi {
-        fields["doi"] = doi
-    }
-
-    if let arxivID = paper.arxivID {
-        fields["eprint"] = arxivID
-        fields["archiveprefix"] = "arXiv"
-    }
-
-    if let bibcode = paper.bibcode {
-        fields["adsurl"] = "https://ui.adsabs.harvard.edu/abs/\(bibcode)"
-    }
-
-    return BibTeXEntry(citeKey: citeKey, entryType: entryType, fields: fields)
-}
-
 /// Detail view for online papers (OnlinePaper/PaperRepresentable).
 /// Displays Metadata, BibTeX, and PDF tabs for search results.
 struct PaperDetailView: View {
@@ -158,7 +86,7 @@ struct PaperDetailView: View {
     }
 
     private func copyBibTeX() {
-        let entry = generateBibTeXEntry(from: paper)
+        let entry = BibTeXExporter.generateEntry(from: paper)
         let bibtex = BibTeXExporter().export([entry])
         #if os(macOS)
         NSPasteboard.general.clearContents()
@@ -324,7 +252,7 @@ struct PaperBibTeXTabView: View {
         isLoading = true
 
         // Generate BibTeX locally from paper metadata - no network request needed
-        let entry = generateBibTeXEntry(from: paper)
+        let entry = BibTeXExporter.generateEntry(from: paper)
         bibtexContent = BibTeXExporter().export([entry])
         isLoading = false
 
