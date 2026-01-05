@@ -231,12 +231,12 @@ struct RISEntry: Sendable {
 - [ ] Shortcuts/Siri integration (iOS)
 
 ### ADR-013: RIS Integration (Next Steps)
-Phase 1 (Core Module) is complete. Phase 2 (Integration) partially complete.
+Phase 1 (Core Module) and Phase 2 (Integration) are complete.
 
-**Phase 2: Integration**
+**Phase 2: Integration** ✅ COMPLETE
 - [x] Update `PublicationRepository` to import `.ris` files
 - [x] Replace template-based RIS export with `RISExporter`
-- [ ] Add RIS import to file picker / drag-drop handlers
+- [x] Add RIS import to file picker / drag-drop handlers
 - [x] Wire up RIS ↔ BibTeX conversion in import flow
 
 **Phase 3: Online Source Integration**
@@ -325,7 +325,11 @@ Update the changelog below after significant work:
   - `importRISEntries()`, `importRIS()`, `importRISFile()` - Batch import
   - `exportAllToRIS()`, `exportToRIS()` - Export to RIS format
 - Updated `ExportTemplates` to use proper BibTeX/RIS exporters instead of templates
+- Added RIS to file import dialog (ContentView.swift):
+  - Accept both .bib and .ris file types
+  - Uses `importFile()` dispatcher for format-based routing
 - All 370 tests passing
+- ADR-013 Phase 2 complete
 
 ### 2026-01-04 (Session 4)
 - Implemented ADR-013: First-class RIS format support
