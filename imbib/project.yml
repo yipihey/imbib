@@ -34,7 +34,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app
         PRODUCT_NAME: imbib
-        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_FILE: imbib/Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_KEY_CFBundleDisplayName: imbib
         INFOPLIST_KEY_LSApplicationCategoryType: "public.app-category.productivity"
         INFOPLIST_KEY_NSHumanReadableCopyright: "Copyright © 2026"
