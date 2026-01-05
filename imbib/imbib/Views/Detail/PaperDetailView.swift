@@ -101,21 +101,17 @@ struct PaperDetailView: View {
         let _ = Logger.viewModels.infoCapture("[PaperDetailView] body called for: \(paper.title)", category: "selection")
         TabView(selection: $selectedTab) {
             PaperMetadataTabView(paper: paper)
-                .id("metadata-\(paper.id)")
                 .tabItem { Label("Metadata", systemImage: "doc.text") }
                 .tag(PaperDetailTab.metadata)
 
             PaperBibTeXTabView(paper: paper)
-                .id("bibtex-\(paper.id)")
                 .tabItem { Label("BibTeX", systemImage: "chevron.left.forwardslash.chevron.right") }
                 .tag(PaperDetailTab.bibtex)
 
             PaperPDFTabView(paper: paper)
-                .id("pdf-\(paper.id)")
                 .tabItem { Label("PDF", systemImage: "doc.richtext") }
                 .tag(PaperDetailTab.pdf)
         }
-        .id(paper.id) // Force entire TabView refresh when paper changes
         .navigationTitle(paper.title)
         #if os(macOS)
         .navigationSubtitle(paper.authorDisplayString)
@@ -185,87 +181,94 @@ struct PaperMetadataTabView: View {
     let paper: OnlinePaper
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                // Title
-                metadataSection("Title") {
-                    Text(paper.title)
-                        .textSelection(.enabled)
-                }
-
-                // Authors
-                metadataSection("Authors") {
-                    Text(paper.authors.isEmpty ? "Unknown" : paper.authors.joined(separator: ", "))
-                        .textSelection(.enabled)
-                }
-
-                // Year
-                if let year = paper.year {
-                    metadataSection("Year") {
-                        Text(String(year))
-                    }
-                }
-
-                // Venue/Journal (expand macros to full names)
-                if let venue = paper.venue {
-                    metadataSection("Venue") {
-                        Text(JournalMacros.expand(venue))
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    // Title
+                    metadataSection("Title") {
+                        Text(paper.title)
                             .textSelection(.enabled)
                     }
-                }
+                    .id("top")
 
-                // DOI
-                if let doi = paper.doi {
-                    metadataSection("DOI") {
-                        Link(doi, destination: URL(string: "https://doi.org/\(doi)")!)
-                    }
-                }
-
-                // arXiv ID
-                if let arxivID = paper.arxivID {
-                    metadataSection("arXiv") {
-                        Link(arxivID, destination: URL(string: "https://arxiv.org/abs/\(arxivID)")!)
-                    }
-                }
-
-                // Bibcode (ADS)
-                if let bibcode = paper.bibcode {
-                    metadataSection("Bibcode") {
-                        Link(bibcode, destination: URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)")!)
-                    }
-                }
-
-                // PubMed ID
-                if let pmid = paper.pmid {
-                    metadataSection("PubMed") {
-                        Link(pmid, destination: URL(string: "https://pubmed.ncbi.nlm.nih.gov/\(pmid)")!)
-                    }
-                }
-
-                // Web URL
-                if let webURL = paper.webURL {
-                    metadataSection("Web Link") {
-                        Link(webURL.host ?? webURL.absoluteString, destination: webURL)
-                    }
-                }
-
-                // Abstract
-                if let abstract = paper.abstract, !abstract.isEmpty {
-                    metadataSection("Abstract") {
-                        Text(abstract)
+                    // Authors
+                    metadataSection("Authors") {
+                        Text(paper.authors.isEmpty ? "Unknown" : paper.authors.joined(separator: ", "))
                             .textSelection(.enabled)
                     }
-                }
 
-                // Source
-                metadataSection("Source") {
-                    Text(paper.sourceID)
-                        .foregroundStyle(.secondary)
-                }
+                    // Year
+                    if let year = paper.year {
+                        metadataSection("Year") {
+                            Text(String(year))
+                        }
+                    }
 
-                Spacer()
+                    // Venue/Journal (expand macros to full names)
+                    if let venue = paper.venue {
+                        metadataSection("Venue") {
+                            Text(JournalMacros.expand(venue))
+                                .textSelection(.enabled)
+                        }
+                    }
+
+                    // DOI
+                    if let doi = paper.doi {
+                        metadataSection("DOI") {
+                            Link(doi, destination: URL(string: "https://doi.org/\(doi)")!)
+                        }
+                    }
+
+                    // arXiv ID
+                    if let arxivID = paper.arxivID {
+                        metadataSection("arXiv") {
+                            Link(arxivID, destination: URL(string: "https://arxiv.org/abs/\(arxivID)")!)
+                        }
+                    }
+
+                    // Bibcode (ADS)
+                    if let bibcode = paper.bibcode {
+                        metadataSection("Bibcode") {
+                            Link(bibcode, destination: URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)")!)
+                        }
+                    }
+
+                    // PubMed ID
+                    if let pmid = paper.pmid {
+                        metadataSection("PubMed") {
+                            Link(pmid, destination: URL(string: "https://pubmed.ncbi.nlm.nih.gov/\(pmid)")!)
+                        }
+                    }
+
+                    // Web URL
+                    if let webURL = paper.webURL {
+                        metadataSection("Web Link") {
+                            Link(webURL.host ?? webURL.absoluteString, destination: webURL)
+                        }
+                    }
+
+                    // Abstract
+                    if let abstract = paper.abstract, !abstract.isEmpty {
+                        metadataSection("Abstract") {
+                            Text(abstract)
+                                .textSelection(.enabled)
+                        }
+                    }
+
+                    // Source
+                    metadataSection("Source") {
+                        Text(paper.sourceID)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+                }
+                .padding()
             }
-            .padding()
+            .onChange(of: paper.id, initial: true) { _, _ in
+                // Scroll to top when paper changes (initial: true fires on first appear)
+                proxy.scrollTo("top", anchor: .top)
+            }
         }
     }
 
@@ -309,29 +312,26 @@ struct PaperBibTeXTabView: View {
                 ) { _ in }
             }
         }
-        .task(id: paper.id) {
-            await loadBibTeX()
+        .onChange(of: paper.id, initial: true) { _, _ in
+            // Reset state and reload when paper changes (initial: true fires on first appear)
+            bibtexContent = ""
+            isLoading = true
+            loadBibTeX()
         }
     }
 
-    private func loadBibTeX() async {
+    private func loadBibTeX() {
         isLoading = true
-
-        // Check session cache first
-        if let cached = await SessionCache.shared.getCachedBibTeX(for: paper.id) {
-            bibtexContent = cached
-            isLoading = false
-            return
-        }
 
         // Generate BibTeX locally from paper metadata - no network request needed
         let entry = generateBibTeXEntry(from: paper)
         bibtexContent = BibTeXExporter().export([entry])
-
-        // Cache for session
-        await SessionCache.shared.cacheBibTeX(bibtexContent, for: paper.id)
-
         isLoading = false
+
+        // Cache for session (fire and forget)
+        Task {
+            await SessionCache.shared.cacheBibTeX(bibtexContent, for: paper.id)
+        }
     }
 }
 
@@ -344,6 +344,7 @@ struct PaperPDFTabView: View {
     @State private var isDownloading = false
     @State private var downloadError: Error?
     @State private var hasPDF = false
+    @State private var checkPDFTask: Task<Void, Never>?
 
     var body: some View {
         Group {
@@ -386,15 +387,25 @@ struct PaperPDFTabView: View {
                 )
             }
         }
-        .task(id: paper.id) {
-            // Check if already cached
-            if let cached = await SessionCache.shared.getCachedPDF(for: paper.id) {
-                localPDFURL = cached
-            } else {
-                localPDFURL = nil
+        .onChange(of: paper.id, initial: true) { _, _ in
+            // Cancel any in-flight task to prevent race conditions
+            checkPDFTask?.cancel()
+
+            // Reset state synchronously
+            localPDFURL = nil
+            downloadError = nil
+            isDownloading = false
+            hasPDF = false
+
+            // Start new task
+            checkPDFTask = Task {
+                // Check if already cached
+                if let cached = await SessionCache.shared.getCachedPDF(for: paper.id) {
+                    localPDFURL = cached
+                }
+                // Check if PDF is available using resolver
+                hasPDF = PDFURLResolver.hasPDF(paper: paper)
             }
-            // Check if PDF is available using resolver
-            hasPDF = PDFURLResolver.hasPDF(paper: paper)
         }
     }
 

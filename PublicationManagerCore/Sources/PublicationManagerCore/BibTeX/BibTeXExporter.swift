@@ -69,12 +69,7 @@ public struct BibTeXExporter: Sendable {
 
     /// Export multiple entries to BibTeX string
     public func export(_ entries: [BibTeXEntry]) -> String {
-        Logger.bibtex.entering()
-        defer { Logger.bibtex.exiting() }
-
-        let result = entries.map { export($0) }.joined(separator: "\n\n")
-        Logger.bibtex.info("Exported \(entries.count) entries")
-        return result
+        entries.map { export($0) }.joined(separator: "\n\n")
     }
 
     /// Export a single entry to BibTeX string

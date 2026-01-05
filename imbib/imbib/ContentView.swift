@@ -66,9 +66,11 @@ struct ContentView: View {
             contentLogger.info("ContentView appeared - main window is visible")
         }
         .onChange(of: selectedSection) { _, newValue in
-            // Clear online paper selection when switching away from smart search
+            // Mutual exclusion: only one selection type active at a time
+            // Smart search uses OnlinePaper, everything else uses CDPublication
+            // This ensures detailView shows the correct view type
             if case .smartSearch = newValue {
-                // Keep selection
+                selectedPublication = nil
             } else {
                 selectedOnlinePaper = nil
             }
@@ -112,7 +114,6 @@ struct ContentView: View {
             PublicationDetailView(publication: publication)
         } else if let onlinePaper = selectedOnlinePaper {
             PaperDetailView(paper: onlinePaper)
-                .id(onlinePaper.id)
         } else if case .search = selectedSection {
             SearchDetailView()
         } else {
