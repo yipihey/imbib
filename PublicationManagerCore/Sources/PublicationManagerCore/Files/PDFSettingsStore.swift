@@ -37,15 +37,18 @@ public struct PDFSettings: Codable, Equatable, Sendable {
     public var sourcePriority: PDFSourcePriority
     public var libraryProxyURL: String
     public var proxyEnabled: Bool
+    public var autoDownloadEnabled: Bool  // Auto-download PDFs when viewing PDF tab
 
     public init(
         sourcePriority: PDFSourcePriority = .preprint,
         libraryProxyURL: String = "",
-        proxyEnabled: Bool = false
+        proxyEnabled: Bool = false,
+        autoDownloadEnabled: Bool = true
     ) {
         self.sourcePriority = sourcePriority
         self.libraryProxyURL = libraryProxyURL
         self.proxyEnabled = proxyEnabled
+        self.autoDownloadEnabled = autoDownloadEnabled
     }
 
     public static let `default` = PDFSettings()
@@ -121,6 +124,14 @@ public actor PDFSettingsStore {
         current.libraryProxyURL = url
         current.proxyEnabled = enabled
         saveSettings(current)
+    }
+
+    /// Update auto-download setting
+    public func updateAutoDownload(enabled: Bool) {
+        var current = settings
+        current.autoDownloadEnabled = enabled
+        saveSettings(current)
+        Logger.files.infoCapture("Updated auto-download setting: \(enabled)", category: "pdf")
     }
 
     /// Reset settings to defaults

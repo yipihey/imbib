@@ -132,6 +132,12 @@ public actor DBLPSource: SourcePlugin {
         let bibtexURL = URL(string: "https://dblp.org/rec/\(key).bib")
         let webURL = URL(string: "https://dblp.org/rec/\(key)")
 
+        // Build PDF links with source tracking
+        var pdfLinks: [PDFLink] = []
+        if let eeURL = ee, let url = URL(string: eeURL) {
+            pdfLinks.append(PDFLink(url: url, type: .publisher, sourceID: "dblp"))
+        }
+
         return SearchResult(
             id: key,
             sourceID: "dblp",
@@ -140,7 +146,7 @@ public actor DBLPSource: SourcePlugin {
             year: year,
             venue: venue,
             doi: doi,
-            pdfURL: ee.flatMap { URL(string: $0) },
+            pdfLinks: pdfLinks,
             webURL: webURL,
             bibtexURL: bibtexURL
         )

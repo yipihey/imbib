@@ -278,25 +278,25 @@ public actor ADSSource: SourcePlugin {
             if upper == "PUB_PDF" || upper == "PUB_HTML" {
                 // Publisher PDF - use link gateway
                 if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_PDF") {
-                    links.append(PDFLink(url: url, type: .publisher))
+                    links.append(PDFLink(url: url, type: .publisher, sourceID: "ads"))
                 }
             } else if upper == "EPRINT_PDF" {
                 // Preprint/arXiv PDF - use direct arXiv URL if available
                 if let arxivID = arxivID,
                    let url = URL(string: "https://arxiv.org/pdf/\(arxivID).pdf") {
-                    links.append(PDFLink(url: url, type: .preprint))
+                    links.append(PDFLink(url: url, type: .preprint, sourceID: "ads"))
                 } else if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/EPRINT_PDF") {
-                    links.append(PDFLink(url: url, type: .preprint))
+                    links.append(PDFLink(url: url, type: .preprint, sourceID: "ads"))
                 }
             } else if upper == "AUTHOR_PDF" {
                 // Author-provided PDF
                 if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/AUTHOR_PDF") {
-                    links.append(PDFLink(url: url, type: .author))
+                    links.append(PDFLink(url: url, type: .author, sourceID: "ads"))
                 }
             } else if upper == "ADS_PDF" || upper == "ADS_SCAN" {
                 // ADS-hosted scan
                 if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/ADS_PDF") {
-                    links.append(PDFLink(url: url, type: .adsScan))
+                    links.append(PDFLink(url: url, type: .adsScan, sourceID: "ads"))
                 }
             }
         }
@@ -304,14 +304,14 @@ public actor ADSSource: SourcePlugin {
         // If no esources but we have arXiv ID, add preprint link
         if links.isEmpty && arxivID != nil {
             if let url = URL(string: "https://arxiv.org/pdf/\(arxivID!).pdf") {
-                links.append(PDFLink(url: url, type: .preprint))
+                links.append(PDFLink(url: url, type: .preprint, sourceID: "ads"))
             }
         }
 
         // Fallback: if still no links, try generic PUB_PDF gateway
         if links.isEmpty {
             if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_PDF") {
-                links.append(PDFLink(url: url, type: .publisher))
+                links.append(PDFLink(url: url, type: .publisher, sourceID: "ads"))
             }
         }
 

@@ -55,14 +55,16 @@ public enum PDFLinkType: String, Sendable, Codable, CaseIterable, Hashable {
 
 // MARK: - PDF Link
 
-/// A PDF link with type information.
+/// A PDF link with type and source information.
 public struct PDFLink: Sendable, Codable, Equatable, Hashable {
     public let url: URL
     public let type: PDFLinkType
+    public let sourceID: String?  // Which source API provided this link (e.g., "openalex", "ads")
 
-    public init(url: URL, type: PDFLinkType) {
+    public init(url: URL, type: PDFLinkType, sourceID: String? = nil) {
         self.url = url
         self.type = type
+        self.sourceID = sourceID
     }
 }
 

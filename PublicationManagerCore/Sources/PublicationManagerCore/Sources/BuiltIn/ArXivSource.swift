@@ -239,6 +239,12 @@ private class ArXivAtomParser: NSObject, XMLParserDelegate {
             let arxivID = extractArXivID(from: entry.id)
             let year = extractYear(from: entry.published)
 
+            // Build PDF links with source tracking
+            var pdfLinks: [PDFLink] = []
+            if let pdfURLString = currentLinks["pdf"], let pdfURL = URL(string: pdfURLString) {
+                pdfLinks.append(PDFLink(url: pdfURL, type: .preprint, sourceID: "arxiv"))
+            }
+
             let result = SearchResult(
                 id: arxivID ?? entry.id,
                 sourceID: "arxiv",
@@ -249,7 +255,7 @@ private class ArXivAtomParser: NSObject, XMLParserDelegate {
                 abstract: entry.summary,
                 doi: entry.doi,
                 arxivID: arxivID,
-                pdfURL: currentLinks["pdf"].flatMap { URL(string: $0) },
+                pdfLinks: pdfLinks,
                 webURL: currentLinks["web"].flatMap { URL(string: $0) }
             )
             results.append(result)

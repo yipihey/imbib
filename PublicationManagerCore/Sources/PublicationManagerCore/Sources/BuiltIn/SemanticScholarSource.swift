@@ -126,10 +126,12 @@ public actor SemanticScholarSource: SourcePlugin {
         let arxivID = externalIds["ArXiv"] as? String
         let pmid = externalIds["PubMed"] as? String
 
-        var pdfURL: URL?
+        // Build PDF links with source tracking
+        var pdfLinks: [PDFLink] = []
         if let openAccess = paper["openAccessPdf"] as? [String: Any],
-           let urlString = openAccess["url"] as? String {
-            pdfURL = URL(string: urlString)
+           let urlString = openAccess["url"] as? String,
+           let url = URL(string: urlString) {
+            pdfLinks.append(PDFLink(url: url, type: .publisher, sourceID: "semanticscholar"))
         }
 
         let webURL = (paper["url"] as? String).flatMap { URL(string: $0) }
@@ -146,7 +148,7 @@ public actor SemanticScholarSource: SourcePlugin {
             arxivID: arxivID,
             pmid: pmid,
             semanticScholarID: paperId,
-            pdfURL: pdfURL,
+            pdfLinks: pdfLinks,
             webURL: webURL
         )
     }

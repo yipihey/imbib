@@ -195,7 +195,12 @@ public actor CrossrefSource: SourcePlugin {
         let year = extractYear(from: item)
         let venue = extractVenue(from: item)
         let abstract = item["abstract"] as? String
-        let pdfURL = extractPDFURL(from: item)
+
+        // Build PDF links with source tracking
+        var pdfLinks: [PDFLink] = []
+        if let pdfURL = extractPDFURL(from: item) {
+            pdfLinks.append(PDFLink(url: pdfURL, type: .publisher, sourceID: "crossref"))
+        }
 
         return SearchResult(
             id: doi,
@@ -206,7 +211,7 @@ public actor CrossrefSource: SourcePlugin {
             venue: venue,
             abstract: abstract?.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression),
             doi: doi,
-            pdfURL: pdfURL,
+            pdfLinks: pdfLinks,
             webURL: URL(string: "https://doi.org/\(doi)"),
             bibtexURL: URL(string: "https://doi.org/\(doi)")
         )

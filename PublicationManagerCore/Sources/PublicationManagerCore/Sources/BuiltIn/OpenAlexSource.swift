@@ -126,10 +126,12 @@ public actor OpenAlexSource: SourcePlugin {
         let pmid = ids["pmid"] as? String
         let pmcid = ids["pmcid"] as? String
 
-        var pdfURL: URL?
+        // Build PDF links with source tracking
+        var pdfLinks: [PDFLink] = []
         if let openAccess = work["open_access"] as? [String: Any],
-           let oaURL = openAccess["oa_url"] as? String {
-            pdfURL = URL(string: oaURL)
+           let oaURL = openAccess["oa_url"] as? String,
+           let url = URL(string: oaURL) {
+            pdfLinks.append(PDFLink(url: url, type: .publisher, sourceID: "openalex"))
         }
 
         // Extract OpenAlex ID from URL
@@ -146,7 +148,7 @@ public actor OpenAlexSource: SourcePlugin {
             doi: doi,
             pmid: pmid,
             openAlexID: shortID,
-            pdfURL: pdfURL,
+            pdfLinks: pdfLinks,
             webURL: URL(string: openAlexID)
         )
     }

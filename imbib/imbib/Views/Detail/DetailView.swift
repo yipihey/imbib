@@ -583,8 +583,15 @@ struct PDFTab: View {
             }
 
             // No local PDF - check if remote PDF is available
+            let hasRemote = PDFURLResolver.hasPDF(publication: pub)
             await MainActor.run {
-                hasRemotePDF = PDFURLResolver.hasPDF(publication: pub)
+                hasRemotePDF = hasRemote
+            }
+
+            // Auto-download if setting enabled AND remote PDF available
+            let settings = await PDFSettingsStore.shared.settings
+            if settings.autoDownloadEnabled && hasRemote {
+                await downloadPDF()
             }
         }
     }
@@ -595,9 +602,9 @@ struct PDFTab: View {
             return
         }
 
-        // Use PDFURLResolver to get the best URL based on user settings
+        // Use resolveForAutoDownload with OpenAlex → Publisher → arXiv priority
         let settings = await PDFSettingsStore.shared.settings
-        guard let resolvedURL = PDFURLResolver.resolve(for: pub, settings: settings) else {
+        guard let resolvedURL = PDFURLResolver.resolveForAutoDownload(for: pub, settings: settings) else {
             logger.warning("[PDFTab] No PDF URL could be resolved for paper: \(paper.id)")
             return
         }

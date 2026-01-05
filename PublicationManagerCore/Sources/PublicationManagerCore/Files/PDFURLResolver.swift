@@ -59,6 +59,66 @@ public struct PDFURLResolver {
         return resolve(for: publication, settings: settings)
     }
 
+    // MARK: - Auto-Download Resolution (OpenAlex Priority)
+
+    /// Resolve PDF URL with OpenAlex → Publisher → arXiv priority for auto-download
+    ///
+    /// This method uses a fixed priority order optimized for automatic downloads:
+    /// 1. OpenAlex (Open Access - typically free)
+    /// 2. Other publisher PDFs (may require proxy)
+    /// 3. arXiv preprints (last resort)
+    ///
+    /// - Parameters:
+    ///   - publication: The publication to resolve a PDF URL for
+    ///   - settings: User's PDF settings (for proxy configuration)
+    /// - Returns: The resolved PDF URL, or nil if no PDF is available
+    public static func resolveForAutoDownload(
+        for publication: CDPublication,
+        settings: PDFSettings
+    ) -> URL? {
+        Logger.files.infoCapture(
+            "[PDFURLResolver] Resolving PDF for auto-download: '\(publication.title?.prefix(50) ?? "untitled")...'",
+            category: "pdf"
+        )
+
+        let links = publication.pdfLinks
+
+        // 1. Try OpenAlex first (Open Access - typically free)
+        if let openAlexLink = links.first(where: { $0.sourceID == "openalex" }) {
+            Logger.files.infoCapture("[PDFURLResolver] Using OpenAlex OA URL", category: "pdf")
+            return applyProxy(to: openAlexLink.url, settings: settings)
+        }
+
+        // 2. Try other publisher PDFs (non-OpenAlex, non-arXiv)
+        if let publisherLink = links.first(where: {
+            $0.type == .publisher && $0.sourceID != "openalex" && $0.sourceID != "arxiv"
+        }) {
+            Logger.files.infoCapture("[PDFURLResolver] Using publisher PDF from \(publisherLink.sourceID ?? "unknown")", category: "pdf")
+            return applyProxy(to: publisherLink.url, settings: settings)
+        }
+
+        // 3. Try arXiv last
+        if let arxivID = publication.arxivID {
+            Logger.files.infoCapture("[PDFURLResolver] Using arXiv PDF", category: "pdf")
+            return arXivPDFURL(arxivID: arxivID)
+        }
+
+        // 4. Fallback: any available preprint link
+        if let preprintLink = links.first(where: { $0.type == .preprint }) {
+            Logger.files.infoCapture("[PDFURLResolver] Using preprint PDF from \(preprintLink.sourceID ?? "unknown")", category: "pdf")
+            return preprintLink.url
+        }
+
+        Logger.files.infoCapture("[PDFURLResolver] No PDF URL available for auto-download", category: "pdf")
+        return nil
+    }
+
+    /// Async version that fetches settings from PDFSettingsStore
+    public static func resolveForAutoDownload(for publication: CDPublication) async -> URL? {
+        let settings = await PDFSettingsStore.shared.settings
+        return resolveForAutoDownload(for: publication, settings: settings)
+    }
+
     // MARK: - arXiv PDF URL
 
     /// Generate arXiv PDF URL from an arXiv ID string

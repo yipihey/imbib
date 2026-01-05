@@ -17,12 +17,21 @@ struct PDFSettingsTab: View {
     @State private var sourcePriority: PDFSourcePriority = .preprint
     @State private var proxyEnabled: Bool = false
     @State private var proxyURL: String = ""
+    @State private var autoDownloadEnabled: Bool = true
     @State private var isLoading = true
 
     // MARK: - Body
 
     var body: some View {
         Form {
+            Section {
+                downloadBehaviorSection
+            } header: {
+                Text("Download Behavior")
+            } footer: {
+                Text("When enabled, PDFs will download automatically when you view the PDF tab.")
+            }
+
             Section {
                 sourcePrioritySection
             } header: {
@@ -44,6 +53,15 @@ struct PDFSettingsTab: View {
         .task {
             await loadSettings()
         }
+    }
+
+    // MARK: - Download Behavior Section
+
+    private var downloadBehaviorSection: some View {
+        Toggle("Automatically download PDFs when in PDF view", isOn: $autoDownloadEnabled)
+            .onChange(of: autoDownloadEnabled) { _, newValue in
+                Task { await saveAutoDownloadSetting() }
+            }
     }
 
     // MARK: - Source Priority Section
@@ -142,6 +160,7 @@ struct PDFSettingsTab: View {
         sourcePriority = settings.sourcePriority
         proxyEnabled = settings.proxyEnabled
         proxyURL = settings.libraryProxyURL
+        autoDownloadEnabled = settings.autoDownloadEnabled
         isLoading = false
     }
 
@@ -151,6 +170,10 @@ struct PDFSettingsTab: View {
 
     private func saveProxySettings() async {
         await PDFSettingsStore.shared.updateLibraryProxy(url: proxyURL, enabled: proxyEnabled)
+    }
+
+    private func saveAutoDownloadSetting() async {
+        await PDFSettingsStore.shared.updateAutoDownload(enabled: autoDownloadEnabled)
     }
 }
 
