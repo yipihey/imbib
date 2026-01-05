@@ -142,8 +142,16 @@ struct SmartSearchResultsView: View {
 
     private var listView: some View {
         List(publications, id: \.id, selection: $selectedPublicationIDs) { publication in
-            PublicationRow(publication: publication)
-                .tag(publication.id)
+            MailStylePublicationRow(
+                publication: publication,
+                showUnreadIndicator: true,
+                onToggleRead: {
+                    Task {
+                        await libraryViewModel.toggleReadStatus(publication)
+                    }
+                }
+            )
+            .tag(publication.id)
         }
     }
 
@@ -218,59 +226,6 @@ struct SmartSearchResultsView: View {
         }
 
         isLoading = false
-    }
-}
-
-// MARK: - Publication Row
-
-/// A simple row for displaying a CDPublication in a list
-private struct PublicationRow: View {
-    let publication: CDPublication
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(publication.title ?? "Untitled")
-                .font(.headline)
-                .lineLimit(2)
-
-            HStack {
-                Text(publication.authorString)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                if publication.year > 0 {
-                    Text("(\(publication.year))")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            // Show source badge if available
-            if let sourceID = publication.originalSourceID {
-                HStack(spacing: 4) {
-                    Image(systemName: sourceIcon(for: sourceID))
-                        .font(.caption)
-                    Text(sourceID.capitalized)
-                        .font(.caption)
-                }
-                .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
-    private func sourceIcon(for sourceID: String) -> String {
-        switch sourceID.lowercased() {
-        case "arxiv": return "doc.text"
-        case "crossref": return "globe"
-        case "ads": return "star"
-        case "pubmed": return "cross.case"
-        case "semanticscholar": return "brain"
-        case "openalex": return "book"
-        case "dblp": return "server.rack"
-        default: return "magnifyingglass"
-        }
     }
 }
 
