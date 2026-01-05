@@ -53,7 +53,7 @@ struct PDFSettingsTab: View {
             ForEach(PDFSourcePriority.allCases, id: \.self) { priority in
                 HStack(alignment: .top, spacing: 12) {
                     Image(systemName: sourcePriority == priority ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(sourcePriority == priority ? .accent : .secondary)
+                        .foregroundStyle(sourcePriority == priority ? Color.accentColor : .secondary)
                         .font(.title3)
 
                     VStack(alignment: .leading, spacing: 2) {
@@ -131,7 +131,7 @@ struct PDFSettingsTab: View {
                 }
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.accent)
+            .foregroundStyle(Color.accentColor)
         }
     }
 
