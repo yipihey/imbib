@@ -328,7 +328,12 @@ Update the changelog below after significant work:
 - Added RIS to file import dialog (ContentView.swift):
   - Accept both .bib and .ris file types
   - Uses `importFile()` dispatcher for format-based routing
+- Fixed Xcode build issues:
+  - Added missing files to Xcode project (SmartSearchResultsView, SmartSearchEditorView, LibraryPickerView)
+  - Added `Identifiable` conformance to `CDCollection` for SwiftUI sheet binding
+  - Fixed `BibTeXParser` usage: extract `BibTeXEntry` from `BibTeXItem` enum
 - All 370 tests passing
+- Xcode build succeeds
 - ADR-013 Phase 2 complete
 
 ### 2026-01-04 (Session 4)
