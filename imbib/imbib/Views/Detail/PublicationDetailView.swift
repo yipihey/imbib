@@ -265,10 +265,8 @@ struct BibTeXTabView: View {
                 }
             }
         }
-        .onAppear {
-            bibtexContent = generateBibTeX()
-        }
-        .onChange(of: publicationIdentity) { _, _ in
+        .onChange(of: publicationIdentity, initial: true) { _, _ in
+            // Reset state and reload when publication changes (initial: true fires on first appear)
             bibtexContent = generateBibTeX()
             isEditing = false
             hasChanges = false
@@ -352,22 +350,24 @@ struct NotesTabView: View {
         TextEditor(text: $notes)
             .font(.body)
             .padding()
-            .onAppear {
-                notes = publication.fields["note"] ?? ""
-            }
-            .onChange(of: publication.id) { oldValue, newValue in
-                // Save current notes before switching
+            .onChange(of: publication.id, initial: true) { _, _ in
+                // Reset state when publication changes (initial: true fires on first appear)
                 saveTask?.cancel()
-                // Update notes when switching publications
                 notes = publication.fields["note"] ?? ""
             }
             .onChange(of: notes) { oldValue, newValue in
+                // Capture current publication to guard against race condition
+                // (user might switch publications during the 500ms debounce delay)
+                let targetPublication = publication
+
                 // Debounce saves - cancel previous task and schedule new one
                 saveTask?.cancel()
                 saveTask = Task {
                     try? await Task.sleep(for: .milliseconds(500))
                     guard !Task.isCancelled else { return }
-                    await viewModel.updateField(publication, field: "note", value: newValue)
+                    // Only save if still viewing same publication
+                    guard targetPublication.id == self.publication.id else { return }
+                    await viewModel.updateField(targetPublication, field: "note", value: newValue)
                 }
             }
     }
