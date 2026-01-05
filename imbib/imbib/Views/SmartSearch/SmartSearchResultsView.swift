@@ -11,6 +11,30 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "smartsearch")
 
+// MARK: - Provider Cache
+
+/// Caches SmartSearchProvider instances to avoid re-fetching when switching between views
+private actor SmartSearchProviderCache {
+    static let shared = SmartSearchProviderCache()
+
+    private var providers: [UUID: SmartSearchProvider] = [:]
+
+    func getOrCreate(for smartSearch: CDSmartSearch, sourceManager: SourceManager) -> SmartSearchProvider {
+        if let existing = providers[smartSearch.id] {
+            return existing
+        }
+        let provider = SmartSearchProvider(from: smartSearch, sourceManager: sourceManager)
+        providers[smartSearch.id] = provider
+        return provider
+    }
+
+    func invalidate(_ id: UUID) {
+        providers.removeValue(forKey: id)
+    }
+}
+
+// MARK: - Smart Search Results View
+
 struct SmartSearchResultsView: View {
 
     // MARK: - Properties
@@ -46,7 +70,7 @@ struct SmartSearchResultsView: View {
                     Text(error.localizedDescription)
                 } actions: {
                     Button("Retry") {
-                        Task { await executeSearch() }
+                        Task { await loadOrRefresh(forceRefresh: true) }
                     }
                 }
             } else if papers.isEmpty {
@@ -78,7 +102,7 @@ struct SmartSearchResultsView: View {
                         .controlSize(.small)
                 } else {
                     Button {
-                        Task { await executeSearch() }
+                        Task { await loadOrRefresh(forceRefresh: true) }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
@@ -92,7 +116,7 @@ struct SmartSearchResultsView: View {
             }
         }
         .task(id: smartSearch.id) {
-            await executeSearch()
+            await loadOrRefresh(forceRefresh: false)
         }
         .onChange(of: selectedPaperIDs) { _, newValue in
             Logger.viewModels.infoCapture("[SmartSearch] selectedPaperIDs changed: \(newValue.joined(separator: ", "))", category: "selection")
@@ -108,17 +132,31 @@ struct SmartSearchResultsView: View {
 
     // MARK: - Search Execution
 
-    private func executeSearch() async {
+    private func loadOrRefresh(forceRefresh: Bool) async {
         isLoading = true
         error = nil
 
-        // Create a fresh provider using the shared sourceManager
-        let newProvider = SmartSearchProvider(from: smartSearch, sourceManager: searchViewModel.sourceManager)
-        provider = newProvider
+        // Get or create cached provider
+        let cachedProvider = await SmartSearchProviderCache.shared.getOrCreate(
+            for: smartSearch,
+            sourceManager: searchViewModel.sourceManager
+        )
+        provider = cachedProvider
 
+        // Check if we have cached results
+        let hasCachedResults = await cachedProvider.count > 0
+
+        if hasCachedResults && !forceRefresh {
+            // Use cached results - no network fetch
+            papers = await cachedProvider.papers
+            isLoading = false
+            return
+        }
+
+        // No cache or force refresh - fetch from network
         do {
-            try await newProvider.refresh()
-            papers = await newProvider.papers
+            try await cachedProvider.refresh()
+            papers = await cachedProvider.papers
             SmartSearchRepository.shared.markExecuted(smartSearch)
         } catch {
             self.error = error
