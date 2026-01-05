@@ -113,6 +113,23 @@ struct LibraryListView: View {
             ),
             prompt: "Search publications"
         )
+        .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
+            toggleReadStatusForSelected()
+        }
+    }
+
+    // MARK: - Toggle Read Status
+
+    private func toggleReadStatusForSelected() {
+        guard !multiSelection.isEmpty else { return }
+
+        Task {
+            for uuid in multiSelection {
+                if let publication = libraryPublications.first(where: { $0.id == uuid }) {
+                    await viewModel.toggleReadStatus(publication)
+                }
+            }
+        }
     }
 
     // MARK: - Publication List

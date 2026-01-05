@@ -165,6 +165,14 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("c", modifiers: [.command, .shift])
         }
+
+        // Edit menu - publication actions
+        CommandGroup(after: .pasteboard) {
+            Button("Toggle Read/Unread") {
+                NotificationCenter.default.post(name: .toggleReadStatus, object: nil)
+            }
+            .keyboardShortcut("u", modifiers: [.command, .shift])
+        }
     }
 }
 
@@ -175,4 +183,5 @@ extension Notification.Name {
     static let exportBibTeX = Notification.Name("exportBibTeX")
     static let showLibrary = Notification.Name("showLibrary")
     static let showSearch = Notification.Name("showSearch")
+    static let toggleReadStatus = Notification.Name("toggleReadStatus")
 }

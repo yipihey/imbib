@@ -100,6 +100,23 @@ struct SmartSearchResultsView: View {
             .onChange(of: selectedPublicationIDs) { _, newValue in
                 handleSelectionChange(newValue)
             }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
+                toggleReadStatusForSelected()
+            }
+    }
+
+    // MARK: - Toggle Read Status
+
+    private func toggleReadStatusForSelected() {
+        guard !selectedPublicationIDs.isEmpty else { return }
+
+        Task {
+            for uuid in selectedPublicationIDs {
+                if let publication = publications.first(where: { $0.id == uuid }) {
+                    await libraryViewModel.toggleReadStatus(publication)
+                }
+            }
+        }
     }
 
     // MARK: - Content View
