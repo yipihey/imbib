@@ -256,8 +256,12 @@ struct BibTeXTabView: View {
         Task {
             do {
                 // Parse the edited BibTeX
-                let entries = try BibTeXParser().parse(bibtexContent)
-                guard let entry = entries.first else {
+                let items = try BibTeXParser().parse(bibtexContent)
+                // Extract the first entry from parsed items
+                guard let entry = items.compactMap({ item -> BibTeXEntry? in
+                    if case .entry(let entry) = item { return entry }
+                    return nil
+                }).first else {
                     return
                 }
 

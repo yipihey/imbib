@@ -257,7 +257,7 @@ public class CDTag: NSManagedObject {
 // MARK: - Collection
 
 @objc(CDCollection)
-public class CDCollection: NSManagedObject {
+public class CDCollection: NSManagedObject, Identifiable {
     @NSManaged public var id: UUID
     @NSManaged public var name: String
     @NSManaged public var isSmartCollection: Bool
