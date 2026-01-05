@@ -160,29 +160,39 @@ public struct MailStylePublicationRow: View {
     }
 
     /// Format author string for Mail-style display
-    /// "LastName, F." for single author, "LastName, F. et al." for multiple
+    /// - 1 author: "LastName, F."
+    /// - 2-3 authors: "LastName1, F., LastName2, F."
+    /// - 4+ authors: "LastName1, F., LastName2, F. ... LastNameN, F."
     private func formatAuthorDisplay(_ authorString: String) -> String {
         let authors = authorString.components(separatedBy: " and ")
 
-        guard let firstAuthor = authors.first else {
+        guard !authors.isEmpty else {
             return "Unknown Author"
         }
 
-        // Parse first author name
-        let lastName = extractLastName(from: firstAuthor)
-        let initial = extractInitial(from: firstAuthor)
-
-        let displayName: String
-        if let initial = initial {
-            displayName = "\(lastName), \(initial)."
-        } else {
-            displayName = lastName
+        switch authors.count {
+        case 1:
+            return formatSingleAuthor(authors[0])
+        case 2, 3:
+            return authors.map { formatSingleAuthor($0) }.joined(separator: ", ")
+        default:
+            // 4+ authors: first two ... last
+            let first = formatSingleAuthor(authors[0])
+            let second = formatSingleAuthor(authors[1])
+            let last = formatSingleAuthor(authors[authors.count - 1])
+            return "\(first), \(second) ... \(last)"
         }
+    }
 
-        if authors.count > 1 {
-            return "\(displayName) et al."
+    /// Format a single author as "LastName, F."
+    private func formatSingleAuthor(_ author: String) -> String {
+        let lastName = extractLastName(from: author)
+        let initial = extractInitial(from: author)
+
+        if let initial = initial {
+            return "\(lastName), \(initial)."
         } else {
-            return displayName
+            return lastName
         }
     }
 
