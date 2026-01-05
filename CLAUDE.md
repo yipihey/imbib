@@ -304,6 +304,7 @@ swift package generate-xcodeproj
 | 011 | Console window for debugging (LogStore + dual logging) |
 | 012 | Unified library/online experience (PaperRepresentable, SessionCache) |
 | 013 | First-class RIS format (RISParser, RISExporter, RISBibTeXConverter) |
+| 015 | PDF settings (source priority, library proxy, ADSSource pdfURL fix) |
 
 ## Session Continuity
 
@@ -315,6 +316,29 @@ When resuming work, check:
 Update the changelog below after significant work:
 
 ## Changelog
+
+### 2026-01-04 (Session 6)
+- Implemented ADR-015: PDF Settings and URL Resolution
+- Created PDFSettingsStore (actor-based settings with UserDefaults)
+  - PDFSourcePriority enum (.preprint, .publisher)
+  - PDFSettings struct (priority, proxy URL, proxy enabled)
+  - Common proxy presets (Stanford, Harvard, MIT, Berkeley)
+- Created PDFURLResolver for resolving PDF URLs based on settings
+  - Preprint priority: arXiv → publisher fallback
+  - Publisher priority: publisher → arXiv fallback
+  - Library proxy support (URL prefix approach)
+  - ADS gateway URLs for non-arXiv papers
+- Fixed ADSSource to populate pdfURL in search results
+  - Papers with arXiv ID get arXiv PDF URL
+  - Papers without arXiv get ADS link gateway URL
+- Created PDFSettingsTab UI with source priority and proxy config
+- Added PDF tab to SettingsView
+- Updated PaperPDFTabView to use PDFURLResolver
+- Added comprehensive tests (53 new tests)
+  - PDFSettingsStoreTests (18 tests)
+  - PDFURLResolverTests (25 tests)
+  - ADSSourceTests (10 tests)
+- ADR-015 written to project root
 
 ### 2026-01-04 (Session 5)
 - Completed ADR-013 Phase 2: RIS integration into main application

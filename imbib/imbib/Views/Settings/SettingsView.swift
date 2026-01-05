@@ -26,6 +26,10 @@ struct SettingsView: View {
                 .tabItem { Label("Sources", systemImage: "globe") }
                 .tag(SettingsTab.sources)
 
+            PDFSettingsTab()
+                .tabItem { Label("PDF", systemImage: "doc.richtext") }
+                .tag(SettingsTab.pdf)
+
             ImportExportSettingsTab()
                 .tabItem { Label("Import/Export", systemImage: "arrow.up.arrow.down") }
                 .tag(SettingsTab.importExport)
@@ -39,6 +43,7 @@ struct SettingsView: View {
 enum SettingsTab: String, CaseIterable {
     case general
     case sources
+    case pdf
     case importExport
 }
 

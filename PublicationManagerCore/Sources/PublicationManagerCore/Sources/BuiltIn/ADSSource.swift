@@ -242,6 +242,16 @@ public actor ADSSource: SourcePlugin {
         let doi = extractDOI(from: doc)
         let arxivID = extractArXivID(from: doc)
 
+        // Generate PDF URL:
+        // - If paper has arXiv ID, use arXiv PDF (free and reliable)
+        // - Otherwise, use ADS link gateway for publisher PDF
+        let pdfURL: URL?
+        if let arxivID = arxivID {
+            pdfURL = URL(string: "https://arxiv.org/pdf/\(arxivID).pdf")
+        } else {
+            pdfURL = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_PDF")
+        }
+
         return SearchResult(
             id: bibcode,
             sourceID: "ads",
@@ -253,6 +263,7 @@ public actor ADSSource: SourcePlugin {
             doi: doi,
             arxivID: arxivID,
             bibcode: bibcode,
+            pdfURL: pdfURL,
             webURL: URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)"),
             bibtexURL: URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)/exportcitation")
         )

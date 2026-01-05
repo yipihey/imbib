@@ -343,6 +343,7 @@ struct PaperPDFTabView: View {
     @State private var localPDFURL: URL?
     @State private var isDownloading = false
     @State private var downloadError: Error?
+    @State private var hasPDF = false
 
     var body: some View {
         Group {
@@ -366,7 +367,7 @@ struct PaperPDFTabView: View {
                         Task { await downloadPDF() }
                     }
                 }
-            } else if paper.remotePDFURL != nil {
+            } else if hasPDF {
                 ContentUnavailableView {
                     Label("PDF Available", systemImage: "doc.richtext")
                 } description: {
@@ -392,23 +393,33 @@ struct PaperPDFTabView: View {
             } else {
                 localPDFURL = nil
             }
+            // Check if PDF is available using resolver
+            hasPDF = PDFURLResolver.hasPDF(paper: paper)
         }
     }
 
     private func downloadPDF() async {
-        guard let remoteURL = paper.remotePDFURL else { return }
+        // Use PDFURLResolver to get the best URL based on user settings
+        guard let resolvedURL = await PDFURLResolver.resolve(for: paper) else {
+            Logger.files.warning("[PaperPDFTabView] No PDF URL could be resolved for paper: \(paper.id)")
+            return
+        }
+
+        Logger.files.infoCapture("[PaperPDFTabView] Downloading PDF from: \(resolvedURL.absoluteString)", category: "pdf")
 
         isDownloading = true
         downloadError = nil
 
         do {
-            let cachedURL = try await SessionCache.shared.cachePDF(from: remoteURL, for: paper.id)
+            let cachedURL = try await SessionCache.shared.cachePDF(from: resolvedURL, for: paper.id)
             await MainActor.run {
                 localPDFURL = cachedURL
+                Logger.files.infoCapture("[PaperPDFTabView] PDF downloaded and cached: \(cachedURL.path)", category: "pdf")
             }
         } catch {
             await MainActor.run {
                 downloadError = error
+                Logger.files.error("[PaperPDFTabView] PDF download failed: \(error.localizedDescription)")
             }
         }
 
