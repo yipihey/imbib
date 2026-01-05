@@ -214,9 +214,9 @@ struct UnifiedMetadataTab: View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    // Title
+                    // Title (with scientific text parsing for sub/superscripts)
                     metadataSection("Title") {
-                        Text(paper.title)
+                        ScientificTextParser.text(paper.title)
                             .textSelection(.enabled)
                     }
                     .id("top")
@@ -277,10 +277,10 @@ struct UnifiedMetadataTab: View {
                         }
                     }
 
-                    // Abstract
+                    // Abstract (with scientific text parsing for sub/superscripts)
                     if let abstract = paper.abstract, !abstract.isEmpty {
                         metadataSection("Abstract") {
-                            Text(abstract)
+                            ScientificTextParser.text(abstract)
                                 .textSelection(.enabled)
                         }
                     }
