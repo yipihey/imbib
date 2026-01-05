@@ -265,6 +265,39 @@ public final class LibraryViewModel {
             selectedPublications.insert(publication.id)
         }
     }
+
+    // MARK: - Read Status (Apple Mail Styling)
+
+    /// Mark a publication as read
+    public func markAsRead(_ publication: CDPublication) async {
+        await repository.markAsRead(publication)
+        // Reload to update UI state
+        await loadPublications()
+    }
+
+    /// Mark a publication as unread
+    public func markAsUnread(_ publication: CDPublication) async {
+        await repository.markAsUnread(publication)
+        await loadPublications()
+    }
+
+    /// Toggle read/unread status
+    public func toggleReadStatus(_ publication: CDPublication) async {
+        await repository.toggleReadStatus(publication)
+        await loadPublications()
+    }
+
+    /// Mark all selected publications as read
+    public func markSelectedAsRead() async {
+        let toMark = publications.filter { selectedPublications.contains($0.id) }
+        await repository.markAllAsRead(toMark)
+        await loadPublications()
+    }
+
+    /// Get count of unread publications
+    public func unreadCount() async -> Int {
+        await repository.unreadCount()
+    }
 }
 
 // MARK: - Library Sort Order

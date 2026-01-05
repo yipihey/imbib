@@ -289,6 +289,20 @@ public final class PersistenceController: @unchecked Sendable {
         openAlexID.isOptional = true
         properties.append(openAlexID)
 
+        // Read status (Apple Mail styling)
+        let isRead = NSAttributeDescription()
+        isRead.name = "isRead"
+        isRead.attributeType = .booleanAttributeType
+        isRead.isOptional = false
+        isRead.defaultValue = false
+        properties.append(isRead)
+
+        let dateRead = NSAttributeDescription()
+        dateRead.name = "dateRead"
+        dateRead.attributeType = .dateAttributeType
+        dateRead.isOptional = true
+        properties.append(dateRead)
+
         entity.properties = properties
         return entity
     }

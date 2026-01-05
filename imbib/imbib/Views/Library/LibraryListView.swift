@@ -8,6 +8,12 @@
 import SwiftUI
 import PublicationManagerCore
 
+/// Filter mode for library list
+enum LibraryFilterMode {
+    case all
+    case unread
+}
+
 struct LibraryListView: View {
 
     // MARK: - Environment
@@ -18,9 +24,38 @@ struct LibraryListView: View {
 
     @Binding var selection: CDPublication?
 
+    /// Filter mode for the publication list
+    var filterMode: LibraryFilterMode = .all
+
     // MARK: - State
 
     @State private var multiSelection = Set<UUID>()
+
+    // MARK: - Computed Properties
+
+    /// Papers filtered by the current filter mode
+    private var filteredPapers: [LocalPaper] {
+        switch filterMode {
+        case .all:
+            return viewModel.papers
+        case .unread:
+            // Filter to only show unread publications
+            return viewModel.papers.filter { paper in
+                guard let publication = viewModel.publications.first(where: { $0.id == paper.uuid }) else {
+                    return false
+                }
+                return !publication.isRead
+            }
+        }
+    }
+
+    /// Title based on filter mode
+    private var navigationTitle: String {
+        switch filterMode {
+        case .all: return "Library"
+        case .unread: return "Unread"
+        }
+    }
 
     // MARK: - Body
 
@@ -29,13 +64,13 @@ struct LibraryListView: View {
             if viewModel.isLoading {
                 ProgressView("Loading...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if viewModel.papers.isEmpty {
+            } else if filteredPapers.isEmpty {
                 emptyState
             } else {
                 publicationList
             }
         }
-        .navigationTitle("Library")
+        .navigationTitle(navigationTitle)
         .toolbar {
             toolbarContent
         }
@@ -51,13 +86,20 @@ struct LibraryListView: View {
     // MARK: - Publication List
 
     private var publicationList: some View {
-        List(viewModel.papers, id: \.uuid, selection: $multiSelection) { paper in
-            UnifiedPaperRow(
-                paper: paper,
-                showLibraryIndicator: false, // Already in library
-                showSourceBadges: false      // Local papers don't need source badges
-            )
-            .tag(paper.uuid)
+        List(filteredPapers, id: \.uuid, selection: $multiSelection) { paper in
+            // Get the CDPublication for MailStylePublicationRow
+            if let publication = viewModel.publications.first(where: { $0.id == paper.uuid }) {
+                MailStylePublicationRow(
+                    publication: publication,
+                    showUnreadIndicator: true,
+                    onToggleRead: {
+                        Task {
+                            await viewModel.toggleReadStatus(publication)
+                        }
+                    }
+                )
+                .tag(paper.uuid)
+            }
         }
         .onChange(of: multiSelection) { oldValue, newValue in
             if let first = newValue.first {
@@ -69,7 +111,7 @@ struct LibraryListView: View {
         } primaryAction: { ids in
             // Double-click to open PDF
             if let first = ids.first,
-               let paper = viewModel.papers.first(where: { $0.uuid == first }) {
+               let paper = filteredPapers.first(where: { $0.uuid == first }) {
                 openPDF(for: paper)
             }
         }

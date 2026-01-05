@@ -233,6 +233,83 @@ public actor PublicationRepository {
         }
     }
 
+    // MARK: - Read Status (Apple Mail Styling)
+
+    /// Mark a publication as read
+    public func markAsRead(_ publication: CDPublication) async {
+        guard !publication.isRead else { return }
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            publication.isRead = true
+            publication.dateRead = Date()
+            self.persistenceController.save()
+        }
+    }
+
+    /// Mark a publication as unread
+    public func markAsUnread(_ publication: CDPublication) async {
+        guard publication.isRead else { return }
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            publication.isRead = false
+            publication.dateRead = nil
+            self.persistenceController.save()
+        }
+    }
+
+    /// Toggle read/unread status
+    public func toggleReadStatus(_ publication: CDPublication) async {
+        if publication.isRead {
+            await markAsUnread(publication)
+        } else {
+            await markAsRead(publication)
+        }
+    }
+
+    /// Mark multiple publications as read
+    public func markAllAsRead(_ publications: [CDPublication]) async {
+        let unread = publications.filter { !$0.isRead }
+        guard !unread.isEmpty else { return }
+
+        let context = persistenceController.viewContext
+        let now = Date()
+
+        await context.perform {
+            for publication in unread {
+                publication.isRead = true
+                publication.dateRead = now
+            }
+            self.persistenceController.save()
+        }
+    }
+
+    /// Fetch count of unread publications
+    public func unreadCount() async -> Int {
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            request.predicate = NSPredicate(format: "isRead == NO")
+
+            return (try? context.count(for: request)) ?? 0
+        }
+    }
+
+    /// Fetch all unread publications
+    public func fetchUnread(sortedBy sortKey: String = "dateAdded", ascending: Bool = false) async -> [CDPublication] {
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            request.predicate = NSPredicate(format: "isRead == NO")
+            request.sortDescriptors = [NSSortDescriptor(key: sortKey, ascending: ascending)]
+
+            return (try? context.fetch(request)) ?? []
+        }
+    }
+
     // MARK: - Export Operations
 
     /// Export all publications to BibTeX string

@@ -80,6 +80,10 @@ struct ContentView: View {
         case .library, .recentlyAdded, .recentlyRead:
             LibraryListView(selection: $selectedPublication)
 
+        case .unread:
+            // Apple Mail-style unread publications list
+            LibraryListView(selection: $selectedPublication, filterMode: .unread)
+
         case .search:
             // ADR-016: Ad-hoc search results are now CDPublication entities
             SearchResultsListView(selectedPublication: $selectedPublication)
@@ -185,6 +189,7 @@ enum SidebarSection: Hashable {
     case library
     case recentlyAdded
     case recentlyRead
+    case unread  // Apple Mail-style unread publications
     case search
     case smartSearch(CDSmartSearch)
     case collection(CDCollection)

@@ -95,6 +95,25 @@ struct UnifiedDetailView: View {
         .toolbar {
             toolbarContent
         }
+        .task(id: publication?.id) {
+            // Auto-mark as read after brief delay (Apple Mail style)
+            await autoMarkAsRead()
+        }
+    }
+
+    // MARK: - Auto-Mark as Read
+
+    private func autoMarkAsRead() async {
+        guard let pub = publication, !pub.isRead else { return }
+
+        // Wait 1 second before marking as read (like Mail)
+        do {
+            try await Task.sleep(for: .seconds(1))
+            await viewModel.markAsRead(pub)
+            logger.debug("Auto-marked as read: \(pub.citeKey)")
+        } catch {
+            // Task was cancelled (user navigated away quickly)
+        }
     }
 
     // MARK: - Navigation Subtitle

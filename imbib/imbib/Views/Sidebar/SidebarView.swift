@@ -28,6 +28,7 @@ struct SidebarView: View {
     @State private var showingLibraryPicker = false
     @State private var showingNewSmartCollection = false
     @State private var editingCollection: CDCollection?
+    @State private var unreadCount: Int = 0
 
     // MARK: - Body
 
@@ -42,6 +43,24 @@ struct SidebarView: View {
             Section("Library") {
                 Label("All Publications", systemImage: "books.vertical")
                     .tag(SidebarSection.library)
+
+                // Unread with Mail-style blue badge
+                HStack {
+                    Label("Unread", systemImage: "circle.fill")
+                        .foregroundStyle(.blue)
+                    Spacer()
+                    if unreadCount > 0 {
+                        Text("\(unreadCount)")
+                            .font(.caption2)
+                            .fontWeight(.medium)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .clipShape(Capsule())
+                    }
+                }
+                .tag(SidebarSection.unread)
 
                 Label("Recently Added", systemImage: "clock")
                     .tag(SidebarSection.recentlyAdded)
@@ -207,9 +226,11 @@ struct SidebarView: View {
     private func loadData() async {
         let collectionRepo = CollectionRepository()
         let tagRepo = TagRepository()
+        let publicationRepo = PublicationRepository()
 
         collections = await collectionRepo.fetchAll()
         tags = await tagRepo.fetchAll()
+        unreadCount = await publicationRepo.unreadCount()
         loadSmartSearches()
     }
 

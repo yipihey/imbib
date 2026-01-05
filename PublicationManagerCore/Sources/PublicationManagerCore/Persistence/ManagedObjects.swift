@@ -44,6 +44,10 @@ public class CDPublication: NSManagedObject {
     @NSManaged public var semanticScholarID: String?
     @NSManaged public var openAlexID: String?
 
+    // Read status (Apple Mail styling)
+    @NSManaged public var isRead: Bool
+    @NSManaged public var dateRead: Date?
+
     // Relationships
     @NSManaged public var publicationAuthors: Set<CDPublicationAuthor>?
     @NSManaged public var linkedFiles: Set<CDLinkedFile>?
