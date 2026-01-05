@@ -166,8 +166,25 @@ struct AppCommands: Commands {
             .keyboardShortcut("c", modifiers: [.command, .shift])
         }
 
-        // Edit menu - publication actions
-        CommandGroup(after: .pasteboard) {
+        // Edit menu - pasteboard commands for publications
+        CommandGroup(replacing: .pasteboard) {
+            Button("Copy") {
+                NotificationCenter.default.post(name: .copyPublications, object: nil)
+            }
+            .keyboardShortcut("c", modifiers: .command)
+
+            Button("Cut") {
+                NotificationCenter.default.post(name: .cutPublications, object: nil)
+            }
+            .keyboardShortcut("x", modifiers: .command)
+
+            Button("Paste") {
+                NotificationCenter.default.post(name: .pastePublications, object: nil)
+            }
+            .keyboardShortcut("v", modifiers: .command)
+
+            Divider()
+
             Button("Toggle Read/Unread") {
                 NotificationCenter.default.post(name: .toggleReadStatus, object: nil)
             }
@@ -184,4 +201,8 @@ extension Notification.Name {
     static let showLibrary = Notification.Name("showLibrary")
     static let showSearch = Notification.Name("showSearch")
     static let toggleReadStatus = Notification.Name("toggleReadStatus")
+    static let readStatusDidChange = Notification.Name("readStatusDidChange")
+    static let copyPublications = Notification.Name("copyPublications")
+    static let cutPublications = Notification.Name("cutPublications")
+    static let pastePublications = Notification.Name("pastePublications")
 }

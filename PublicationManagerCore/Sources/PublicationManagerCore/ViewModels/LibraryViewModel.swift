@@ -8,6 +8,11 @@
 import Foundation
 import OSLog
 import SwiftUI
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 // MARK: - Library View Model
 
@@ -283,6 +288,10 @@ public final class LibraryViewModel {
     /// Toggle read/unread status
     public func toggleReadStatus(_ publication: CDPublication) async {
         await repository.toggleReadStatus(publication)
+        // Post notification so sidebar can update unread count
+        await MainActor.run {
+            NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: nil)
+        }
         // No reload needed - CDPublication is @ObservedObject so row updates automatically
     }
 
@@ -296,6 +305,109 @@ public final class LibraryViewModel {
     /// Get count of unread publications
     public func unreadCount() async -> Int {
         await repository.unreadCount()
+    }
+
+    // MARK: - Clipboard Operations
+
+    /// Copy selected publications to clipboard as BibTeX
+    public func copySelectedToClipboard() async {
+        let toCopy = publications.filter { selectedPublications.contains($0.id) }
+        guard !toCopy.isEmpty else { return }
+
+        let bibtex = await repository.export(toCopy)
+
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(bibtex, forType: .string)
+        #else
+        UIPasteboard.general.string = bibtex
+        #endif
+
+        Logger.viewModels.infoCapture("Copied \(toCopy.count) publications to clipboard", category: "clipboard")
+    }
+
+    /// Copy specific publications by IDs to clipboard as BibTeX
+    public func copyToClipboard(_ ids: Set<UUID>) async {
+        let toCopy = publications.filter { ids.contains($0.id) }
+        guard !toCopy.isEmpty else { return }
+
+        let bibtex = await repository.export(toCopy)
+
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(bibtex, forType: .string)
+        #else
+        UIPasteboard.general.string = bibtex
+        #endif
+
+        Logger.viewModels.infoCapture("Copied \(toCopy.count) publications to clipboard", category: "clipboard")
+    }
+
+    /// Cut selected publications (copy to clipboard, then delete)
+    public func cutSelectedToClipboard() async {
+        await copySelectedToClipboard()
+        await deleteSelected()
+        Logger.viewModels.infoCapture("Cut publications to clipboard", category: "clipboard")
+    }
+
+    /// Cut specific publications by IDs (copy to clipboard, then delete)
+    public func cutToClipboard(_ ids: Set<UUID>) async {
+        await copyToClipboard(ids)
+        await delete(ids: ids)
+        Logger.viewModels.infoCapture("Cut publications to clipboard", category: "clipboard")
+    }
+
+    /// Paste publications from clipboard (import BibTeX)
+    @discardableResult
+    public func pasteFromClipboard() async throws -> Int {
+        #if os(macOS)
+        guard let bibtex = NSPasteboard.general.string(forType: .string) else {
+            throw ImportError.noBibTeXEntry
+        }
+        #else
+        guard let bibtex = UIPasteboard.general.string else {
+            throw ImportError.noBibTeXEntry
+        }
+        #endif
+
+        let parser = BibTeXParser()
+        let entries = try parser.parseEntries(bibtex)
+        guard !entries.isEmpty else {
+            throw ImportError.noBibTeXEntry
+        }
+
+        let imported = await repository.importEntries(entries)
+        await loadPublications()
+
+        Logger.viewModels.infoCapture("Pasted \(imported) publications from clipboard", category: "clipboard")
+        return imported
+    }
+
+    // MARK: - Move Operations
+
+    /// Move publications by IDs to a different library
+    public func moveToLibrary(_ ids: Set<UUID>, library: CDLibrary) async {
+        let toMove = publications.filter { ids.contains($0.id) }
+        guard !toMove.isEmpty else { return }
+
+        await repository.moveToLibrary(toMove, library: library)
+
+        // Remove from selection if they were selected
+        for id in ids {
+            selectedPublications.remove(id)
+        }
+
+        await loadPublications()
+        Logger.viewModels.infoCapture("Moved \(toMove.count) publications to \(library.displayName)", category: "library")
+    }
+
+    /// Add publications by IDs to a collection
+    public func addToCollection(_ ids: Set<UUID>, collection: CDCollection) async {
+        let toAdd = publications.filter { ids.contains($0.id) }
+        guard !toAdd.isEmpty else { return }
+
+        await repository.addPublications(toAdd, to: collection)
+        Logger.viewModels.infoCapture("Added \(toAdd.count) publications to \(collection.name)", category: "library")
     }
 }
 

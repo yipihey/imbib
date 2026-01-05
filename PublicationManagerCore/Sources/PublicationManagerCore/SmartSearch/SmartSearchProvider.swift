@@ -250,19 +250,23 @@ public final class SmartSearchRepository: ObservableObject {
     /// Create a new smart search for the specified library
     ///
     /// This also creates an associated CDCollection to hold imported results (ADR-016).
+    /// If `maxResults` is nil, uses the user's configured default from settings.
     @discardableResult
     public func create(
         name: String,
         query: String,
         sourceIDs: [String] = [],
         library: CDLibrary? = nil,
-        maxResults: Int16 = 50
+        maxResults: Int16? = nil
     ) -> CDSmartSearch {
         let context = persistenceController.viewContext
         let targetLibrary = library ?? currentLibrary
         let libraryName = targetLibrary?.displayName ?? "no library"
 
-        Logger.smartSearch.infoCapture("Creating smart search '\(name)' in \(libraryName)", category: "smartsearch")
+        // Use provided maxResults or read default from settings
+        let effectiveMaxResults = maxResults ?? loadDefaultMaxResults()
+
+        Logger.smartSearch.infoCapture("Creating smart search '\(name)' in \(libraryName) with maxResults=\(effectiveMaxResults)", category: "smartsearch")
 
         let smartSearch = CDSmartSearch(context: context)
         smartSearch.id = UUID()
@@ -271,7 +275,7 @@ public final class SmartSearchRepository: ObservableObject {
         smartSearch.sources = sourceIDs
         smartSearch.dateCreated = Date()
         smartSearch.library = targetLibrary
-        smartSearch.maxResults = maxResults
+        smartSearch.maxResults = effectiveMaxResults
 
         // Set order based on existing searches in this library
         let existingCount = targetLibrary?.smartSearches?.count ?? smartSearches.count
@@ -403,6 +407,20 @@ public final class SmartSearchRepository: ObservableObject {
     /// Get all smart searches for a specific library
     public func smartSearches(for library: CDLibrary) -> [CDSmartSearch] {
         Array(library.smartSearches ?? []).sorted { $0.order < $1.order }
+    }
+
+    // MARK: - Settings Helpers
+
+    /// Load default max results from UserDefaults (synchronous read)
+    ///
+    /// This reads directly from UserDefaults to avoid async actor access in synchronous create().
+    private func loadDefaultMaxResults() -> Int16 {
+        let settingsKey = "smartSearchSettings"
+        guard let data = UserDefaults.standard.data(forKey: settingsKey),
+              let settings = try? JSONDecoder().decode(SmartSearchSettings.self, from: data) else {
+            return SmartSearchSettings.default.defaultMaxResults
+        }
+        return settings.defaultMaxResults
     }
 }
 

@@ -51,6 +51,8 @@ enum SettingsTab: String, CaseIterable {
 
 struct GeneralSettingsTab: View {
 
+    @Environment(SettingsViewModel.self) private var viewModel
+
     @AppStorage("libraryLocation") private var libraryLocation: String = ""
     @AppStorage("openPDFInExternalViewer") private var openPDFExternally = false
 
@@ -69,6 +71,26 @@ struct GeneralSettingsTab: View {
                 Toggle("Open PDFs in external viewer", isOn: $openPDFExternally)
             }
 
+            Section("Smart Search") {
+                Stepper(
+                    "Default result limit: \(viewModel.smartSearchSettings.defaultMaxResults)",
+                    value: Binding(
+                        get: { Int(viewModel.smartSearchSettings.defaultMaxResults) },
+                        set: { newValue in
+                            Task {
+                                await viewModel.updateDefaultMaxResults(Int16(newValue))
+                            }
+                        }
+                    ),
+                    in: 10...500,
+                    step: 10
+                )
+
+                Text("Maximum records to retrieve per smart search query")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Display") {
                 // Future: theme, font size, etc.
                 Text("Display settings coming soon")
@@ -77,6 +99,9 @@ struct GeneralSettingsTab: View {
         }
         .formStyle(.grouped)
         .padding()
+        .task {
+            await viewModel.loadSmartSearchSettings()
+        }
     }
 
     private func chooseLibraryLocation() {

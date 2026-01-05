@@ -68,6 +68,7 @@ struct SmartSearchResultsView: View {
     @State private var error: Error?
     @State private var selectedPublicationIDs: Set<UUID> = []
     @State private var publications: [CDPublication] = []
+    @State private var showUnreadOnly = false
 
     // MARK: - Helpers
 
@@ -79,6 +80,14 @@ struct SmartSearchResultsView: View {
         }
         publications = Array(collection.publications ?? [])
             .sorted { ($0.dateAdded) > ($1.dateAdded) }
+    }
+
+    /// Publications filtered by read status
+    private var filteredPublications: [CDPublication] {
+        if showUnreadOnly {
+            return publications.filter { !$0.isRead }
+        }
+        return publications
     }
 
     // MARK: - Body
@@ -112,7 +121,7 @@ struct SmartSearchResultsView: View {
 
         Task {
             for uuid in selectedPublicationIDs {
-                if let publication = publications.first(where: { $0.id == uuid }) {
+                if let publication = filteredPublications.first(where: { $0.id == uuid }) {
                     await libraryViewModel.toggleReadStatus(publication)
                 }
             }
@@ -164,7 +173,7 @@ struct SmartSearchResultsView: View {
     }
 
     private var listView: some View {
-        List(publications, id: \.id, selection: $selectedPublicationIDs) { publication in
+        List(filteredPublications, id: \.id, selection: $selectedPublicationIDs) { publication in
             MailStylePublicationRow(
                 publication: publication,
                 showUnreadIndicator: true,
@@ -183,6 +192,16 @@ struct SmartSearchResultsView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .automatic) {
+            Button {
+                showUnreadOnly.toggle()
+            } label: {
+                Label("Filter Unread", systemImage: "line.3.horizontal.decrease")
+            }
+            .foregroundStyle(showUnreadOnly ? .blue : .primary)
+            .help(showUnreadOnly ? "Show all publications" : "Show unread only")
+        }
+
+        ToolbarItem(placement: .automatic) {
             if isLoading {
                 ProgressView()
                     .controlSize(.small)
@@ -197,7 +216,7 @@ struct SmartSearchResultsView: View {
         }
 
         ToolbarItem(placement: .automatic) {
-            Text("\(publications.count) results")
+            Text("\(filteredPublications.count) results")
                 .foregroundStyle(.secondary)
         }
     }
@@ -207,7 +226,7 @@ struct SmartSearchResultsView: View {
     private func handleSelectionChange(_ newValue: Set<UUID>) {
         Logger.viewModels.infoCapture("[SmartSearch] selectedPublicationIDs changed: \(newValue.map { $0.uuidString }.joined(separator: ", "))", category: "selection")
         if let firstID = newValue.first {
-            let found = publications.first { $0.id == firstID }
+            let found = filteredPublications.first { $0.id == firstID }
             Logger.viewModels.infoCapture("[SmartSearch] Found publication: \(found?.title ?? "nil")", category: "selection")
             selectedPublication = found
         } else {

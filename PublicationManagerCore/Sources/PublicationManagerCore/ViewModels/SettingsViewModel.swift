@@ -27,22 +27,30 @@ public final class SettingsViewModel {
     public private(set) var enrichmentSettings: EnrichmentSettings = .default
     public private(set) var isLoadingEnrichment = false
 
+    // MARK: - Smart Search Settings State
+
+    public private(set) var smartSearchSettings: SmartSearchSettings = .default
+    public private(set) var isLoadingSmartSearch = false
+
     // MARK: - Dependencies
 
     private let sourceManager: SourceManager
     private let credentialManager: CredentialManager
     private let enrichmentSettingsStore: EnrichmentSettingsStore
+    private let smartSearchSettingsStore: SmartSearchSettingsStore
 
     // MARK: - Initialization
 
     public init(
         sourceManager: SourceManager = SourceManager(),
         credentialManager: CredentialManager = .shared,
-        enrichmentSettingsStore: EnrichmentSettingsStore = .shared
+        enrichmentSettingsStore: EnrichmentSettingsStore = .shared,
+        smartSearchSettingsStore: SmartSearchSettingsStore = .shared
     ) {
         self.sourceManager = sourceManager
         self.credentialManager = credentialManager
         self.enrichmentSettingsStore = enrichmentSettingsStore
+        self.smartSearchSettingsStore = smartSearchSettingsStore
     }
 
     // MARK: - Loading
@@ -157,6 +165,35 @@ public final class SettingsViewModel {
         Logger.enrichment.infoCapture(
             "Enrichment settings reset to defaults",
             category: "enrichment"
+        )
+    }
+
+    // MARK: - Smart Search Settings
+
+    /// Load current smart search settings
+    public func loadSmartSearchSettings() async {
+        isLoadingSmartSearch = true
+        smartSearchSettings = await smartSearchSettingsStore.settings
+        isLoadingSmartSearch = false
+    }
+
+    /// Update the default maximum results for smart searches
+    public func updateDefaultMaxResults(_ maxResults: Int16) async {
+        await smartSearchSettingsStore.updateDefaultMaxResults(maxResults)
+        smartSearchSettings = await smartSearchSettingsStore.settings
+        Logger.smartSearch.infoCapture(
+            "Default smart search max results set to \(maxResults)",
+            category: "smartsearch"
+        )
+    }
+
+    /// Reset smart search settings to defaults
+    public func resetSmartSearchSettingsToDefaults() async {
+        await smartSearchSettingsStore.reset()
+        smartSearchSettings = await smartSearchSettingsStore.settings
+        Logger.smartSearch.infoCapture(
+            "Smart search settings reset to defaults",
+            category: "smartsearch"
         )
     }
 }

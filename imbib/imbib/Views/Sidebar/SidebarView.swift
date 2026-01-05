@@ -33,6 +33,7 @@ struct SidebarView: View {
     @State private var dropTargetedCollection: UUID?
     @State private var dropTargetedLibrary: UUID?
     @State private var dropTargetedLibraryHeader: UUID?
+    @State private var refreshTrigger = UUID()  // Triggers re-render when read status changes
 
     // MARK: - Body
 
@@ -109,6 +110,11 @@ struct SidebarView: View {
                 expandedLibraries.insert(firstLibrary.id)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .readStatusDidChange)) { _ in
+            // Force re-render to update unread counts
+            refreshTrigger = UUID()
+        }
+        .id(refreshTrigger)  // Re-render when refreshTrigger changes
     }
 
     // MARK: - Library Disclosure Group

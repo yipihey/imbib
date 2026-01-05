@@ -677,6 +677,35 @@ public actor PublicationRepository {
         let risEntries = RISBibTeXConverter.toRIS(bibtexEntries)
         return RISExporter().export(risEntries)
     }
+
+    // MARK: - Move and Collection Operations
+
+    /// Add publications to a static collection
+    public func addPublications(_ publications: [CDPublication], to collection: CDCollection) async {
+        guard !collection.isSmartCollection else { return }
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            var current = collection.publications ?? []
+            for pub in publications {
+                current.insert(pub)
+            }
+            collection.publications = current
+            self.persistenceController.save()
+        }
+    }
+
+    /// Move publications to a different library
+    public func moveToLibrary(_ publications: [CDPublication], library: CDLibrary) async {
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            for publication in publications {
+                publication.owningLibrary = library
+            }
+            self.persistenceController.save()
+        }
+    }
 }
 
 // MARK: - Tag Repository

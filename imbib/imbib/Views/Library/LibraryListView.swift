@@ -19,6 +19,7 @@ struct LibraryListView: View {
     // MARK: - Environment
 
     @Environment(LibraryViewModel.self) private var viewModel
+    @Environment(LibraryManager.self) private var libraryManager
 
     // MARK: - Properties
 
@@ -33,6 +34,7 @@ struct LibraryListView: View {
     // MARK: - State
 
     @State private var multiSelection = Set<UUID>()
+    @State private var showUnreadOnly = false
 
     // MARK: - Computed Properties
 
@@ -44,12 +46,16 @@ struct LibraryListView: View {
 
         var filtered = Array(publications)
 
-        // Apply filter mode
-        switch filterMode {
-        case .all:
-            break
-        case .unread:
+        // Apply filter mode or showUnreadOnly toggle
+        if showUnreadOnly {
             filtered = filtered.filter { !$0.isRead }
+        } else {
+            switch filterMode {
+            case .all:
+                break
+            case .unread:
+                filtered = filtered.filter { !$0.isRead }
+            }
         }
 
         // Apply search query if present
@@ -92,29 +98,96 @@ struct LibraryListView: View {
     // MARK: - Body
 
     var body: some View {
-        Group {
-            if viewModel.isLoading {
-                ProgressView("Loading...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if libraryPublications.isEmpty {
-                emptyState
-            } else {
-                publicationList
+        VStack(spacing: 0) {
+            // Inline toolbar above the list
+            HStack(spacing: 12) {
+                // Search field
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Search publications", text: Binding(
+                        get: { viewModel.searchQuery },
+                        set: { viewModel.searchQuery = $0 }
+                    ))
+                    .textFieldStyle(.plain)
+                    if !viewModel.searchQuery.isEmpty {
+                        Button {
+                            viewModel.searchQuery = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(6)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+
+                Spacer()
+
+                // Filter button
+                Button {
+                    showUnreadOnly.toggle()
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease")
+                }
+                .foregroundStyle(showUnreadOnly ? .blue : .secondary)
+                .help(showUnreadOnly ? "Show all publications" : "Show unread only")
+                .buttonStyle(.plain)
+
+                // Import button
+                Button {
+                    NotificationCenter.default.post(name: .importBibTeX, object: nil)
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                }
+                .foregroundStyle(.secondary)
+                .help("Import BibTeX")
+                .buttonStyle(.plain)
+
+                // Sort menu
+                Menu {
+                    ForEach(LibrarySortOrder.allCases, id: \.self) { order in
+                        Button(order.displayName) {
+                            viewModel.sortOrder = order
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                }
+                .foregroundStyle(.secondary)
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+
+            Divider()
+
+            // Content
+            Group {
+                if viewModel.isLoading {
+                    ProgressView("Loading...")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if libraryPublications.isEmpty {
+                    emptyState
+                } else {
+                    publicationList
+                }
             }
         }
         .navigationTitle(navigationTitle)
-        .toolbar {
-            toolbarContent
-        }
-        .searchable(
-            text: Binding(
-                get: { viewModel.searchQuery },
-                set: { viewModel.searchQuery = $0 }
-            ),
-            prompt: "Search publications"
-        )
         .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
             toggleReadStatusForSelected()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .copyPublications)) { _ in
+            Task { await copySelectedPublications() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .cutPublications)) { _ in
+            Task { await cutSelectedPublications() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pastePublications)) { _ in
+            Task { try? await viewModel.pasteFromClipboard() }
         }
     }
 
@@ -161,6 +234,11 @@ struct LibraryListView: View {
                 openPDF(for: publication)
             }
         }
+        #if os(macOS)
+        .onDeleteCommand {
+            Task { await viewModel.delete(ids: multiSelection) }
+        }
+        #endif
     }
 
     // MARK: - Empty State
@@ -178,38 +256,27 @@ struct LibraryListView: View {
         }
     }
 
-    // MARK: - Toolbar
-
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup {
-            Button {
-                NotificationCenter.default.post(name: .importBibTeX, object: nil)
-            } label: {
-                Label("Import", systemImage: "square.and.arrow.down")
-            }
-
-            Menu {
-                ForEach(LibrarySortOrder.allCases, id: \.self) { order in
-                    Button(order.displayName) {
-                        viewModel.sortOrder = order
-                    }
-                }
-            } label: {
-                Label("Sort", systemImage: "arrow.up.arrow.down")
-            }
-        }
-    }
-
     // MARK: - Context Menu
 
     @ViewBuilder
     private func contextMenuItems(for ids: Set<UUID>) -> some View {
+        // Open PDF
         Button("Open PDF") {
             if let first = ids.first,
                let publication = libraryPublications.first(where: { $0.id == first }) {
                 openPDF(for: publication)
             }
+        }
+
+        Divider()
+
+        // Copy/Cut (clipboard operations - BibTeX format)
+        Button("Copy") {
+            Task { await viewModel.copyToClipboard(ids) }
+        }
+
+        Button("Cut") {
+            Task { await viewModel.cutToClipboard(ids) }
         }
 
         Button("Copy Cite Key") {
@@ -221,11 +288,56 @@ struct LibraryListView: View {
 
         Divider()
 
+        // Move To Library submenu (direct UUID-based operation)
+        Menu("Move To Library") {
+            ForEach(libraryManager.libraries, id: \.id) { targetLibrary in
+                if targetLibrary.id != library.id {
+                    Button(targetLibrary.displayName) {
+                        Task {
+                            await viewModel.moveToLibrary(ids, library: targetLibrary)
+                        }
+                    }
+                }
+            }
+        }
+
+        // Add To Collection submenu (direct UUID-based operation)
+        if let collections = library.collections as? Set<CDCollection>,
+           !collections.isEmpty {
+            let staticCollections = collections.filter { !$0.isSmartCollection }.sorted { $0.name < $1.name }
+            if !staticCollections.isEmpty {
+                Menu("Add To Collection") {
+                    ForEach(staticCollections, id: \.id) { collection in
+                        Button(collection.name) {
+                            Task {
+                                await viewModel.addToCollection(ids, collection: collection)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Divider()
+
+        // Delete
         Button("Delete", role: .destructive) {
             Task {
                 await viewModel.delete(ids: ids)
             }
         }
+    }
+
+    // MARK: - Clipboard Actions
+
+    private func copySelectedPublications() async {
+        guard !multiSelection.isEmpty else { return }
+        await viewModel.copyToClipboard(multiSelection)
+    }
+
+    private func cutSelectedPublications() async {
+        guard !multiSelection.isEmpty else { return }
+        await viewModel.cutToClipboard(multiSelection)
     }
 
     // MARK: - Helpers

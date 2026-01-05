@@ -26,13 +26,13 @@ extension UUID: Transferable {
 /// Layout:
 /// ```
 /// ┌─────────────────────────────────────────────────────────────┐
-/// │ ● │ Einstein, A.                         Today 3:42 PM │
+/// │ ● │ Einstein, A. · 1905                              42 │
 /// │   │ On the Electrodynamics of Moving Bodies                │
 /// │   │ 📎 We consider Maxwell's equations in a moving frame...│
 /// └─────────────────────────────────────────────────────────────┘
 /// ```
 ///
-/// - Row 1: Blue dot (unread) | Authors (bold) | Date (right-aligned)
+/// - Row 1: Blue dot (unread) | Authors (bold) · Year | Citation count (right-aligned)
 /// - Row 2: Title
 /// - Row 3: Paperclip icon (if PDF) | Abstract preview (2 lines max)
 public struct MailStylePublicationRow: View {
@@ -80,17 +80,19 @@ public struct MailStylePublicationRow: View {
 
             // Content
             VStack(alignment: .leading, spacing: MailStyleTokens.contentSpacing) {
-                // Row 1: Authors + Date
+                // Row 1: Authors · Year + Citation Count
                 HStack {
-                    Text(authorString)
+                    Text(authorYearString)
                         .font(isUnread ? MailStyleTokens.authorFontUnread : MailStyleTokens.authorFont)
                         .lineLimit(MailStyleTokens.authorLineLimit)
 
                     Spacer()
 
-                    Text(formattedDate)
-                        .font(MailStyleTokens.dateFont)
-                        .foregroundStyle(MailStyleTokens.secondaryTextColor)
+                    if publication.citationCount > 0 {
+                        Text("\(publication.citationCount)")
+                            .font(MailStyleTokens.dateFont)
+                            .foregroundStyle(MailStyleTokens.secondaryTextColor)
+                    }
                 }
 
                 // Row 2: Title
@@ -162,57 +164,65 @@ public struct MailStylePublicationRow: View {
         }
     }
 
-    // MARK: - Author String
+    // MARK: - Author & Year String
 
-    private var authorString: String {
-        // First try authorString from publication (which handles CDAuthor entities)
-        let fromEntities = publication.authorString
-        if !fromEntities.isEmpty {
-            return formatAuthorDisplay(fromEntities)
+    private var authorYearString: String {
+        let authors = authorString
+
+        // Try Int16 year first, then fallback to fields["year"]
+        var yearValue: Int = Int(publication.year)
+        if yearValue == 0, let yearStr = publication.fields["year"], let parsed = Int(yearStr) {
+            yearValue = parsed
         }
 
-        // Fall back to raw author field
+        if yearValue > 0 {
+            return "\(authors) · \(yearValue)"
+        }
+        return authors
+    }
+
+    private var authorString: String {
+        // Get authors from CDAuthor entities if available
+        let sortedAuthors = publication.sortedAuthors
+        if !sortedAuthors.isEmpty {
+            // Clean braces from display names (ADS-style escaping)
+            return formatAuthorList(sortedAuthors.map { BibTeXFieldCleaner.cleanAuthorName($0.displayName) })
+        }
+
+        // Fall back to raw author field (BibTeX format with " and ")
         guard let rawAuthor = publication.fields["author"] else {
             return "Unknown Author"
         }
 
-        return formatAuthorDisplay(rawAuthor)
+        let authors = rawAuthor.components(separatedBy: " and ")
+            .map { BibTeXFieldCleaner.cleanAuthorName($0) }
+            .filter { !$0.isEmpty }
+
+        return formatAuthorList(authors)
     }
 
-    /// Format author string for Mail-style display
-    /// - 1 author: "LastName, F."
-    /// - 2-3 authors: "LastName1, F., LastName2, F."
-    /// - 4+ authors: "LastName1, F., LastName2, F. ... LastNameN, F."
-    private func formatAuthorDisplay(_ authorString: String) -> String {
-        let authors = authorString.components(separatedBy: " and ")
-
+    /// Format author list for Mail-style display
+    /// - 1 author: "LastName"
+    /// - 2 authors: "LastName1, LastName2"
+    /// - 3 authors: "LastName1, LastName2, LastName3"
+    /// - 4+ authors: "LastName1, LastName2 ... LastNameN"
+    private func formatAuthorList(_ authors: [String]) -> String {
         guard !authors.isEmpty else {
             return "Unknown Author"
         }
 
-        switch authors.count {
+        let lastNames = authors.map { extractLastName(from: $0) }
+
+        switch lastNames.count {
         case 1:
-            return formatSingleAuthor(authors[0])
-        case 2, 3:
-            return authors.map { formatSingleAuthor($0) }.joined(separator: ", ")
+            return lastNames[0]
+        case 2:
+            return "\(lastNames[0]), \(lastNames[1])"
+        case 3:
+            return "\(lastNames[0]), \(lastNames[1]), \(lastNames[2])"
         default:
             // 4+ authors: first two ... last
-            let first = formatSingleAuthor(authors[0])
-            let second = formatSingleAuthor(authors[1])
-            let last = formatSingleAuthor(authors[authors.count - 1])
-            return "\(first), \(second) ... \(last)"
-        }
-    }
-
-    /// Format a single author as "LastName, F."
-    private func formatSingleAuthor(_ author: String) -> String {
-        let lastName = extractLastName(from: author)
-        let initial = extractInitial(from: author)
-
-        if let initial = initial {
-            return "\(lastName), \(initial)."
-        } else {
-            return lastName
+            return "\(lastNames[0]), \(lastNames[1]) ... \(lastNames[lastNames.count - 1])"
         }
     }
 
@@ -223,47 +233,9 @@ public struct MailStylePublicationRow: View {
             // "Last, First" format
             return trimmed.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? trimmed
         } else {
-            // "First Last" format
-            return trimmed.components(separatedBy: " ").last ?? trimmed
-        }
-    }
-
-    private func extractInitial(from author: String) -> Character? {
-        let trimmed = author.trimmingCharacters(in: .whitespaces)
-
-        if trimmed.contains(",") {
-            // "Last, First" format
-            let parts = trimmed.components(separatedBy: ",")
-            if parts.count > 1 {
-                let firstName = parts[1].trimmingCharacters(in: .whitespaces)
-                return firstName.first
-            }
-        } else {
-            // "First Last" format
-            return trimmed.first
-        }
-        return nil
-    }
-
-    // MARK: - Date Formatting
-
-    private var formattedDate: String {
-        let date = publication.dateAdded
-
-        let calendar = Calendar.current
-
-        if calendar.isDateInToday(date) {
-            // Today: show time only
-            return date.formatted(date: .omitted, time: .shortened)
-        } else if calendar.isDateInYesterday(date) {
-            return "Yesterday"
-        } else if let daysAgo = calendar.dateComponents([.day], from: date, to: Date()).day,
-                  daysAgo < 7 {
-            // Within last week: show weekday
-            return date.formatted(.dateTime.weekday(.wide))
-        } else {
-            // Older: show abbreviated date
-            return date.formatted(date: .abbreviated, time: .omitted)
+            // "First Last" format - get the last word
+            let parts = trimmed.components(separatedBy: " ").filter { !$0.isEmpty }
+            return parts.last ?? trimmed
         }
     }
 
