@@ -19,11 +19,19 @@ actor SmartSearchProviderCache {
 
     private var providers: [UUID: SmartSearchProvider] = [:]
 
-    func getOrCreate(for smartSearch: CDSmartSearch, sourceManager: SourceManager) -> SmartSearchProvider {
+    func getOrCreate(
+        for smartSearch: CDSmartSearch,
+        sourceManager: SourceManager,
+        repository: PublicationRepository
+    ) -> SmartSearchProvider {
         if let existing = providers[smartSearch.id] {
             return existing
         }
-        let provider = SmartSearchProvider(from: smartSearch, sourceManager: sourceManager)
+        let provider = SmartSearchProvider(
+            from: smartSearch,
+            sourceManager: sourceManager,
+            repository: repository
+        )
         providers[smartSearch.id] = provider
         return provider
     }
@@ -36,12 +44,17 @@ actor SmartSearchProviderCache {
 
 // MARK: - Smart Search Results View
 
+/// Displays the results of a smart search as CDPublication entities.
+///
+/// ADR-016: Smart search results are auto-imported as CDPublication entities
+/// stored in the smart search's associated CDCollection. This provides full
+/// library capabilities (editing, notes, etc.) for all search results.
 struct SmartSearchResultsView: View {
 
     // MARK: - Properties
 
     let smartSearch: CDSmartSearch
-    @Binding var selectedPaper: OnlinePaper?
+    @Binding var selectedPublication: CDPublication?
 
     // MARK: - Environment
 
@@ -51,17 +64,24 @@ struct SmartSearchResultsView: View {
     // MARK: - State
 
     @State private var provider: SmartSearchProvider?
-    @State private var papers: [OnlinePaper] = []
     @State private var isLoading = false
     @State private var error: Error?
-    @State private var selectedPaperIDs: Set<String> = []
-    @State private var libraryRefreshTrigger = 0
+    @State private var selectedPublicationIDs: Set<UUID> = []
+
+    // MARK: - Computed
+
+    /// Publications from the smart search's result collection
+    private var publications: [CDPublication] {
+        guard let collection = smartSearch.resultCollection else { return [] }
+        return Array(collection.publications ?? [])
+            .sorted { ($0.dateAdded) > ($1.dateAdded) }
+    }
 
     // MARK: - Body
 
     var body: some View {
         Group {
-            if isLoading && papers.isEmpty {
+            if isLoading && publications.isEmpty {
                 ProgressView("Searching...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error {
@@ -74,24 +94,20 @@ struct SmartSearchResultsView: View {
                         Task { await loadOrRefresh(forceRefresh: true) }
                     }
                 }
-            } else if papers.isEmpty {
+            } else if publications.isEmpty {
                 ContentUnavailableView(
                     "No Results",
                     systemImage: "magnifyingglass",
-                    description: Text("No papers found for \"\(smartSearch.query)\"")
-                )
+                    description: Text("No papers found for \"\(smartSearch.query)\".\nClick refresh to search.")
+                ) {
+                    Button("Search Now") {
+                        Task { await loadOrRefresh(forceRefresh: true) }
+                    }
+                }
             } else {
-                List(papers, selection: $selectedPaperIDs) { paper in
-                    UnifiedPaperRow(
-                        paper: paper,
-                        showLibraryIndicator: true,
-                        showSourceBadges: true,
-                        onImport: {
-                            Task { await importPaper(paper) }
-                        },
-                        libraryCheckTrigger: libraryRefreshTrigger
-                    )
-                    .tag(paper.id)
+                List(publications, id: \.id, selection: $selectedPublicationIDs) { publication in
+                    PublicationRow(publication: publication)
+                        .tag(publication.id)
                 }
             }
         }
@@ -112,21 +128,24 @@ struct SmartSearchResultsView: View {
             }
 
             ToolbarItem(placement: .automatic) {
-                Text("\(papers.count) results")
+                Text("\(publications.count) results")
                     .foregroundStyle(.secondary)
             }
         }
         .task(id: smartSearch.id) {
-            await loadOrRefresh(forceRefresh: false)
+            // Only auto-refresh if collection is empty (first time or after clear)
+            if publications.isEmpty {
+                await loadOrRefresh(forceRefresh: true)
+            }
         }
-        .onChange(of: selectedPaperIDs) { _, newValue in
-            Logger.viewModels.infoCapture("[SmartSearch] selectedPaperIDs changed: \(newValue.joined(separator: ", "))", category: "selection")
+        .onChange(of: selectedPublicationIDs) { _, newValue in
+            Logger.viewModels.infoCapture("[SmartSearch] selectedPublicationIDs changed: \(newValue.map { $0.uuidString }.joined(separator: ", "))", category: "selection")
             if let firstID = newValue.first {
-                let found = papers.first { $0.id == firstID }
-                Logger.viewModels.infoCapture("[SmartSearch] Found paper: \(found?.title ?? "nil") id: \(found?.id ?? "nil")", category: "selection")
-                selectedPaper = found
+                let found = publications.first { $0.id == firstID }
+                Logger.viewModels.infoCapture("[SmartSearch] Found publication: \(found?.title ?? "nil")", category: "selection")
+                selectedPublication = found
             } else {
-                selectedPaper = nil
+                selectedPublication = nil
             }
         }
     }
@@ -140,41 +159,84 @@ struct SmartSearchResultsView: View {
         // Get or create cached provider
         let cachedProvider = await SmartSearchProviderCache.shared.getOrCreate(
             for: smartSearch,
-            sourceManager: searchViewModel.sourceManager
+            sourceManager: searchViewModel.sourceManager,
+            repository: libraryViewModel.repository
         )
         provider = cachedProvider
 
-        // Check if we have cached results
-        let hasCachedResults = await cachedProvider.count > 0
+        // Check if we have existing results in the collection
+        let hasResults = !publications.isEmpty
 
-        if hasCachedResults && !forceRefresh {
-            // Use cached results - no network fetch
-            papers = await cachedProvider.papers
+        if hasResults && !forceRefresh {
+            // Use existing results - no network fetch
             isLoading = false
             return
         }
 
-        // No cache or force refresh - fetch from network
+        // No results or force refresh - fetch from network and auto-import
         do {
             try await cachedProvider.refresh()
-            papers = await cachedProvider.papers
-            SmartSearchRepository.shared.markExecuted(smartSearch)
+            await MainActor.run {
+                SmartSearchRepository.shared.markExecuted(smartSearch)
+            }
         } catch {
             self.error = error
         }
 
         isLoading = false
     }
+}
 
-    // MARK: - Import
+// MARK: - Publication Row
 
-    private func importPaper(_ paper: OnlinePaper) async {
-        // Fast local import - no network request needed
-        let publication = await libraryViewModel.importPaperLocally(paper)
-        Logger.viewModels.infoCapture("[SmartSearch] Imported: \(publication.citeKey)", category: "import")
+/// A simple row for displaying a CDPublication in a list
+private struct PublicationRow: View {
+    let publication: CDPublication
 
-        // Trigger library state re-check for all rows
-        libraryRefreshTrigger += 1
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(publication.title ?? "Untitled")
+                .font(.headline)
+                .lineLimit(2)
+
+            HStack {
+                Text(publication.authorString)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                if publication.year > 0 {
+                    Text("(\(publication.year))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            // Show source badge if available
+            if let sourceID = publication.originalSourceID {
+                HStack(spacing: 4) {
+                    Image(systemName: sourceIcon(for: sourceID))
+                        .font(.caption)
+                    Text(sourceID.capitalized)
+                        .font(.caption)
+                }
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func sourceIcon(for sourceID: String) -> String {
+        switch sourceID.lowercased() {
+        case "arxiv": return "doc.text"
+        case "crossref": return "globe"
+        case "ads": return "star"
+        case "pubmed": return "cross.case"
+        case "semanticscholar": return "brain"
+        case "openalex": return "book"
+        case "dblp": return "server.rack"
+        default: return "magnifyingglass"
+        }
     }
 }
 
@@ -187,12 +249,20 @@ struct SmartSearchResultsView: View {
     smartSearch.query = "quantum computing"
     smartSearch.dateCreated = Date()
 
+    // Create a result collection
+    let collection = CDCollection(context: context)
+    collection.id = UUID()
+    collection.name = "Quantum Computing"
+    collection.isSmartSearchResults = true
+    smartSearch.resultCollection = collection
+
     return NavigationStack {
-        SmartSearchResultsView(smartSearch: smartSearch, selectedPaper: .constant(nil))
+        SmartSearchResultsView(smartSearch: smartSearch, selectedPublication: .constant(nil))
     }
     .environment(SearchViewModel(
         sourceManager: SourceManager(),
         deduplicationService: DeduplicationService(),
         repository: PublicationRepository()
     ))
+    .environment(LibraryViewModel(repository: PublicationRepository()))
 }

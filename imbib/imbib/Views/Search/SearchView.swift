@@ -8,17 +8,33 @@
 import SwiftUI
 import PublicationManagerCore
 
+/// Displays ad-hoc search results as CDPublication entities.
+///
+/// ADR-016: Search results are auto-imported to the active library's "Last Search"
+/// collection. This provides full library capabilities (editing, notes, etc.)
+/// for all search results.
 struct SearchResultsListView: View {
 
     // MARK: - Environment
 
     @Environment(SearchViewModel.self) private var viewModel
+    @Environment(LibraryManager.self) private var libraryManager
 
     // MARK: - State
 
     @State private var searchText: String = ""
     @State private var availableSources: [SourceMetadata] = []
     @FocusState private var isSearchFocused: Bool
+
+    // MARK: - Bindings (for selection)
+
+    @Binding var selectedPublication: CDPublication?
+
+    // MARK: - Initialization
+
+    init(selectedPublication: Binding<CDPublication?> = .constant(nil)) {
+        self._selectedPublication = selectedPublication
+    }
 
     // MARK: - Body
 
@@ -37,6 +53,8 @@ struct SearchResultsListView: View {
         .navigationTitle("Search")
         .task {
             availableSources = await viewModel.availableSources
+            // Ensure SearchViewModel has access to LibraryManager
+            viewModel.setLibraryManager(libraryManager)
         }
     }
 
@@ -91,20 +109,19 @@ struct SearchResultsListView: View {
         if viewModel.isSearching {
             ProgressView("Searching...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if viewModel.papers.isEmpty {
+        } else if viewModel.publications.isEmpty {
             emptyState
         } else {
-            List(viewModel.papers, selection: $viewModel.selectedResults) { paper in
-                UnifiedPaperRow(
-                    paper: paper,
-                    showLibraryIndicator: true,
-                    showSourceBadges: true
-                ) {
-                    Task {
-                        try? await viewModel.importPaper(paper)
-                    }
+            List(viewModel.publications, id: \.id, selection: $viewModel.selectedPublicationIDs) { publication in
+                PublicationSearchRow(publication: publication)
+                    .tag(publication.id)
+            }
+            .onChange(of: viewModel.selectedPublicationIDs) { _, newValue in
+                if let firstID = newValue.first {
+                    selectedPublication = viewModel.publications.first { $0.id == firstID }
+                } else {
+                    selectedPublication = nil
                 }
-                .tag(paper.id)
             }
         }
     }
@@ -126,6 +143,59 @@ struct SearchResultsListView: View {
         Task {
             viewModel.query = searchText
             await viewModel.search()
+        }
+    }
+}
+
+// MARK: - Publication Search Row
+
+/// A row for displaying a CDPublication in search results
+private struct PublicationSearchRow: View {
+    let publication: CDPublication
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(publication.title ?? "Untitled")
+                .font(.headline)
+                .lineLimit(2)
+
+            HStack {
+                Text(publication.authorString)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                if publication.year > 0 {
+                    Text("(\(publication.year))")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            // Show source badge if available
+            if let sourceID = publication.originalSourceID {
+                HStack(spacing: 4) {
+                    Image(systemName: sourceIcon(for: sourceID))
+                        .font(.caption)
+                    Text(sourceID.capitalized)
+                        .font(.caption)
+                }
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    private func sourceIcon(for sourceID: String) -> String {
+        switch sourceID.lowercased() {
+        case "arxiv": return "doc.text"
+        case "crossref": return "globe"
+        case "ads": return "star"
+        case "pubmed": return "cross.case"
+        case "semanticscholar": return "brain"
+        case "openalex": return "book"
+        case "dblp": return "server.rack"
+        default: return "magnifyingglass"
         }
     }
 }
@@ -192,10 +262,11 @@ struct SourceChip: View {
 // MARK: - Preview
 
 #Preview {
-    SearchResultsListView()
+    SearchResultsListView(selectedPublication: .constant(nil))
         .environment(SearchViewModel(
             sourceManager: SourceManager(),
             deduplicationService: DeduplicationService(),
             repository: PublicationRepository()
         ))
+        .environment(LibraryManager())
 }

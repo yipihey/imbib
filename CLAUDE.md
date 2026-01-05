@@ -213,7 +213,7 @@ struct RISEntry: Sendable {
 - [ ] CloudKit sync with conflict resolution
 - [x] Multiple library support (LibraryManager)
 - [x] Smart searches (stored queries)
-- [x] Session cache for online papers
+- [x] Unified Paper Model (ADR-016: all papers are CDPublication)
 - [x] RIS format core module (ADR-013 Phase 1)
 
 ### Phase 3: Polish
@@ -244,7 +244,7 @@ All phases complete: Core Module, Integration, Online Source Integration, and UI
 - [x] Add `fetchRIS`/`supportsRIS` to SourcePlugin protocol
 - [x] Implement fetchRIS in CrossrefSource (DOI content negotiation)
 - [x] Implement fetchRIS in ADSSource (/export/ris endpoint)
-- [x] Update `SessionCache` to handle RIS metadata
+- [x] RIS converted to BibTeX at import (no RIS caching needed after ADR-016)
 
 **Phase 4: UI Polish** ✅ COMPLETE
 - [x] RIS preview in import dialog (ImportPreviewView)
@@ -305,6 +305,7 @@ swift package generate-xcodeproj
 | 012 | Unified library/online experience (PaperRepresentable, SessionCache) |
 | 013 | First-class RIS format (RISParser, RISExporter, RISBibTeXConverter) |
 | 015 | PDF settings (source priority, library proxy, ADSSource pdfURL fix) |
+| 016 | Unified Paper Model: All papers are CDPublication (auto-import, no OnlinePaper) |
 
 ## Session Continuity
 
@@ -316,6 +317,40 @@ When resuming work, check:
 Update the changelog below after significant work:
 
 ## Changelog
+
+### 2026-01-05 (Session 8)
+- Implemented ADR-016: Unified Paper Model
+  - All papers are now CDPublication entities (no more OnlinePaper)
+  - Search results auto-import to Last Search collection or smart search collections
+  - Deduplication via DOI, arXiv ID, bibcode, Semantic Scholar ID, OpenAlex ID
+- Deleted OnlinePaper.swift (replaced by CDPublication)
+- Simplified SessionCache to only cache search API responses
+  - Removed: bibtexCache, risCache, pdfCache, pendingMetadata, enrichmentCache
+  - Kept: searchResults (for API response caching)
+- Updated PDFURLResolver to work with CDPublication
+- Simplified UnifiedDetailView to single CDPublication path
+  - Removed OnlinePaper initializer and casts
+  - Unified PDF download flow via PDFManager
+- Updated UnifiedPDFTab to use PDFManager for all PDF downloads
+- Fixed Core Data entity conflicts in tests (cached NSManagedObjectModel)
+- Removed OnlinePaperPDFViewer
+- All 741 tests passing
+
+### 2026-01-04 (Session 7)
+- Unified PaperDetailView and PublicationDetailView into single UnifiedDetailView
+- Created UnifiedDetailView.swift with protocol-based approach:
+  - Works with any PaperRepresentable (OnlinePaper, LocalPaper)
+  - Conditional editing for persistent papers (library items)
+  - Four tabs: Metadata, BibTeX, PDF, Notes
+  - Notes tab only shown for library papers
+- Implemented full Add PDF functionality:
+  - fileImporter for PDF selection
+  - PDFManager integration for file import
+  - Proper UI refresh after import
+- Updated BibTeXExporter.generateEntry to accept any PaperRepresentable
+- Fixed PDF viewing for library papers using linkedFile initializer
+- Removed deprecated PaperDetailView.swift and PublicationDetailView.swift
+- All 756 tests passing
 
 ### 2026-01-04 (Session 6)
 - Implemented ADR-015: PDF Settings and URL Resolution

@@ -23,6 +23,11 @@ public protocol CredentialProviding: Sendable {
 /// Manages API keys and other credentials stored in the Keychain.
 public actor CredentialManager: CredentialProviding {
 
+    // MARK: - Shared Instance
+
+    /// Shared instance for app-wide credential management
+    public static let shared = CredentialManager()
+
     // MARK: - Properties
 
     private let keychain: KeychainSwift
@@ -32,6 +37,7 @@ public actor CredentialManager: CredentialProviding {
 
     public init(keyPrefix: String = "com.imbib.credentials") {
         self.keychain = KeychainSwift()
+        self.keychain.accessGroup = nil  // Use app's default keychain (works in sandbox)
         self.keyPrefix = keyPrefix
         keychain.synchronizable = false  // Don't sync credentials to iCloud
     }

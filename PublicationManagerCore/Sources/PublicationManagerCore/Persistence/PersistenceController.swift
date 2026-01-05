@@ -65,7 +65,14 @@ public final class PersistenceController: @unchecked Sendable {
 
     // MARK: - Core Data Model Creation
 
+    /// Cached model to avoid multiple entity descriptions claiming the same NSManagedObject subclasses
+    private static let cachedModel: NSManagedObjectModel = createManagedObjectModelInternal()
+
     private static func createManagedObjectModel() -> NSManagedObjectModel {
+        return cachedModel
+    }
+
+    private static func createManagedObjectModelInternal() -> NSManagedObjectModel {
         let model = NSManagedObjectModel()
 
         // Create entities
@@ -92,6 +99,18 @@ public final class PersistenceController: @unchecked Sendable {
         setupLibrarySmartSearchRelationship(
             library: libraryEntity,
             smartSearch: smartSearchEntity
+        )
+
+        // ADR-016: Set up smart search-collection relationship
+        setupSmartSearchCollectionRelationship(
+            smartSearch: smartSearchEntity,
+            collection: collectionEntity
+        )
+
+        // ADR-016: Set up library-lastSearchCollection relationship
+        setupLibraryLastSearchRelationship(
+            library: libraryEntity,
+            collection: collectionEntity
         )
 
         model.entities = [
@@ -223,6 +242,52 @@ public final class PersistenceController: @unchecked Sendable {
         enrichmentDate.attributeType = .dateAttributeType
         enrichmentDate.isOptional = true
         properties.append(enrichmentDate)
+
+        // ADR-016: Online source metadata
+        let originalSourceID = NSAttributeDescription()
+        originalSourceID.name = "originalSourceID"
+        originalSourceID.attributeType = .stringAttributeType
+        originalSourceID.isOptional = true
+        properties.append(originalSourceID)
+
+        let pdfLinksJSON = NSAttributeDescription()
+        pdfLinksJSON.name = "pdfLinksJSON"
+        pdfLinksJSON.attributeType = .stringAttributeType
+        pdfLinksJSON.isOptional = true
+        properties.append(pdfLinksJSON)
+
+        let webURL = NSAttributeDescription()
+        webURL.name = "webURL"
+        webURL.attributeType = .stringAttributeType
+        webURL.isOptional = true
+        properties.append(webURL)
+
+        // ADR-016: PDF download state
+        let hasPDFDownloaded = NSAttributeDescription()
+        hasPDFDownloaded.name = "hasPDFDownloaded"
+        hasPDFDownloaded.attributeType = .booleanAttributeType
+        hasPDFDownloaded.isOptional = false
+        hasPDFDownloaded.defaultValue = false
+        properties.append(hasPDFDownloaded)
+
+        let pdfDownloadDate = NSAttributeDescription()
+        pdfDownloadDate.name = "pdfDownloadDate"
+        pdfDownloadDate.attributeType = .dateAttributeType
+        pdfDownloadDate.isOptional = true
+        properties.append(pdfDownloadDate)
+
+        // ADR-016: Extended identifiers for deduplication
+        let semanticScholarID = NSAttributeDescription()
+        semanticScholarID.name = "semanticScholarID"
+        semanticScholarID.attributeType = .stringAttributeType
+        semanticScholarID.isOptional = true
+        properties.append(semanticScholarID)
+
+        let openAlexID = NSAttributeDescription()
+        openAlexID.name = "openAlexID"
+        openAlexID.attributeType = .stringAttributeType
+        openAlexID.isOptional = true
+        properties.append(openAlexID)
 
         entity.properties = properties
         return entity
@@ -391,6 +456,21 @@ public final class PersistenceController: @unchecked Sendable {
         predicate.isOptional = true
         properties.append(predicate)
 
+        // ADR-016: Unified Paper Model
+        let isSmartSearchResults = NSAttributeDescription()
+        isSmartSearchResults.name = "isSmartSearchResults"
+        isSmartSearchResults.attributeType = .booleanAttributeType
+        isSmartSearchResults.isOptional = false
+        isSmartSearchResults.defaultValue = false
+        properties.append(isSmartSearchResults)
+
+        let isSystemCollection = NSAttributeDescription()
+        isSystemCollection.name = "isSystemCollection"
+        isSystemCollection.attributeType = .booleanAttributeType
+        isSystemCollection.isOptional = false
+        isSystemCollection.defaultValue = false
+        properties.append(isSystemCollection)
+
         entity.properties = properties
         return entity
     }
@@ -508,6 +588,14 @@ public final class PersistenceController: @unchecked Sendable {
         order.defaultValue = 0
         properties.append(order)
 
+        // ADR-016: Unified Paper Model
+        let maxResults = NSAttributeDescription()
+        maxResults.name = "maxResults"
+        maxResults.attributeType = .integer16AttributeType
+        maxResults.isOptional = false
+        maxResults.defaultValue = Int16(50)  // Default limit of 50 results
+        properties.append(maxResults)
+
         entity.properties = properties
         return entity
     }
@@ -540,6 +628,66 @@ public final class PersistenceController: @unchecked Sendable {
         // Add to entities
         library.properties.append(libraryToSmartSearches)
         smartSearch.properties.append(smartSearchToLibrary)
+    }
+
+    // ADR-016: Smart Search <-> Result Collection relationship
+    private static func setupSmartSearchCollectionRelationship(
+        smartSearch: NSEntityDescription,
+        collection: NSEntityDescription
+    ) {
+        // SmartSearch -> resultCollection (one-to-one)
+        let smartSearchToCollection = NSRelationshipDescription()
+        smartSearchToCollection.name = "resultCollection"
+        smartSearchToCollection.destinationEntity = collection
+        smartSearchToCollection.maxCount = 1
+        smartSearchToCollection.isOptional = true
+        smartSearchToCollection.deleteRule = .cascadeDeleteRule  // Delete collection when smart search is deleted
+
+        // Collection -> smartSearch (one-to-one, inverse)
+        let collectionToSmartSearch = NSRelationshipDescription()
+        collectionToSmartSearch.name = "smartSearch"
+        collectionToSmartSearch.destinationEntity = smartSearch
+        collectionToSmartSearch.maxCount = 1
+        collectionToSmartSearch.isOptional = true
+        collectionToSmartSearch.deleteRule = .nullifyDeleteRule
+
+        // Set inverse relationships
+        smartSearchToCollection.inverseRelationship = collectionToSmartSearch
+        collectionToSmartSearch.inverseRelationship = smartSearchToCollection
+
+        // Add to entities
+        smartSearch.properties.append(smartSearchToCollection)
+        collection.properties.append(collectionToSmartSearch)
+    }
+
+    // ADR-016: Library <-> Last Search Collection relationship
+    private static func setupLibraryLastSearchRelationship(
+        library: NSEntityDescription,
+        collection: NSEntityDescription
+    ) {
+        // Library -> lastSearchCollection (one-to-one)
+        let libraryToLastSearch = NSRelationshipDescription()
+        libraryToLastSearch.name = "lastSearchCollection"
+        libraryToLastSearch.destinationEntity = collection
+        libraryToLastSearch.maxCount = 1
+        libraryToLastSearch.isOptional = true
+        libraryToLastSearch.deleteRule = .cascadeDeleteRule  // Delete collection when library is deleted
+
+        // Collection -> owningLibrary (one-to-one, inverse for system collections)
+        let collectionToLibrary = NSRelationshipDescription()
+        collectionToLibrary.name = "owningLibrary"
+        collectionToLibrary.destinationEntity = library
+        collectionToLibrary.maxCount = 1
+        collectionToLibrary.isOptional = true
+        collectionToLibrary.deleteRule = .nullifyDeleteRule
+
+        // Set inverse relationships
+        libraryToLastSearch.inverseRelationship = collectionToLibrary
+        collectionToLibrary.inverseRelationship = libraryToLastSearch
+
+        // Add to entities
+        library.properties.append(libraryToLastSearch)
+        collection.properties.append(collectionToLibrary)
     }
 
     private static func setupRelationships(

@@ -248,6 +248,275 @@ public actor PublicationRepository {
         return BibTeXExporter().export(entries)
     }
 
+    // MARK: - Deduplication (ADR-016)
+
+    /// Find publication by DOI (normalized to lowercase)
+    public func findByDOI(_ doi: String) async -> CDPublication? {
+        let normalized = doi.lowercased().trimmingCharacters(in: .whitespaces)
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            request.predicate = NSPredicate(format: "doi ==[c] %@", normalized)
+            request.fetchLimit = 1
+
+            return try? context.fetch(request).first
+        }
+    }
+
+    /// Find publication by arXiv ID (strips version suffix like "v1", "v2")
+    public func findByArXiv(_ arxivID: String) async -> CDPublication? {
+        // Strip version suffix (e.g., "2301.12345v2" -> "2301.12345")
+        let baseID = arxivID.replacingOccurrences(
+            of: #"v\d+$"#,
+            with: "",
+            options: .regularExpression
+        ).trimmingCharacters(in: .whitespaces)
+
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            // Check fields.eprint or fields.arxiv (both are used)
+            request.predicate = NSPredicate(
+                format: "rawFields CONTAINS[c] %@",
+                baseID
+            )
+
+            do {
+                let results = try context.fetch(request)
+                // Verify the match in the fields
+                return results.first { pub in
+                    let fields = pub.fields
+                    let eprint = fields["eprint"]?.replacingOccurrences(of: #"v\d+$"#, with: "", options: .regularExpression)
+                    let arxiv = fields["arxiv"]?.replacingOccurrences(of: #"v\d+$"#, with: "", options: .regularExpression)
+                    return eprint?.lowercased() == baseID.lowercased() ||
+                           arxiv?.lowercased() == baseID.lowercased()
+                }
+            } catch {
+                return nil
+            }
+        }
+    }
+
+    /// Find publication by ADS bibcode
+    public func findByBibcode(_ bibcode: String) async -> CDPublication? {
+        let normalized = bibcode.trimmingCharacters(in: .whitespaces)
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            // Bibcode is typically stored in fields.bibcode or fields.adsurl
+            request.predicate = NSPredicate(
+                format: "rawFields CONTAINS[c] %@",
+                normalized
+            )
+
+            do {
+                let results = try context.fetch(request)
+                return results.first { pub in
+                    let fields = pub.fields
+                    return fields["bibcode"]?.lowercased() == normalized.lowercased()
+                }
+            } catch {
+                return nil
+            }
+        }
+    }
+
+    /// Find publication by Semantic Scholar ID
+    public func findBySemanticScholarID(_ id: String) async -> CDPublication? {
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            request.predicate = NSPredicate(format: "semanticScholarID == %@", id)
+            request.fetchLimit = 1
+
+            return try? context.fetch(request).first
+        }
+    }
+
+    /// Find publication by OpenAlex ID
+    public func findByOpenAlexID(_ id: String) async -> CDPublication? {
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            request.predicate = NSPredicate(format: "openAlexID == %@", id)
+            request.fetchLimit = 1
+
+            return try? context.fetch(request).first
+        }
+    }
+
+    /// Find publication by any identifier from a SearchResult
+    /// Checks DOI, arXiv ID, and bibcode in priority order
+    public func findByIdentifiers(_ result: SearchResult) async -> CDPublication? {
+        // Check DOI first (most reliable)
+        if let doi = result.doi {
+            if let pub = await findByDOI(doi) {
+                return pub
+            }
+        }
+
+        // Check arXiv ID
+        if let arxivID = result.arxivID {
+            if let pub = await findByArXiv(arxivID) {
+                return pub
+            }
+        }
+
+        // Check bibcode
+        if let bibcode = result.bibcode {
+            if let pub = await findByBibcode(bibcode) {
+                return pub
+            }
+        }
+
+        // Check Semantic Scholar ID
+        if let ssID = result.semanticScholarID {
+            if let pub = await findBySemanticScholarID(ssID) {
+                return pub
+            }
+        }
+
+        // Check OpenAlex ID
+        if let oaID = result.openAlexID {
+            if let pub = await findByOpenAlexID(oaID) {
+                return pub
+            }
+        }
+
+        return nil
+    }
+
+    // MARK: - Create from Search Result (ADR-016)
+
+    /// Create a new publication from a SearchResult with online source metadata
+    ///
+    /// This method creates a CDPublication directly from search result metadata,
+    /// without requiring a network fetch for BibTeX. The BibTeX is generated locally.
+    ///
+    /// - Parameters:
+    ///   - result: The search result to create from
+    ///   - library: Optional library for file paths
+    /// - Returns: The created CDPublication
+    @discardableResult
+    public func createFromSearchResult(_ result: SearchResult, in library: CDLibrary? = nil) async -> CDPublication {
+        Logger.persistence.info("Creating publication from search result: \(result.title)")
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let publication = CDPublication(context: context)
+            publication.id = UUID()
+            publication.dateAdded = Date()
+            publication.dateModified = Date()
+
+            // Generate cite key
+            let existingKeys = self.fetchCiteKeysSync(context: context)
+            publication.citeKey = self.generateCiteKey(for: result, existingKeys: existingKeys)
+
+            // Set entry type (default to article)
+            publication.entryType = "article"
+
+            // Core fields
+            publication.title = result.title
+            if let year = result.year {
+                publication.year = Int16(year)
+            }
+            publication.abstract = result.abstract
+            publication.doi = result.doi
+
+            // Build fields dictionary
+            var fields: [String: String] = [:]
+            if !result.authors.isEmpty {
+                fields["author"] = result.authors.joined(separator: " and ")
+            }
+            if let venue = result.venue {
+                fields["journal"] = venue
+            }
+            if let doi = result.doi {
+                fields["doi"] = doi
+            }
+            if let arxivID = result.arxivID {
+                fields["eprint"] = arxivID
+                fields["archiveprefix"] = "arXiv"
+            }
+            if let bibcode = result.bibcode {
+                fields["bibcode"] = bibcode
+            }
+            if let pmid = result.pmid {
+                fields["pmid"] = pmid
+            }
+            publication.fields = fields
+
+            // ADR-016: Online source metadata
+            publication.originalSourceID = result.sourceID
+            publication.webURL = result.webURL?.absoluteString
+            publication.semanticScholarID = result.semanticScholarID
+            publication.openAlexID = result.openAlexID
+
+            // Store PDF links as JSON
+            if !result.pdfLinks.isEmpty {
+                publication.pdfLinks = result.pdfLinks
+            }
+
+            // Generate and store BibTeX
+            let entry = publication.toBibTeXEntry()
+            publication.rawBibTeX = BibTeXExporter().export([entry])
+
+            self.persistenceController.save()
+            return publication
+        }
+    }
+
+    /// Synchronous helper to fetch existing cite keys (must be called from context.perform)
+    private func fetchCiteKeysSync(context: NSManagedObjectContext) -> Set<String> {
+        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+        request.propertiesToFetch = ["citeKey"]
+
+        do {
+            let pubs = try context.fetch(request)
+            return Set(pubs.map { $0.citeKey })
+        } catch {
+            return []
+        }
+    }
+
+    /// Generate a unique cite key for a search result
+    private func generateCiteKey(for result: SearchResult, existingKeys: Set<String>) -> String {
+        let lastName = result.firstAuthorLastName ?? "Unknown"
+        let yearStr = result.year.map { String($0) } ?? ""
+
+        // Get first significant word from title (>3 chars)
+        let titleWord = result.title
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .first { $0.count > 3 } ?? "Paper"
+
+        var candidate = "\(lastName)\(yearStr)\(titleWord)"
+        var counter = 0
+
+        while existingKeys.contains(candidate) {
+            counter += 1
+            candidate = "\(lastName)\(yearStr)\(titleWord)\(counter)"
+        }
+
+        return candidate
+    }
+
+    /// Add a publication to a collection
+    public func addToCollection(_ publication: CDPublication, collection: CDCollection) async {
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            var pubs = collection.publications ?? []
+            pubs.insert(publication)
+            collection.publications = pubs
+            self.persistenceController.save()
+        }
+    }
+
     // MARK: - RIS Import Operations
 
     /// Create a new publication from RIS entry

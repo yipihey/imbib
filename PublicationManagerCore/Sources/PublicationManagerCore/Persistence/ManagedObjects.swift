@@ -31,6 +31,19 @@ public class CDPublication: NSManagedObject {
     @NSManaged public var enrichmentSource: String?   // Which source provided data
     @NSManaged public var enrichmentDate: Date?       // When last enriched
 
+    // Online source metadata (ADR-016: Unified Paper Model)
+    @NSManaged public var originalSourceID: String?   // Which API source found this ("arxiv", "crossref", etc.)
+    @NSManaged public var pdfLinksJSON: String?       // Stored [PDFLink] array as JSON
+    @NSManaged public var webURL: String?             // Link to source page
+
+    // PDF download state (ADR-016)
+    @NSManaged public var hasPDFDownloaded: Bool      // PDF exists in library folder
+    @NSManaged public var pdfDownloadDate: Date?      // When PDF was downloaded
+
+    // Extended identifiers for deduplication (ADR-016)
+    @NSManaged public var semanticScholarID: String?
+    @NSManaged public var openAlexID: String?
+
     // Relationships
     @NSManaged public var publicationAuthors: Set<CDPublicationAuthor>?
     @NSManaged public var linkedFiles: Set<CDLinkedFile>?
@@ -177,6 +190,82 @@ public extension CDPublication {
         self.enrichmentSource = nil
         self.enrichmentDate = nil
     }
+
+    // MARK: - PDF Links (ADR-016)
+
+    /// Get PDF links as array (decoded from pdfLinksJSON)
+    var pdfLinks: [PDFLink] {
+        get {
+            guard let json = pdfLinksJSON,
+                  let data = json.data(using: .utf8),
+                  let links = try? JSONDecoder().decode([PDFLink].self, from: data) else {
+                return []
+            }
+            return links
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue),
+               let json = String(data: data, encoding: .utf8) {
+                pdfLinksJSON = json
+            } else {
+                pdfLinksJSON = nil
+            }
+        }
+    }
+
+    /// Best remote PDF URL based on priority (preprint > publisher > author > adsScan)
+    var bestRemotePDFURL: URL? {
+        let priority: [PDFLinkType] = [.preprint, .publisher, .author, .adsScan]
+        for type in priority {
+            if let link = pdfLinks.first(where: { $0.type == type }) {
+                return link.url
+            }
+        }
+        return pdfLinks.first?.url
+    }
+
+    /// Whether this publication has any PDF available (local or remote)
+    var hasPDFAvailable: Bool {
+        hasPDFDownloaded || !pdfLinks.isEmpty || !(linkedFiles?.isEmpty ?? true)
+    }
+
+    /// Web URL as URL object
+    var webURLObject: URL? {
+        guard let urlString = webURL else { return nil }
+        return URL(string: urlString)
+    }
+
+    // MARK: - Identifier Access (from BibTeX fields)
+
+    /// arXiv ID from eprint or arxiv field
+    var arxivID: String? {
+        fields["eprint"] ?? fields["arxiv"]
+    }
+
+    /// ADS bibcode from bibcode field
+    var bibcode: String? {
+        fields["bibcode"]
+    }
+
+    /// PubMed ID from pmid field
+    var pmid: String? {
+        fields["pmid"]
+    }
+
+    /// arXiv PDF URL (computed from arxivID)
+    var arxivPDFURL: URL? {
+        guard let arxivID = arxivID, !arxivID.isEmpty else { return nil }
+
+        // Clean arXiv ID - remove version suffix for consistent URL
+        let baseID = arxivID.replacingOccurrences(
+            of: #"v\d+$"#, with: "", options: .regularExpression
+        )
+
+        // arXiv IDs can be in two formats:
+        // - New: 2301.12345
+        // - Old: hep-th/9901001
+        return URL(string: "https://arxiv.org/pdf/\(baseID).pdf")
+    }
 }
 
 // MARK: - Enrichment Staleness
@@ -321,8 +410,14 @@ public class CDCollection: NSManagedObject, Identifiable {
     @NSManaged public var isSmartCollection: Bool
     @NSManaged public var predicate: String?
 
+    // ADR-016: Unified Paper Model
+    @NSManaged public var isSmartSearchResults: Bool  // True if this is a smart search result collection
+    @NSManaged public var isSystemCollection: Bool    // True for "Last Search" and other system collections
+
     // Relationships
     @NSManaged public var publications: Set<CDPublication>?
+    @NSManaged public var smartSearch: CDSmartSearch?     // Inverse of CDSmartSearch.resultCollection
+    @NSManaged public var owningLibrary: CDLibrary?       // Inverse of CDLibrary.lastSearchCollection (for system collections)
 }
 
 // MARK: - Collection Helpers
@@ -353,6 +448,7 @@ public class CDLibrary: NSManagedObject, Identifiable {
 
     // Relationships
     @NSManaged public var smartSearches: Set<CDSmartSearch>?
+    @NSManaged public var lastSearchCollection: CDCollection?  // ADR-016: System collection for ad-hoc search results
 }
 
 // MARK: - Library Helpers
@@ -407,8 +503,12 @@ public class CDSmartSearch: NSManagedObject, Identifiable {
     @NSManaged public var dateLastExecuted: Date?
     @NSManaged public var order: Int16                  // For sidebar ordering
 
+    // ADR-016: Unified Paper Model
+    @NSManaged public var maxResults: Int16            // Limit stored results (default: 50)
+
     // Relationships
     @NSManaged public var library: CDLibrary?
+    @NSManaged public var resultCollection: CDCollection?  // Collection holding imported results
 }
 
 // MARK: - Smart Search Helpers

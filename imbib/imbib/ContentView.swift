@@ -17,12 +17,12 @@ struct ContentView: View {
 
     @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(SearchViewModel.self) private var searchViewModel
+    @Environment(LibraryManager.self) private var libraryManager
 
     // MARK: - State
 
     @State private var selectedSection: SidebarSection? = .library
     @State private var selectedPublication: CDPublication?
-    @State private var selectedOnlinePaper: OnlinePaper?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showImportPreview = false
     @State private var importFileURL: URL?
@@ -65,18 +65,10 @@ struct ContentView: View {
         .onAppear {
             contentLogger.info("ContentView appeared - main window is visible")
         }
-        .onChange(of: selectedSection) { _, newValue in
-            // Mutual exclusion: only one selection type active at a time
-            // Smart search uses OnlinePaper, everything else uses CDPublication
-            // This ensures detailView shows the correct view type
-            if case .smartSearch = newValue {
-                selectedPublication = nil
-            } else {
-                selectedOnlinePaper = nil
-            }
-        }
-        .onChange(of: selectedOnlinePaper) { _, newValue in
-            Logger.viewModels.infoCapture("[ContentView] selectedOnlinePaper changed: \(newValue?.title ?? "nil") id: \(newValue?.id ?? "nil")", category: "selection")
+        .onChange(of: selectedSection) { _, _ in
+            // ADR-016: All sections now use CDPublication
+            // Clear selection when switching sections
+            selectedPublication = nil
         }
     }
 
@@ -89,10 +81,12 @@ struct ContentView: View {
             LibraryListView(selection: $selectedPublication)
 
         case .search:
-            SearchResultsListView()
+            // ADR-016: Ad-hoc search results are now CDPublication entities
+            SearchResultsListView(selectedPublication: $selectedPublication)
 
         case .smartSearch(let smartSearch):
-            SmartSearchResultsView(smartSearch: smartSearch, selectedPaper: $selectedOnlinePaper)
+            // ADR-016: Smart search results are CDPublication entities
+            SmartSearchResultsView(smartSearch: smartSearch, selectedPublication: $selectedPublication)
 
         case .collection(let collection):
             CollectionListView(collection: collection, selection: $selectedPublication)
@@ -111,11 +105,9 @@ struct ContentView: View {
     @ViewBuilder
     private var detailView: some View {
         if let publication = selectedPublication {
-            PublicationDetailView(publication: publication)
-        } else if let onlinePaper = selectedOnlinePaper {
-            PaperDetailView(paper: onlinePaper)
-        } else if case .search = selectedSection {
-            SearchDetailView()
+            // ADR-016: All papers are now CDPublication - full editing capabilities
+            let libraryID = libraryManager.activeLibrary?.id ?? UUID()
+            UnifiedDetailView(publication: publication, libraryID: libraryID)
         } else {
             ContentUnavailableView(
                 "No Selection",
@@ -221,21 +213,6 @@ struct TagListView: View {
     }
 }
 
-struct SearchDetailView: View {
-    @Environment(SearchViewModel.self) private var viewModel
-
-    var body: some View {
-        if viewModel.selectedResults.isEmpty {
-            ContentUnavailableView(
-                "No Selection",
-                systemImage: "magnifyingglass",
-                description: Text("Select a search result to view details")
-            )
-        } else {
-            Text("Selected \(viewModel.selectedResults.count) results")
-        }
-    }
-}
 
 #Preview {
     ContentView()

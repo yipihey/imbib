@@ -10,38 +10,38 @@ import OSLog
 
 // MARK: - PDF URL Resolver
 
-/// Resolves the best PDF URL for an online paper based on user settings
+/// Resolves the best PDF URL for a publication based on user settings
 public struct PDFURLResolver {
 
-    // MARK: - Main Resolution
+    // MARK: - Main Resolution (CDPublication)
 
-    /// Resolve the best PDF URL for an online paper based on settings
+    /// Resolve the best PDF URL for a publication based on settings
     ///
     /// This method applies user preferences to determine which PDF source to try first:
     /// - `.preprint`: Try arXiv/preprint sources first, then fall back to publisher
     /// - `.publisher`: Try publisher PDF first (with proxy if configured), then fall back to preprint
     ///
     /// - Parameters:
-    ///   - paper: The online paper to resolve a PDF URL for
+    ///   - publication: The publication to resolve a PDF URL for
     ///   - settings: User's PDF settings
     /// - Returns: The resolved PDF URL, or nil if no PDF is available
     public static func resolve(
-        for paper: OnlinePaper,
+        for publication: CDPublication,
         settings: PDFSettings
     ) -> URL? {
         Logger.files.infoCapture(
-            "[PDFURLResolver] Resolving PDF for: '\(paper.title.prefix(50))...', priority: \(settings.sourcePriority.rawValue)",
+            "[PDFURLResolver] Resolving PDF for: '\(publication.title?.prefix(50) ?? "untitled")...', priority: \(settings.sourcePriority.rawValue)",
             category: "pdf"
         )
 
         let result: URL?
         switch settings.sourcePriority {
         case .preprint:
-            // Try preprint sources first
-            result = arXivPDFURL(for: paper) ?? publisherPDFURL(for: paper, settings: settings)
+            // Try preprint sources first (arXiv)
+            result = publication.arxivPDFURL ?? publisherPDFURL(for: publication, settings: settings)
         case .publisher:
             // Try publisher first, fall back to preprint
-            result = publisherPDFURL(for: paper, settings: settings) ?? arXivPDFURL(for: paper)
+            result = publisherPDFURL(for: publication, settings: settings) ?? publication.arxivPDFURL
         }
 
         if let url = result {
@@ -54,34 +54,12 @@ public struct PDFURLResolver {
     }
 
     /// Async version that fetches settings from PDFSettingsStore
-    public static func resolve(for paper: OnlinePaper) async -> URL? {
+    public static func resolve(for publication: CDPublication) async -> URL? {
         let settings = await PDFSettingsStore.shared.settings
-        return resolve(for: paper, settings: settings)
+        return resolve(for: publication, settings: settings)
     }
 
     // MARK: - arXiv PDF URL
-
-    /// Generate arXiv PDF URL if paper has arXiv ID
-    ///
-    /// Handles various arXiv ID formats:
-    /// - New format: `2301.12345` or `2301.12345v2`
-    /// - Old format: `hep-th/9901001` or `hep-th/9901001v1`
-    ///
-    /// - Parameter paper: The online paper
-    /// - Returns: arXiv PDF URL, or nil if no arXiv ID
-    public static func arXivPDFURL(for paper: OnlinePaper) -> URL? {
-        guard let arxivID = paper.arxivID, !arxivID.isEmpty else {
-            return nil
-        }
-
-        // Clean arXiv ID - keep the base ID without version for consistent caching
-        // But actually, arXiv redirects versioned URLs to the correct PDF, so we can use the original
-        let cleanID = arxivID.trimmingCharacters(in: .whitespaces)
-
-        Logger.files.infoCapture("[PDFURLResolver] Generating arXiv PDF URL for ID: \(cleanID)", category: "pdf")
-
-        return URL(string: "https://arxiv.org/pdf/\(cleanID).pdf")
-    }
 
     /// Generate arXiv PDF URL from an arXiv ID string
     public static func arXivPDFURL(arxivID: String) -> URL? {
@@ -92,18 +70,18 @@ public struct PDFURLResolver {
 
     // MARK: - Publisher PDF URL
 
-    /// Get publisher PDF URL, applying proxy if configured
+    /// Get publisher PDF URL for a publication, applying proxy if configured
     ///
     /// - Parameters:
-    ///   - paper: The online paper
+    ///   - publication: The publication
     ///   - settings: User's PDF settings (for proxy configuration)
     /// - Returns: Publisher PDF URL (possibly proxied), or nil if no remote PDF
-    public static func publisherPDFURL(for paper: OnlinePaper, settings: PDFSettings) -> URL? {
-        guard let remotePDF = paper.remotePDFURL else {
-            return nil
+    public static func publisherPDFURL(for publication: CDPublication, settings: PDFSettings) -> URL? {
+        // First check bestRemotePDFURL (from pdfLinks array)
+        if let remotePDF = publication.bestRemotePDFURL {
+            return applyProxy(to: remotePDF, settings: settings)
         }
-
-        return applyProxy(to: remotePDF, settings: settings)
+        return nil
     }
 
     // MARK: - Proxy Application
@@ -153,16 +131,16 @@ public struct PDFURLResolver {
 
     // MARK: - Convenience Methods
 
-    /// Check if paper has any PDF source available
-    public static func hasPDF(paper: OnlinePaper) -> Bool {
-        paper.arxivID != nil || paper.remotePDFURL != nil
+    /// Check if publication has any PDF source available
+    public static func hasPDF(publication: CDPublication) -> Bool {
+        publication.arxivID != nil || publication.bestRemotePDFURL != nil
     }
 
-    /// Get available PDF sources for a paper
-    public static func availableSources(for paper: OnlinePaper) -> [PDFSourceInfo] {
+    /// Get available PDF sources for a publication
+    public static func availableSources(for publication: CDPublication) -> [PDFSourceInfo] {
         var sources: [PDFSourceInfo] = []
 
-        if let arxivID = paper.arxivID,
+        if let arxivID = publication.arxivID,
            let url = arXivPDFURL(arxivID: arxivID) {
             sources.append(PDFSourceInfo(
                 type: .preprint,
@@ -172,7 +150,7 @@ public struct PDFURLResolver {
             ))
         }
 
-        if let remotePDF = paper.remotePDFURL {
+        if let remotePDF = publication.bestRemotePDFURL {
             sources.append(PDFSourceInfo(
                 type: .publisher,
                 name: "Publisher",

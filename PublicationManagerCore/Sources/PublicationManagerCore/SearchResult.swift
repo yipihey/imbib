@@ -7,6 +7,65 @@
 
 import Foundation
 
+// MARK: - PDF Link Type
+
+/// Types of PDF links available from academic sources.
+/// Maps to ADS esource types and BibDesk bdsk-url-* field numbers.
+public enum PDFLinkType: String, Sendable, Codable, CaseIterable, Hashable {
+    /// Publisher PDF (may require subscription)
+    case publisher = "pub_pdf"
+    /// Preprint/arXiv PDF (free)
+    case preprint = "eprint_pdf"
+    /// Author-provided PDF
+    case author = "author_pdf"
+    /// ADS-hosted PDF scan
+    case adsScan = "ads_pdf"
+
+    /// The BibDesk bdsk-url-* field number for this link type
+    public var bdskUrlNumber: Int {
+        switch self {
+        case .publisher: return 1
+        case .preprint: return 2
+        case .author: return 3
+        case .adsScan: return 4
+        }
+    }
+
+    /// Create from BibDesk field number
+    public init?(bdskUrlNumber: Int) {
+        switch bdskUrlNumber {
+        case 1: self = .publisher
+        case 2: self = .preprint
+        case 3: self = .author
+        case 4: self = .adsScan
+        default: return nil
+        }
+    }
+
+    /// Display name for UI
+    public var displayName: String {
+        switch self {
+        case .publisher: return "Publisher"
+        case .preprint: return "Preprint"
+        case .author: return "Author"
+        case .adsScan: return "ADS Scan"
+        }
+    }
+}
+
+// MARK: - PDF Link
+
+/// A PDF link with type information.
+public struct PDFLink: Sendable, Codable, Equatable, Hashable {
+    public let url: URL
+    public let type: PDFLinkType
+
+    public init(url: URL, type: PDFLinkType) {
+        self.url = url
+        self.type = type
+    }
+}
+
 // MARK: - Search Result
 
 /// A search result from any source plugin.
@@ -40,9 +99,15 @@ public struct SearchResult: Sendable, Identifiable, Equatable, Hashable {
 
     // MARK: - URLs
 
-    public let pdfURL: URL?
+    /// All available PDF links with type information
+    public let pdfLinks: [PDFLink]
     public let webURL: URL?
     public let bibtexURL: URL?
+
+    /// Convenience accessor for first PDF URL (backward compatibility)
+    public var pdfURL: URL? {
+        pdfLinks.first?.url
+    }
 
     // MARK: - Initialization
 
@@ -60,7 +125,7 @@ public struct SearchResult: Sendable, Identifiable, Equatable, Hashable {
         bibcode: String? = nil,
         semanticScholarID: String? = nil,
         openAlexID: String? = nil,
-        pdfURL: URL? = nil,
+        pdfLinks: [PDFLink] = [],
         webURL: URL? = nil,
         bibtexURL: URL? = nil
     ) {
@@ -77,7 +142,49 @@ public struct SearchResult: Sendable, Identifiable, Equatable, Hashable {
         self.bibcode = bibcode
         self.semanticScholarID = semanticScholarID
         self.openAlexID = openAlexID
-        self.pdfURL = pdfURL
+        self.pdfLinks = pdfLinks
+        self.webURL = webURL
+        self.bibtexURL = bibtexURL
+    }
+
+    /// Convenience initializer with single PDF URL (backward compatibility)
+    public init(
+        id: String,
+        sourceID: String,
+        title: String,
+        authors: [String] = [],
+        year: Int? = nil,
+        venue: String? = nil,
+        abstract: String? = nil,
+        doi: String? = nil,
+        arxivID: String? = nil,
+        pmid: String? = nil,
+        bibcode: String? = nil,
+        semanticScholarID: String? = nil,
+        openAlexID: String? = nil,
+        pdfURL: URL?,
+        webURL: URL? = nil,
+        bibtexURL: URL? = nil
+    ) {
+        self.id = id
+        self.sourceID = sourceID
+        self.title = title
+        self.authors = authors
+        self.year = year
+        self.venue = venue
+        self.abstract = abstract
+        self.doi = doi
+        self.arxivID = arxivID
+        self.pmid = pmid
+        self.bibcode = bibcode
+        self.semanticScholarID = semanticScholarID
+        self.openAlexID = openAlexID
+        // Convert single URL to pdfLinks array with default type
+        if let url = pdfURL {
+            self.pdfLinks = [PDFLink(url: url, type: .publisher)]
+        } else {
+            self.pdfLinks = []
+        }
         self.webURL = webURL
         self.bibtexURL = bibtexURL
     }
@@ -175,9 +282,30 @@ public struct DeduplicatedResult: Sendable, Identifiable, Equatable {
         [primary.sourceID] + alternates.map(\.sourceID)
     }
 
-    /// Best available PDF URL across all sources
+    /// All PDF links across all sources, merged and deduplicated
+    public var allPDFLinks: [PDFLink] {
+        var links = primary.pdfLinks
+        for alt in alternates {
+            for link in alt.pdfLinks {
+                // Add if we don't already have this type
+                if !links.contains(where: { $0.type == link.type }) {
+                    links.append(link)
+                }
+            }
+        }
+        return links
+    }
+
+    /// Best available PDF URL across all sources (preprint preferred)
     public var bestPDFURL: URL? {
-        primary.pdfURL ?? alternates.first(where: { $0.pdfURL != nil })?.pdfURL
+        // Prefer preprint (free), then publisher, then others
+        let priorityOrder: [PDFLinkType] = [.preprint, .publisher, .author, .adsScan]
+        for type in priorityOrder {
+            if let link = allPDFLinks.first(where: { $0.type == type }) {
+                return link.url
+            }
+        }
+        return allPDFLinks.first?.url
     }
 
     /// Best available BibTeX URL across all sources

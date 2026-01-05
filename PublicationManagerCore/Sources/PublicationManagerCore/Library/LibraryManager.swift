@@ -248,6 +248,66 @@ public final class LibraryManager {
         // Create a default library
         return createLibrary(name: "My Library")
     }
+
+    // MARK: - Last Search Collection (ADR-016)
+
+    /// Get or create the "Last Search" collection for the active library.
+    ///
+    /// This is a system collection that holds ad-hoc search results. Each library
+    /// has its own "Last Search" collection. Results are replaced on each new search.
+    public func getOrCreateLastSearchCollection() -> CDCollection? {
+        guard let library = activeLibrary else {
+            Logger.library.warningCapture("No active library for Last Search collection", category: "library")
+            return nil
+        }
+
+        // Return existing collection if available
+        if let collection = library.lastSearchCollection {
+            return collection
+        }
+
+        // Create new Last Search collection
+        Logger.library.infoCapture("Creating Last Search collection for: \(library.displayName)", category: "library")
+
+        let context = persistenceController.viewContext
+        let collection = CDCollection(context: context)
+        collection.id = UUID()
+        collection.name = "Last Search"
+        collection.isSystemCollection = true
+        collection.isSmartSearchResults = false
+        collection.isSmartCollection = false
+        collection.owningLibrary = library
+        library.lastSearchCollection = collection
+
+        persistenceController.save()
+
+        return collection
+    }
+
+    /// Clear the Last Search collection (remove papers only in this collection)
+    public func clearLastSearchCollection() {
+        guard let collection = activeLibrary?.lastSearchCollection else { return }
+
+        Logger.library.debugCapture("Clearing Last Search collection", category: "library")
+
+        let context = persistenceController.viewContext
+
+        // Get publications only in this collection
+        guard let publications = collection.publications else { return }
+
+        for pub in publications {
+            // Check if this paper is ONLY in Last Search (not in other collections/smart searches)
+            let otherCollections = (pub.collections ?? []).filter { $0.id != collection.id }
+            if otherCollections.isEmpty {
+                // Paper is only in Last Search - delete it
+                context.delete(pub)
+            }
+        }
+
+        // Clear the collection's publication set
+        collection.publications = []
+        persistenceController.save()
+    }
 }
 
 // MARK: - Library Error

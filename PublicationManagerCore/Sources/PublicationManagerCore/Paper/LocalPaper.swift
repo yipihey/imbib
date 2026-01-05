@@ -45,6 +45,9 @@ public struct LocalPaper: PaperRepresentable, Hashable {
     public let linkedFilePaths: [String]
     public let primaryPDFPath: String?
 
+    /// PDF links stored in bdsk-url-* fields (BibDesk compatible)
+    public let pdfLinks: [PDFLink]
+
     // MARK: - Metadata
 
     public let tagNames: [String]
@@ -111,6 +114,19 @@ public struct LocalPaper: PaperRepresentable, Hashable {
         self.linkedFilePaths = files.map { $0.relativePath }
         self.primaryPDFPath = files.first { $0.isPDF }?.relativePath
 
+        // Parse bdsk-url-* fields for PDF links
+        var links: [PDFLink] = []
+        for (key, value) in fields {
+            if key.lowercased().hasPrefix("bdsk-url-"),
+               let numStr = key.split(separator: "-").last,
+               let num = Int(numStr),
+               let type = PDFLinkType(bdskUrlNumber: num),
+               let url = URL(string: value) {
+                links.append(PDFLink(url: url, type: type))
+            }
+        }
+        self.pdfLinks = links
+
         // Metadata
         self.tagNames = (publication.tags ?? []).map { $0.name }
         self.collectionNames = (publication.collections ?? []).map { $0.name }
@@ -124,6 +140,10 @@ public struct LocalPaper: PaperRepresentable, Hashable {
     }
 
     // MARK: - PaperRepresentable
+
+    public var hasPDF: Bool {
+        primaryPDFPath != nil || !pdfLinks.isEmpty
+    }
 
     public func pdfURL() async -> URL? {
         guard let pdfPath = primaryPDFPath else { return nil }

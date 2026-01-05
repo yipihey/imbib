@@ -12,41 +12,58 @@ import SwiftUI
 // MARK: - Search View Model
 
 /// View model for searching across publication sources.
+///
+/// ADR-016: Search results are auto-imported to the active library's "Last Search"
+/// collection. This provides immediate persistence and full editing capabilities
+/// for all search results.
 @MainActor
 @Observable
 public final class SearchViewModel {
 
     // MARK: - Published State
 
-    /// Raw deduplicated results from search
-    public private(set) var results: [DeduplicatedResult] = []
-
-    /// OnlinePaper wrappers for unified view layer
-    public private(set) var papers: [OnlinePaper] = []
-
     public private(set) var isSearching = false
     public private(set) var error: Error?
 
     public var query = ""
     public var selectedSourceIDs: Set<String> = []
-    public var selectedResults: Set<String> = []
+    public var selectedPublicationIDs: Set<UUID> = []
 
     // MARK: - Dependencies
 
     public let sourceManager: SourceManager
     private let deduplicationService: DeduplicationService
-    private let repository: PublicationRepository
+    public let repository: PublicationRepository
+    private weak var libraryManager: LibraryManager?
 
     // MARK: - Initialization
 
     public init(
         sourceManager: SourceManager = SourceManager(),
         deduplicationService: DeduplicationService = DeduplicationService(),
-        repository: PublicationRepository = PublicationRepository()
+        repository: PublicationRepository = PublicationRepository(),
+        libraryManager: LibraryManager? = nil
     ) {
         self.sourceManager = sourceManager
         self.deduplicationService = deduplicationService
         self.repository = repository
+        self.libraryManager = libraryManager
+    }
+
+    /// Set the library manager (called from view layer after environment injection)
+    public func setLibraryManager(_ manager: LibraryManager) {
+        self.libraryManager = manager
+    }
+
+    // MARK: - Last Search Collection
+
+    /// Publications from the Last Search collection
+    public var publications: [CDPublication] {
+        guard let collection = libraryManager?.activeLibrary?.lastSearchCollection else {
+            return []
+        }
+        return Array(collection.publications ?? [])
+            .sorted { ($0.dateAdded) > ($1.dateAdded) }
     }
 
     // MARK: - Available Sources
@@ -57,33 +74,42 @@ public final class SearchViewModel {
         }
     }
 
-    // MARK: - Search
+    // MARK: - Search (ADR-016: Auto-Import)
 
+    /// Execute search and auto-import results to Last Search collection.
+    ///
+    /// This method:
+    /// 1. Clears the previous Last Search results
+    /// 2. Executes the search query
+    /// 3. Deduplicates against existing library publications
+    /// 4. Creates new CDPublication entities for new results
+    /// 5. Adds all results to the Last Search collection
     public func search() async {
         guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
-            results = []
-            papers = []
+            return
+        }
+
+        guard let manager = libraryManager else {
+            Logger.viewModels.errorCapture("No library manager available for search", category: "search")
+            return
+        }
+
+        guard let collection = manager.getOrCreateLastSearchCollection() else {
+            Logger.viewModels.errorCapture("Could not create Last Search collection", category: "search")
             return
         }
 
         Logger.viewModels.entering()
         defer { Logger.viewModels.exiting() }
 
-        // Check session cache first
-        let sourceIDs = Array(selectedSourceIDs)
-        if let cached = await SessionCache.shared.getCachedResults(for: query, sourceIDs: sourceIDs) {
-            Logger.viewModels.infoCapture("Using cached results for: \(query)", category: "search")
-            results = await deduplicationService.deduplicate(cached)
-            papers = OnlinePaper.from(results: results)
-            return
-        }
-
         isSearching = true
         error = nil
-        results = []
-        papers = []
+
+        // Clear previous Last Search results
+        manager.clearLastSearchCollection()
 
         do {
+            let sourceIDs = Array(selectedSourceIDs)
             let options = SearchOptions(
                 maxResults: 100,
                 sortOrder: .relevance,
@@ -92,13 +118,31 @@ public final class SearchViewModel {
 
             let rawResults = try await sourceManager.search(query: query, options: options)
 
-            // Cache the raw results
-            await SessionCache.shared.cacheSearchResults(rawResults, for: query, sourceIDs: sourceIDs)
+            // Deduplicate results
+            let deduped = await deduplicationService.deduplicate(rawResults)
 
-            results = await deduplicationService.deduplicate(rawResults)
-            papers = OnlinePaper.from(results: results)
+            Logger.viewModels.infoCapture("Search returned \(deduped.count) deduplicated results", category: "search")
 
-            Logger.viewModels.infoCapture("Search returned \(self.results.count) deduplicated results", category: "search")
+            // Auto-import results to Last Search collection
+            var importedCount = 0
+            var existingCount = 0
+
+            for result in deduped {
+                // Check for existing publication by identifiers
+                if let existing = await repository.findByIdentifiers(result.primary) {
+                    // Add existing publication to Last Search collection
+                    await repository.addToCollection(existing, collection: collection)
+                    existingCount += 1
+                } else {
+                    // Create new publication and add to collection
+                    let publication = await repository.createFromSearchResult(result.primary)
+                    await repository.addToCollection(publication, collection: collection)
+                    importedCount += 1
+                }
+            }
+
+            Logger.viewModels.infoCapture("Search: imported \(importedCount) new, linked \(existingCount) existing", category: "search")
+
         } catch {
             self.error = error
             Logger.viewModels.errorCapture("Search failed: \(error.localizedDescription)", category: "search")
@@ -107,90 +151,22 @@ public final class SearchViewModel {
         isSearching = false
     }
 
-    // MARK: - Import
-
-    public func importResult(_ result: DeduplicatedResult) async throws {
-        Logger.viewModels.infoCapture("Importing: \(result.primary.title)", category: "import")
-
-        // Get any pending metadata from session cache
-        let pendingMetadata = await SessionCache.shared.getMetadata(for: result.id)
-
-        let entry = try await sourceManager.fetchBibTeX(for: result.primary)
-        let publication = await repository.create(from: entry)
-
-        // Apply pending metadata if any
-        if let metadata = pendingMetadata, !metadata.isEmpty {
-            // Apply custom cite key
-            if let customKey = metadata.customCiteKey {
-                await repository.updateField(publication, field: "citeKey", value: customKey)
-            }
-            // Apply notes
-            if !metadata.notes.isEmpty {
-                await repository.updateField(publication, field: "notes", value: metadata.notes)
-            }
-            // Clear the pending metadata
-            await SessionCache.shared.clearMetadata(for: result.id)
-        }
-
-        // Invalidate the library lookup cache so the indicator updates
-        await DefaultLibraryLookupService.shared.invalidateCache()
-    }
-
-    public func importPaper(_ paper: OnlinePaper) async throws {
-        guard let result = results.first(where: { $0.id == paper.id }) else {
-            throw SearchViewModelError.paperNotFound
-        }
-        try await importResult(result)
-    }
-
-    public func importSelected() async throws -> Int {
-        Logger.viewModels.infoCapture("Importing \(self.selectedResults.count) results", category: "import")
-
-        var imported = 0
-
-        for resultID in selectedResults {
-            guard let result = results.first(where: { $0.id == resultID }) else { continue }
-
-            do {
-                try await importResult(result)
-                imported += 1
-            } catch {
-                Logger.viewModels.errorCapture("Failed to import \(result.primary.title): \(error.localizedDescription)", category: "import")
-            }
-        }
-
-        selectedResults.removeAll()
-        return imported
-    }
-
-    // MARK: - Pending Metadata
-
-    /// Set temporary metadata for a paper before import
-    public func setPendingMetadata(for paperID: String, tags: Set<String>? = nil, notes: String? = nil, customCiteKey: String? = nil) async {
-        await SessionCache.shared.updateMetadata(for: paperID, tags: tags, notes: notes, customCiteKey: customCiteKey)
-    }
-
-    /// Get pending metadata for a paper
-    public func getPendingMetadata(for paperID: String) async -> PendingPaperMetadata? {
-        await SessionCache.shared.getMetadata(for: paperID)
-    }
-
     // MARK: - Selection
 
-    public func toggleSelection(_ result: DeduplicatedResult) {
-        if selectedResults.contains(result.id) {
-            selectedResults.remove(result.id)
+    public func toggleSelection(_ publication: CDPublication) {
+        if selectedPublicationIDs.contains(publication.id) {
+            selectedPublicationIDs.remove(publication.id)
         } else {
-            selectedResults.insert(result.id)
+            selectedPublicationIDs.insert(publication.id)
         }
     }
 
     public func selectAll() {
-        selectedResults = Set(results.map { $0.id })
+        selectedPublicationIDs = Set(publications.map { $0.id })
     }
 
     public func clearSelection() {
-        selectedResults.removeAll()
+        selectedPublicationIDs.removeAll()
     }
 
     // MARK: - Source Selection
@@ -209,18 +185,5 @@ public final class SearchViewModel {
 
     public func clearSourceSelection() {
         selectedSourceIDs.removeAll()
-    }
-}
-
-// MARK: - Search View Model Error
-
-public enum SearchViewModelError: LocalizedError {
-    case paperNotFound
-
-    public var errorDescription: String? {
-        switch self {
-        case .paperNotFound:
-            return "Paper not found in search results"
-        }
     }
 }

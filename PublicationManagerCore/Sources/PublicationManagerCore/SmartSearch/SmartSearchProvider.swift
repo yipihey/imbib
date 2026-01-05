@@ -13,22 +13,23 @@ import OSLog
 
 /// A paper provider backed by a saved search query.
 ///
-/// Smart searches store the query definition and execute on demand,
-/// caching results for the session.
-public actor SmartSearchProvider: PaperProvider {
-    public typealias Paper = OnlinePaper
+/// Smart searches execute on demand and auto-import results to their associated
+/// CDCollection (ADR-016: Unified Paper Model). Papers are immediately persisted
+/// as CDPublication entities with full library capabilities.
+public actor SmartSearchProvider {
 
     // MARK: - Properties
 
     public nonisolated let id: UUID
     public nonisolated let name: String
-    public nonisolated let providerType: PaperProviderType = .smartSearch
 
     private let query: String
     private let sourceIDs: [String]
+    private let maxResults: Int16
     private let sourceManager: SourceManager
+    private let repository: PublicationRepository
+    private weak var resultCollection: CDCollection?
 
-    private var cachedPapers: [OnlinePaper] = []
     private var lastFetched: Date?
     private var _isLoading = false
 
@@ -39,42 +40,68 @@ public actor SmartSearchProvider: PaperProvider {
         name: String,
         query: String,
         sourceIDs: [String],
-        sourceManager: SourceManager
+        maxResults: Int16 = 50,
+        sourceManager: SourceManager,
+        repository: PublicationRepository,
+        resultCollection: CDCollection?
     ) {
         self.id = id
         self.name = name
         self.query = query
         self.sourceIDs = sourceIDs
+        self.maxResults = maxResults
         self.sourceManager = sourceManager
+        self.repository = repository
+        self.resultCollection = resultCollection
     }
 
     /// Create from a Core Data smart search entity
-    public init(from entity: CDSmartSearch, sourceManager: SourceManager) {
+    public init(from entity: CDSmartSearch, sourceManager: SourceManager, repository: PublicationRepository) {
         self.id = entity.id
         self.name = entity.name
         self.query = entity.query
         self.sourceIDs = entity.sources
+        self.maxResults = entity.maxResults
         self.sourceManager = sourceManager
+        self.repository = repository
+        self.resultCollection = entity.resultCollection
     }
 
-    // MARK: - PaperProvider
+    // MARK: - State
 
     public var isLoading: Bool {
         _isLoading
     }
 
-    public var papers: [OnlinePaper] {
-        cachedPapers
+    /// Get the result collection's publications (fetched from Core Data)
+    public var publications: [CDPublication] {
+        guard let collection = resultCollection else { return [] }
+        return Array(collection.publications ?? [])
+            .sorted { ($0.dateAdded) > ($1.dateAdded) }
     }
 
     public var count: Int {
-        cachedPapers.count
+        resultCollection?.publications?.count ?? 0
     }
 
+    // MARK: - Refresh (Auto-Import)
+
+    /// Execute the search and auto-import results to the result collection.
+    ///
+    /// This method:
+    /// 1. Executes the search query against configured sources
+    /// 2. Deduplicates results against existing library publications
+    /// 3. Creates new CDPublication entities for new results
+    /// 4. Adds all results (new and existing) to the result collection
     public func refresh() async throws {
         Logger.smartSearch.infoCapture("Executing smart search '\(name)': \(query)", category: "smartsearch")
         _isLoading = true
         defer { _isLoading = false }
+
+        guard let collection = resultCollection else {
+            Logger.smartSearch.errorCapture("Smart search '\(name)' has no result collection", category: "smartsearch")
+            return
+        }
 
         // Build search options
         let options = SearchOptions(
@@ -91,20 +118,32 @@ public actor SmartSearchProvider: PaperProvider {
                 options: options
             )
 
-            // Convert to OnlinePaper
-            cachedPapers = results.map { result in
-                OnlinePaper(result: result, smartSearchID: id)
+            // Limit results
+            let limitedResults = Array(results.prefix(Int(maxResults)))
+
+            Logger.smartSearch.infoCapture("Smart search '\(name)' returned \(results.count) results (limited to \(limitedResults.count))", category: "smartsearch")
+
+            // Auto-import results to collection
+            var importedCount = 0
+            var existingCount = 0
+
+            for result in limitedResults {
+                // Check for existing publication by identifiers
+                if let existing = await repository.findByIdentifiers(result) {
+                    // Add existing publication to this collection
+                    await repository.addToCollection(existing, collection: collection)
+                    existingCount += 1
+                } else {
+                    // Create new publication and add to collection
+                    let publication = await repository.createFromSearchResult(result)
+                    await repository.addToCollection(publication, collection: collection)
+                    importedCount += 1
+                }
             }
 
             lastFetched = Date()
-            Logger.smartSearch.infoCapture("Smart search '\(name)' returned \(results.count) results", category: "smartsearch")
+            Logger.smartSearch.infoCapture("Smart search '\(name)': imported \(importedCount) new, linked \(existingCount) existing", category: "smartsearch")
 
-            // Cache in SessionCache for PDF/BibTeX access
-            await SessionCache.shared.cacheSearchResults(
-                results,
-                for: query,
-                sourceIDs: sourceIDs
-            )
         } catch {
             Logger.smartSearch.errorCapture("Smart search '\(name)' failed: \(error.localizedDescription)", category: "smartsearch")
             throw error
@@ -125,10 +164,22 @@ public actor SmartSearchProvider: PaperProvider {
         return elapsed > 3600  // 1 hour
     }
 
-    /// Clear cached results
-    public func clearCache() {
-        Logger.smartSearch.debugCapture("Clearing cache for smart search '\(name)'", category: "smartsearch")
-        cachedPapers = []
+    /// Clear the result collection (removes publications only in this collection)
+    public func clearResults() async {
+        Logger.smartSearch.debugCapture("Clearing results for smart search '\(name)'", category: "smartsearch")
+        guard let collection = resultCollection else { return }
+
+        // Get publications only in this collection
+        let publications = collection.publications ?? []
+        for pub in publications {
+            // Only remove from collection, don't delete (might be in other collections)
+            var collections = pub.collections ?? []
+            collections.remove(collection)
+            pub.collections = collections
+        }
+
+        // Clear the collection's publications
+        collection.publications = []
         lastFetched = nil
     }
 }
@@ -197,12 +248,15 @@ public final class SmartSearchRepository: ObservableObject {
     // MARK: - CRUD
 
     /// Create a new smart search for the specified library
+    ///
+    /// This also creates an associated CDCollection to hold imported results (ADR-016).
     @discardableResult
     public func create(
         name: String,
         query: String,
         sourceIDs: [String] = [],
-        library: CDLibrary? = nil
+        library: CDLibrary? = nil,
+        maxResults: Int16 = 50
     ) -> CDSmartSearch {
         let context = persistenceController.viewContext
         let targetLibrary = library ?? currentLibrary
@@ -217,10 +271,22 @@ public final class SmartSearchRepository: ObservableObject {
         smartSearch.sources = sourceIDs
         smartSearch.dateCreated = Date()
         smartSearch.library = targetLibrary
+        smartSearch.maxResults = maxResults
 
         // Set order based on existing searches in this library
         let existingCount = targetLibrary?.smartSearches?.count ?? smartSearches.count
         smartSearch.order = Int16(existingCount)
+
+        // ADR-016: Create associated collection for imported results
+        let collection = CDCollection(context: context)
+        collection.id = UUID()
+        collection.name = name  // Same name as smart search
+        collection.isSmartSearchResults = true
+        collection.isSmartCollection = false  // Not a predicate-based collection
+        collection.smartSearch = smartSearch
+        smartSearch.resultCollection = collection
+
+        Logger.smartSearch.debugCapture("Created result collection for smart search '\(name)'", category: "smartsearch")
 
         persistenceController.save()
         loadSmartSearches(for: currentLibrary)
@@ -290,8 +356,8 @@ public final class SmartSearchRepository: ObservableObject {
     }
 
     /// Create providers for all smart searches in current library
-    public func createProviders(sourceManager: SourceManager) -> [SmartSearchProvider] {
-        smartSearches.map { SmartSearchProvider(from: $0, sourceManager: sourceManager) }
+    public func createProviders(sourceManager: SourceManager, repository: PublicationRepository) -> [SmartSearchProvider] {
+        smartSearches.map { SmartSearchProvider(from: $0, sourceManager: sourceManager, repository: repository) }
     }
 
     /// Get all smart searches for a specific library

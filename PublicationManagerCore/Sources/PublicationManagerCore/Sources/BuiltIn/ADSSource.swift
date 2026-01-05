@@ -60,7 +60,7 @@ public actor ADSSource: SourcePlugin {
         var components = URLComponents(string: "\(baseURL)/search/query")!
         components.queryItems = [
             URLQueryItem(name: "q", value: query),
-            URLQueryItem(name: "fl", value: "bibcode,title,author,year,pub,abstract,doi,identifier,doctype"),
+            URLQueryItem(name: "fl", value: "bibcode,title,author,year,pub,abstract,doi,identifier,doctype,esources"),
             URLQueryItem(name: "rows", value: "50"),
             URLQueryItem(name: "sort", value: "score desc"),
         ]
@@ -242,15 +242,9 @@ public actor ADSSource: SourcePlugin {
         let doi = extractDOI(from: doc)
         let arxivID = extractArXivID(from: doc)
 
-        // Generate PDF URL:
-        // - If paper has arXiv ID, use arXiv PDF (free and reliable)
-        // - Otherwise, use ADS link gateway for publisher PDF
-        let pdfURL: URL?
-        if let arxivID = arxivID {
-            pdfURL = URL(string: "https://arxiv.org/pdf/\(arxivID).pdf")
-        } else {
-            pdfURL = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_PDF")
-        }
+        // Build PDF links from esources field
+        // ADS esources contains strings like: "PUB_PDF", "EPRINT_PDF", "AUTHOR_PDF", "ADS_PDF", "ADS_SCAN"
+        let pdfLinks = buildPDFLinks(from: doc, bibcode: bibcode, arxivID: arxivID)
 
         return SearchResult(
             id: bibcode,
@@ -263,10 +257,65 @@ public actor ADSSource: SourcePlugin {
             doi: doi,
             arxivID: arxivID,
             bibcode: bibcode,
-            pdfURL: pdfURL,
+            pdfLinks: pdfLinks,
             webURL: URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)"),
             bibtexURL: URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)/exportcitation")
         )
+    }
+
+    /// Build PDF links from ADS esources field
+    private func buildPDFLinks(from doc: [String: Any], bibcode: String, arxivID: String?) -> [PDFLink] {
+        var links: [PDFLink] = []
+
+        // Get esources array from response
+        let esources = doc["esources"] as? [String] ?? []
+
+        // Map ADS esource types to our PDFLinkType
+        // ADS uses uppercase like "PUB_PDF", "EPRINT_PDF", etc.
+        for esource in esources {
+            let upper = esource.uppercased()
+
+            if upper == "PUB_PDF" || upper == "PUB_HTML" {
+                // Publisher PDF - use link gateway
+                if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_PDF") {
+                    links.append(PDFLink(url: url, type: .publisher))
+                }
+            } else if upper == "EPRINT_PDF" {
+                // Preprint/arXiv PDF - use direct arXiv URL if available
+                if let arxivID = arxivID,
+                   let url = URL(string: "https://arxiv.org/pdf/\(arxivID).pdf") {
+                    links.append(PDFLink(url: url, type: .preprint))
+                } else if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/EPRINT_PDF") {
+                    links.append(PDFLink(url: url, type: .preprint))
+                }
+            } else if upper == "AUTHOR_PDF" {
+                // Author-provided PDF
+                if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/AUTHOR_PDF") {
+                    links.append(PDFLink(url: url, type: .author))
+                }
+            } else if upper == "ADS_PDF" || upper == "ADS_SCAN" {
+                // ADS-hosted scan
+                if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/ADS_PDF") {
+                    links.append(PDFLink(url: url, type: .adsScan))
+                }
+            }
+        }
+
+        // If no esources but we have arXiv ID, add preprint link
+        if links.isEmpty && arxivID != nil {
+            if let url = URL(string: "https://arxiv.org/pdf/\(arxivID!).pdf") {
+                links.append(PDFLink(url: url, type: .preprint))
+            }
+        }
+
+        // Fallback: if still no links, try generic PUB_PDF gateway
+        if links.isEmpty {
+            if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_PDF") {
+                links.append(PDFLink(url: url, type: .publisher))
+            }
+        }
+
+        return links
     }
 
     private func extractDOI(from doc: [String: Any]) -> String? {

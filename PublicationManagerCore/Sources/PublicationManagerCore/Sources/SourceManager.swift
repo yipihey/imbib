@@ -20,7 +20,7 @@ public actor SourceManager {
 
     // MARK: - Initialization
 
-    public init(credentialManager: CredentialManager = CredentialManager()) {
+    public init(credentialManager: CredentialManager = .shared) {
         self.credentialManager = credentialManager
     }
 

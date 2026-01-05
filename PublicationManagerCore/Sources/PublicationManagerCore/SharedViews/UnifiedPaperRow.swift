@@ -26,6 +26,9 @@ public struct UnifiedPaperRow<Paper: PaperRepresentable>: View {
     /// Whether to show citation metrics badge
     public var showCitationBadge: Bool = true
 
+    /// Whether to show PDF availability indicator
+    public var showPDFIndicator: Bool = true
+
     /// Citation count for the paper (nil if not enriched)
     public var citationCount: Int?
 
@@ -53,6 +56,7 @@ public struct UnifiedPaperRow<Paper: PaperRepresentable>: View {
         showLibraryIndicator: Bool = true,
         showSourceBadges: Bool = true,
         showCitationBadge: Bool = true,
+        showPDFIndicator: Bool = true,
         citationCount: Int? = nil,
         enrichmentDate: Date? = nil,
         onImport: (() -> Void)? = nil,
@@ -63,6 +67,7 @@ public struct UnifiedPaperRow<Paper: PaperRepresentable>: View {
         self.showLibraryIndicator = showLibraryIndicator
         self.showSourceBadges = showSourceBadges
         self.showCitationBadge = showCitationBadge
+        self.showPDFIndicator = showPDFIndicator
         self.citationCount = citationCount
         self.enrichmentDate = enrichmentDate
         self.onImport = onImport
@@ -113,6 +118,14 @@ public struct UnifiedPaperRow<Paper: PaperRepresentable>: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                }
+
+                // PDF indicator
+                if showPDFIndicator && paper.hasPDF {
+                    Image(systemName: "doc.fill")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                        .help("PDF Available")
                 }
 
                 Spacer()
@@ -245,22 +258,22 @@ public struct LibraryStateIndicator: View {
 // MARK: - Preview
 
 #Preview {
-    // Create a sample OnlinePaper for preview
-    let result = SearchResult(
-        id: "preview-1",
-        sourceID: "arxiv",
-        title: "On the Electrodynamics of Moving Bodies",
-        authors: ["Albert Einstein"],
-        year: 1905,
-        venue: "Annalen der Physik",
-        abstract: "A theory of special relativity demonstrating the relationship between space and time.",
-        doi: "10.1002/andp.19053221004"
-    )
-    let paper = OnlinePaper(result: result)
+    // Create a sample LocalPaper for preview using a mock CDPublication
+    let publication = PersistenceController.preview.viewContext.performAndWait {
+        let pub = CDPublication(context: PersistenceController.preview.viewContext)
+        pub.id = UUID()
+        pub.citeKey = "Einstein1905"
+        pub.entryType = "article"
+        pub.title = "On the Electrodynamics of Moving Bodies"
+        pub.year = 1905
+        pub.dateAdded = Date()
+        pub.dateModified = Date()
+        return pub
+    }
+
+    let paper = LocalPaper(publication: publication, libraryID: UUID())
 
     return List {
-        UnifiedPaperRow(paper: paper) {
-            print("Import tapped")
-        }
+        UnifiedPaperRow(paper: paper)
     }
 }

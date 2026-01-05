@@ -9,6 +9,12 @@ import SwiftUI
 import PDFKit
 import OSLog
 
+// MARK: - Notification Names
+
+extension Notification.Name {
+    static let pdfViewerNavigateToSelection = Notification.Name("pdfViewerNavigateToSelection")
+}
+
 // MARK: - PDF Viewer
 
 /// Cross-platform PDF viewer using PDFKit.
@@ -241,6 +247,14 @@ struct ControlledPDFKitView: NSViewRepresentable {
             object: pdfView
         )
 
+        // Observe search navigation requests
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.navigateToSelection(_:)),
+            name: .pdfViewerNavigateToSelection,
+            object: nil
+        )
+
         context.coordinator.pdfView = pdfView
         return pdfView
     }
@@ -288,6 +302,16 @@ struct ControlledPDFKitView: NSViewRepresentable {
             let scale = pdfView.scaleFactor
             DispatchQueue.main.async { [weak self] in
                 self?.parent.scaleFactor = scale
+            }
+        }
+
+        @objc func navigateToSelection(_ notification: Notification) {
+            guard let pdfView = pdfView,
+                  let selection = notification.userInfo?["selection"] as? PDFSelection else { return }
+
+            DispatchQueue.main.async {
+                pdfView.setCurrentSelection(selection, animate: true)
+                pdfView.scrollSelectionToVisible(nil)
             }
         }
     }
@@ -350,6 +374,14 @@ struct ControlledPDFKitView: UIViewRepresentable {
             object: pdfView
         )
 
+        // Observe search navigation requests
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.navigateToSelection(_:)),
+            name: .pdfViewerNavigateToSelection,
+            object: nil
+        )
+
         context.coordinator.pdfView = pdfView
         return pdfView
     }
@@ -399,6 +431,16 @@ struct ControlledPDFKitView: UIViewRepresentable {
                 self?.parent.scaleFactor = scale
             }
         }
+
+        @objc func navigateToSelection(_ notification: Notification) {
+            guard let pdfView = pdfView,
+                  let selection = notification.userInfo?["selection"] as? PDFSelection else { return }
+
+            DispatchQueue.main.async {
+                pdfView.setCurrentSelection(selection, animate: true)
+                pdfView.scrollSelectionToVisible(nil)
+            }
+        }
     }
 }
 
@@ -406,90 +448,9 @@ struct ControlledPDFKitView: UIViewRepresentable {
 
 // MARK: - Online Paper PDF Viewer
 
-/// PDF viewer for online papers that downloads from remote URL if needed.
-///
-/// Uses SessionCache to:
-/// 1. Check if PDF is already cached
-/// 2. Download and cache if not
-/// 3. Display from cache
-public struct OnlinePaperPDFViewer: View {
-
-    let paper: OnlinePaper
-
-    @State private var localURL: URL?
-    @State private var isDownloading = false
-    @State private var error: String?
-
-    public init(paper: OnlinePaper) {
-        self.paper = paper
-    }
-
-    public var body: some View {
-        Group {
-            if isDownloading {
-                VStack(spacing: 16) {
-                    ProgressView()
-                    Text("Downloading PDF...")
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let localURL {
-                PDFViewerWithControls(url: localURL)
-            } else if let error {
-                errorView(error)
-            } else {
-                noPDFView
-            }
-        }
-        .task {
-            await loadPDF()
-        }
-    }
-
-    private func loadPDF() async {
-        // Check if we have a remote PDF URL
-        guard let remotePDFURL = paper.remotePDFURL else {
-            return
-        }
-
-        isDownloading = true
-        error = nil
-
-        do {
-            // Try to get cached or download
-            let cachedURL = try await SessionCache.shared.cachePDF(from: remotePDFURL, for: paper.id)
-            await MainActor.run {
-                self.localURL = cachedURL
-                self.isDownloading = false
-            }
-        } catch {
-            await MainActor.run {
-                self.error = error.localizedDescription
-                self.isDownloading = false
-            }
-        }
-    }
-
-    private var noPDFView: some View {
-        ContentUnavailableView {
-            Label("No PDF Available", systemImage: "doc.richtext")
-        } description: {
-            Text("This paper does not have a PDF link.")
-        }
-    }
-
-    private func errorView(_ message: String) -> some View {
-        ContentUnavailableView {
-            Label("Download Failed", systemImage: "exclamationmark.triangle")
-        } description: {
-            Text(message)
-        } actions: {
-            Button("Try Again") {
-                Task { await loadPDF() }
-            }
-        }
-    }
-}
+// Note: OnlinePaperPDFViewer has been removed as part of ADR-016.
+// PDFs for all papers (including search results) are now handled via PDFManager
+// which downloads and stores PDFs in the library folder as linked files.
 
 // MARK: - PDF Viewer with Controls
 
@@ -499,24 +460,35 @@ public struct PDFViewerWithControls: View {
     // MARK: - Properties
 
     private let source: PDFSource
+    private let publicationID: UUID?
+
     @State private var pdfDocument: PDFDocument?
     @State private var error: PDFViewerError?
     @State private var isLoading = true
     @State private var currentPage = 1
     @State private var totalPages = 0
     @State private var scaleFactor: CGFloat = 1.0
+    @State private var saveTask: Task<Void, Never>?
+
+    // Search state
+    @State private var searchQuery: String = ""
+    @State private var searchResults: [PDFSelection] = []
+    @State private var currentSearchIndex: Int = 0
+    @State private var isSearching: Bool = false
 
     // MARK: - Initialization
 
-    public init(url: URL) {
+    public init(url: URL, publicationID: UUID? = nil) {
         self.source = .url(url)
+        self.publicationID = publicationID
     }
 
-    public init(data: Data) {
+    public init(data: Data, publicationID: UUID? = nil) {
         self.source = .data(data)
+        self.publicationID = publicationID
     }
 
-    public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil) {
+    public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil, publicationID: UUID? = nil) {
         if let library, let bibURL = library.resolveURL() {
             let baseURL = bibURL.deletingLastPathComponent()
             let fileURL = baseURL.appendingPathComponent(linkedFile.relativePath)
@@ -527,6 +499,7 @@ public struct PDFViewerWithControls: View {
             let fileURL = appSupport.appendingPathComponent(linkedFile.relativePath)
             self.source = .url(fileURL)
         }
+        self.publicationID = publicationID
     }
 
     // MARK: - Body
@@ -559,6 +532,128 @@ public struct PDFViewerWithControls: View {
         .task {
             await loadDocument()
         }
+        .onChange(of: currentPage) { _, newPage in
+            schedulePositionSave()
+        }
+        .onChange(of: scaleFactor) { _, newScale in
+            schedulePositionSave()
+        }
+        .onDisappear {
+            savePositionImmediately()
+        }
+    }
+
+    // MARK: - Reading Position
+
+    private func loadSavedPosition() async {
+        guard let pubID = publicationID else { return }
+
+        if let position = await ReadingPositionStore.shared.get(for: pubID) {
+            await MainActor.run {
+                // Only apply if within valid range
+                if position.pageNumber >= 1 && position.pageNumber <= totalPages {
+                    currentPage = position.pageNumber
+                }
+                if position.zoomLevel >= 0.25 && position.zoomLevel <= 4.0 {
+                    scaleFactor = position.zoomLevel
+                }
+                Logger.files.debugCapture("Restored reading position: page \(position.pageNumber), zoom \(Int(position.zoomLevel * 100))%", category: "pdf")
+            }
+        }
+    }
+
+    private func schedulePositionSave() {
+        guard publicationID != nil else { return }
+
+        // Cancel existing save task
+        saveTask?.cancel()
+
+        // Schedule debounced save (500ms delay)
+        saveTask = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            await savePosition()
+        }
+    }
+
+    private func savePositionImmediately() {
+        guard publicationID != nil else { return }
+
+        saveTask?.cancel()
+        Task {
+            await savePosition()
+        }
+    }
+
+    private func savePosition() async {
+        guard let pubID = publicationID else { return }
+
+        let position = ReadingPosition(
+            pageNumber: currentPage,
+            zoomLevel: scaleFactor,
+            lastReadDate: Date()
+        )
+        await ReadingPositionStore.shared.save(position, for: pubID)
+    }
+
+    // MARK: - Search
+
+    private func performSearch() {
+        guard !searchQuery.isEmpty, let document = pdfDocument else {
+            searchResults = []
+            currentSearchIndex = 0
+            return
+        }
+
+        isSearching = true
+
+        // Perform search (synchronous, but fast for most PDFs)
+        let results = document.findString(searchQuery, withOptions: [.caseInsensitive])
+
+        searchResults = results
+        currentSearchIndex = results.isEmpty ? 0 : 0
+        isSearching = false
+
+        Logger.files.debugCapture("Search found \(results.count) results for '\(searchQuery)'", category: "pdf")
+
+        // Navigate to first result
+        if !results.isEmpty {
+            navigateToSearchResult(at: 0)
+        }
+    }
+
+    private func clearSearch() {
+        searchQuery = ""
+        searchResults = []
+        currentSearchIndex = 0
+    }
+
+    private func previousSearchResult() {
+        guard !searchResults.isEmpty else { return }
+        if currentSearchIndex > 0 {
+            currentSearchIndex -= 1
+            navigateToSearchResult(at: currentSearchIndex)
+        }
+    }
+
+    private func nextSearchResult() {
+        guard !searchResults.isEmpty else { return }
+        if currentSearchIndex < searchResults.count - 1 {
+            currentSearchIndex += 1
+            navigateToSearchResult(at: currentSearchIndex)
+        }
+    }
+
+    private func navigateToSearchResult(at index: Int) {
+        guard index >= 0, index < searchResults.count else { return }
+        let selection = searchResults[index]
+
+        // Post notification that coordinator will handle
+        NotificationCenter.default.post(
+            name: .pdfViewerNavigateToSelection,
+            object: nil,
+            userInfo: ["selection": selection]
+        )
     }
 
     // MARK: - Toolbar
@@ -618,6 +713,58 @@ public struct PDFViewerWithControls: View {
                 }
             }
 
+            Divider()
+                .frame(height: 20)
+
+            // Search
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+
+                TextField("Search...", text: $searchQuery)
+                    .textFieldStyle(.roundedBorder)
+                    .frame(maxWidth: 200)
+                    .onSubmit {
+                        performSearch()
+                    }
+
+                if !searchQuery.isEmpty {
+                    Button {
+                        clearSearch()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                if !searchResults.isEmpty {
+                    Text("\(currentSearchIndex + 1)/\(searchResults.count)")
+                        .font(.caption)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+
+                    Button {
+                        previousSearchResult()
+                    } label: {
+                        Image(systemName: "chevron.up")
+                    }
+                    .disabled(currentSearchIndex <= 0)
+
+                    Button {
+                        nextSearchResult()
+                    } label: {
+                        Image(systemName: "chevron.down")
+                    }
+                    .disabled(currentSearchIndex >= searchResults.count - 1)
+                }
+
+                if isSearching {
+                    ProgressView()
+                        .controlSize(.small)
+                }
+            }
+
             Spacer()
 
             // Open in External App
@@ -648,6 +795,8 @@ public struct PDFViewerWithControls: View {
                 self.totalPages = document.pageCount
                 self.isLoading = false
             }
+            // Load saved reading position after document is ready
+            await loadSavedPosition()
         } catch let err as PDFViewerError {
             await MainActor.run {
                 self.error = err

@@ -169,11 +169,11 @@ public struct BibTeXExporter: Sendable {
         true
     }
 
-    // MARK: - Generate from OnlinePaper
+    // MARK: - Generate from PaperRepresentable
 
-    /// Generate a BibTeX entry from an OnlinePaper's metadata without network fetch.
-    /// This allows importing papers from smart search results instantly.
-    public static func generateEntry(from paper: OnlinePaper) -> BibTeXEntry {
+    /// Generate a BibTeX entry from any PaperRepresentable's metadata.
+    /// Works with LocalPaper and CDPublication types.
+    public static func generateEntry(from paper: any PaperRepresentable) -> BibTeXEntry {
         // Generate cite key: LastName + Year + FirstTitleWord
         let lastNamePart = paper.authors.first?
             .components(separatedBy: ",").first?
@@ -237,6 +237,12 @@ public struct BibTeXExporter: Sendable {
 
         if let bibcode = paper.bibcode {
             fields["adsurl"] = "https://ui.adsabs.harvard.edu/abs/\(bibcode)"
+        }
+
+        // Store PDF links as bdsk-url-* fields (BibDesk compatible)
+        for link in paper.pdfLinks {
+            let fieldName = "bdsk-url-\(link.type.bdskUrlNumber)"
+            fields[fieldName] = link.url.absoluteString
         }
 
         return BibTeXEntry(citeKey: citeKey, entryType: entryType, fields: fields)

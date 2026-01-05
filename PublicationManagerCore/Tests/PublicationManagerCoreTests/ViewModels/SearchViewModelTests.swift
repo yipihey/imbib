@@ -9,12 +9,17 @@ import XCTest
 @testable import PublicationManagerCore
 
 /// Tests for SearchViewModel using MockSourcePlugin for isolated testing.
+///
+/// ADR-016: SearchViewModel now auto-imports results to the active library's
+/// "Last Search" collection. These tests verify the auto-import behavior.
 @MainActor
 final class SearchViewModelTests: XCTestCase {
 
     private var sourceManager: SourceManager!
     private var mockSource: MockSourcePlugin!
     private var viewModel: SearchViewModel!
+    private var libraryManager: LibraryManager!
+    private var persistenceController: PersistenceController!
 
     override func setUp() async throws {
         try await super.setUp()
@@ -22,17 +27,27 @@ final class SearchViewModelTests: XCTestCase {
         // Clear session cache from previous tests
         await SessionCache.shared.clearAll()
 
+        // Use preview persistence controller to avoid Core Data entity conflicts
+        persistenceController = .preview
+
+        // Setup library manager - this creates a default library if none exists
+        libraryManager = LibraryManager(persistenceController: persistenceController)
+
+        // Clear any existing Last Search results from previous tests
+        libraryManager.clearLastSearchCollection()
+
         // Setup source manager with mock plugin (no credentials needed)
         let credentialManager = CredentialManager(keyPrefix: "test.\(UUID().uuidString)")
         sourceManager = SourceManager(credentialManager: credentialManager)
         mockSource = MockSourcePlugin(id: "mock", name: "Mock Source")
         await sourceManager.register(mockSource)
 
-        // Create view model with source manager
+        // Create view model with source manager and library manager
         viewModel = SearchViewModel(
             sourceManager: sourceManager,
             deduplicationService: DeduplicationService(),
-            repository: PublicationRepository()
+            repository: PublicationRepository(persistenceController: persistenceController),
+            libraryManager: libraryManager
         )
     }
 
@@ -40,23 +55,25 @@ final class SearchViewModelTests: XCTestCase {
         viewModel = nil
         mockSource = nil
         sourceManager = nil
+        libraryManager = nil
+        persistenceController = nil
         try await super.tearDown()
     }
 
     // MARK: - Initial State Tests
 
     func testViewModel_initialState() {
-        XCTAssertTrue(viewModel.results.isEmpty)
+        XCTAssertTrue(viewModel.publications.isEmpty)
         XCTAssertFalse(viewModel.isSearching)
         XCTAssertNil(viewModel.error)
         XCTAssertEqual(viewModel.query, "")
         XCTAssertTrue(viewModel.selectedSourceIDs.isEmpty)
-        XCTAssertTrue(viewModel.selectedResults.isEmpty)
+        XCTAssertTrue(viewModel.selectedPublicationIDs.isEmpty)
     }
 
     // MARK: - Search Tests
 
-    func testSearch_withResults() async {
+    func testSearch_withResults_autoImportsToCollection() async {
         // Given
         let mockResults = MockSourcePlugin.sampleSearchResults(count: 3, sourceID: "mock")
         await mockSource.setSearchResults(mockResults)
@@ -67,11 +84,17 @@ final class SearchViewModelTests: XCTestCase {
 
         // Then
         XCTAssertFalse(viewModel.isSearching)
-        XCTAssertEqual(viewModel.results.count, 3)
+        XCTAssertEqual(viewModel.publications.count, 3)
         XCTAssertNil(viewModel.error)
+
+        // Verify publications are CDPublication entities
+        for pub in viewModel.publications {
+            XCTAssertNotNil(pub.title)
+            XCTAssertEqual(pub.originalSourceID, "mock")
+        }
     }
 
-    func testSearch_emptyQuery_returnsNoResults() async {
+    func testSearch_emptyQuery_doesNothing() async {
         // Given
         viewModel.query = ""
 
@@ -79,11 +102,11 @@ final class SearchViewModelTests: XCTestCase {
         await viewModel.search()
 
         // Then
-        XCTAssertTrue(viewModel.results.isEmpty)
+        XCTAssertTrue(viewModel.publications.isEmpty)
         XCTAssertFalse(viewModel.isSearching)
     }
 
-    func testSearch_whitespaceOnlyQuery_returnsNoResults() async {
+    func testSearch_whitespaceOnlyQuery_doesNothing() async {
         // Given
         viewModel.query = "   "
 
@@ -91,7 +114,7 @@ final class SearchViewModelTests: XCTestCase {
         await viewModel.search()
 
         // Then
-        XCTAssertTrue(viewModel.results.isEmpty)
+        XCTAssertTrue(viewModel.publications.isEmpty)
     }
 
     func testSearch_callsSourceManager() async {
@@ -145,34 +168,50 @@ final class SearchViewModelTests: XCTestCase {
         await viewModel.search()
 
         // Then - Should be deduplicated to 1 result
-        XCTAssertEqual(viewModel.results.count, 1)
+        XCTAssertEqual(viewModel.publications.count, 1)
+    }
+
+    func testSearch_replacesLastSearchResults() async {
+        // Given - First search
+        await mockSource.setSearchResults(MockSourcePlugin.sampleSearchResults(count: 3, sourceID: "mock"))
+        viewModel.query = "first search"
+        await viewModel.search()
+        XCTAssertEqual(viewModel.publications.count, 3)
+
+        // When - Second search with different results
+        await mockSource.setSearchResults(MockSourcePlugin.sampleSearchResults(count: 2, sourceID: "mock"))
+        viewModel.query = "second search"
+        await viewModel.search()
+
+        // Then - Previous results are replaced
+        XCTAssertEqual(viewModel.publications.count, 2)
     }
 
     // MARK: - Selection Tests
 
-    func testToggleSelection_selectsResult() async {
+    func testToggleSelection_selectsPublication() async {
         // Given
-        await mockSource.setSearchResults(MockSourcePlugin.sampleSearchResults(count: 1))
+        await mockSource.setSearchResults(MockSourcePlugin.sampleSearchResults(count: 1, sourceID: "mock"))
         viewModel.query = "test"
         await viewModel.search()
-        let result = viewModel.results.first!
+        let publication = viewModel.publications.first!
 
         // When
-        viewModel.toggleSelection(result)
+        viewModel.toggleSelection(publication)
 
         // Then
-        XCTAssertTrue(viewModel.selectedResults.contains(result.id))
+        XCTAssertTrue(viewModel.selectedPublicationIDs.contains(publication.id))
 
         // When - Toggle again
-        viewModel.toggleSelection(result)
+        viewModel.toggleSelection(publication)
 
         // Then
-        XCTAssertFalse(viewModel.selectedResults.contains(result.id))
+        XCTAssertFalse(viewModel.selectedPublicationIDs.contains(publication.id))
     }
 
-    func testSelectAll_selectsAllResults() async {
+    func testSelectAll_selectsAllPublications() async {
         // Given
-        await mockSource.setSearchResults(MockSourcePlugin.sampleSearchResults(count: 5))
+        await mockSource.setSearchResults(MockSourcePlugin.sampleSearchResults(count: 5, sourceID: "mock"))
         viewModel.query = "test"
         await viewModel.search()
 
@@ -180,12 +219,12 @@ final class SearchViewModelTests: XCTestCase {
         viewModel.selectAll()
 
         // Then
-        XCTAssertEqual(viewModel.selectedResults.count, 5)
+        XCTAssertEqual(viewModel.selectedPublicationIDs.count, 5)
     }
 
     func testClearSelection_removesAllSelections() async {
         // Given
-        await mockSource.setSearchResults(MockSourcePlugin.sampleSearchResults(count: 5))
+        await mockSource.setSearchResults(MockSourcePlugin.sampleSearchResults(count: 5, sourceID: "mock"))
         viewModel.query = "test"
         await viewModel.search()
         viewModel.selectAll()
@@ -194,7 +233,7 @@ final class SearchViewModelTests: XCTestCase {
         viewModel.clearSelection()
 
         // Then
-        XCTAssertTrue(viewModel.selectedResults.isEmpty)
+        XCTAssertTrue(viewModel.selectedPublicationIDs.isEmpty)
     }
 
     // MARK: - Source Selection Tests

@@ -240,32 +240,8 @@ final class SearchImportIntegrationTests: XCTestCase {
     }
 
     // MARK: - ViewModel Integration
-
-    @MainActor
-    func testSearchViewModel_fullFlow() async throws {
-        // Given
-        let mockSource = MockSourcePlugin(id: "mock", name: "Mock")
-        await mockSource.setSearchResults([
-            makeSearchResult(id: "1", title: "Result 1", sourceID: "mock"),
-            makeSearchResult(id: "2", title: "Result 2", sourceID: "mock")
-        ])
-        await sourceManager.register(mockSource)
-
-        let repository = PublicationRepository()
-        let viewModel = SearchViewModel(
-            sourceManager: sourceManager,
-            deduplicationService: deduplicationService,
-            repository: repository
-        )
-
-        // When
-        viewModel.query = "test"
-        await viewModel.search()
-
-        // Then
-        XCTAssertEqual(viewModel.results.count, 2)
-        XCTAssertFalse(viewModel.isSearching)
-    }
+    // Note: SearchViewModel full flow tests are in SearchViewModelTests.swift
+    // to avoid Core Data entity conflicts when using shared persistence controllers
 
     // MARK: - Helpers
 

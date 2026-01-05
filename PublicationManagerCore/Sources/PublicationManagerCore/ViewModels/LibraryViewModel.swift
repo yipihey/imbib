@@ -157,54 +157,9 @@ public final class LibraryViewModel {
         await loadPublications()
     }
 
-    /// Import a paper from online search with optional PDF.
-    ///
-    /// This imports the paper's BibTeX and optionally downloads and attaches the PDF.
-    public func importOnlinePaper(
-        _ paper: OnlinePaper,
-        downloadPDF: Bool = true,
-        in library: CDLibrary? = nil
-    ) async throws -> CDPublication {
-        Logger.viewModels.infoCapture("Importing online paper: \(paper.title)", category: "import")
-
-        // Fetch BibTeX
-        let bibtex = try await paper.bibtex()
-        let parser = BibTeXParser()
-        let entries = try parser.parseEntries(bibtex)
-
-        guard let entry = entries.first else {
-            throw ImportError.noBibTeXEntry
-        }
-
-        // Create publication
-        let publication = await repository.create(from: entry)
-
-        // Apply pending metadata if any
-        if let metadata = await SessionCache.shared.getMetadata(for: paper.id) {
-            if let customKey = metadata.customCiteKey {
-                await repository.updateField(publication, field: "citeKey", value: customKey)
-            }
-            if !metadata.notes.isEmpty {
-                await repository.updateField(publication, field: "notes", value: metadata.notes)
-            }
-            // TODO: Apply tags when tag support is fully implemented
-            await SessionCache.shared.clearMetadata(for: paper.id)
-        }
-
-        // Download PDF if available and requested
-        if downloadPDF, let pdfURL = paper.remotePDFURL {
-            do {
-                try await PDFManager.shared.downloadAndImport(from: pdfURL, for: publication, in: library)
-                Logger.viewModels.infoCapture("Downloaded and attached PDF", category: "import")
-            } catch {
-                // Log but don't fail the import - paper is still added without PDF
-                Logger.viewModels.warningCapture("Failed to download PDF: \(error.localizedDescription)", category: "import")
-            }
-        }
-
-        await loadPublications()
-        return publication
-    }
+    // Note: importOnlinePaper and importPaperLocally have been removed as part of ADR-016.
+    // Search results are now auto-imported to Last Search collection or smart search result collections.
+    // Use SearchViewModel.search() or SmartSearchProvider.refresh() instead.
 
     /// Import a paper from a BibTeX entry directly.
     ///
@@ -217,32 +172,6 @@ public final class LibraryViewModel {
         await loadPublications()
 
         // Invalidate library lookup cache
-        await DefaultLibraryLookupService.shared.invalidateCache()
-
-        return publication
-    }
-
-    /// Import an online paper locally without network requests.
-    ///
-    /// This is the fast path for importing papers from smart search results:
-    /// - Generates BibTeX locally from OnlinePaper metadata (no network fetch)
-    /// - Creates single publication in Core Data
-    /// - Updates UI without reloading entire library
-    @discardableResult
-    public func importPaperLocally(_ paper: OnlinePaper) async -> CDPublication {
-        Logger.viewModels.infoCapture("Importing paper locally: \(paper.title)", category: "import")
-
-        // Generate BibTeX locally - no network request needed
-        let entry = BibTeXExporter.generateEntry(from: paper)
-
-        // Create single publication
-        let publication = await repository.create(from: entry)
-
-        // Insert at beginning of both arrays without full reload
-        publications.insert(publication, at: 0)
-        papers.insert(LocalPaper(publication: publication, libraryID: libraryID), at: 0)
-
-        // Invalidate library lookup cache so the paper shows as "in library"
         await DefaultLibraryLookupService.shared.invalidateCache()
 
         return publication

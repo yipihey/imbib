@@ -29,8 +29,8 @@ struct imbibApp: App {
     init() {
         appLogger.info("imbib app initializing...")
 
-        // Create shared dependencies
-        let credentialManager = CredentialManager()
+        // Use shared credential manager singleton for persistence
+        let credentialManager = CredentialManager.shared
         let sourceManager = SourceManager(credentialManager: credentialManager)
         let repository = PublicationRepository()
         let deduplicationService = DeduplicationService()

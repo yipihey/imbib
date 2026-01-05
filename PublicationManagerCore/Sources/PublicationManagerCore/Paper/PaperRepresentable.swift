@@ -65,6 +65,9 @@ public protocol PaperRepresentable: Identifiable, Sendable {
 
     // MARK: - File Access
 
+    /// Available PDF links with type information (publisher, preprint, etc.)
+    var pdfLinks: [PDFLink] { get }
+
     /// URL to the PDF, if available.
     /// For online papers, this may trigger a download to temp storage.
     func pdfURL() async -> URL?
@@ -114,6 +117,16 @@ public extension PaperRepresentable {
     var primaryIdentifier: String? {
         doi ?? arxivID ?? pmid ?? bibcode
     }
+
+    /// Whether this paper has a PDF available (local file or remote URL)
+    var hasPDF: Bool {
+        false  // Default - types override as needed
+    }
+
+    /// Default empty PDF links - types override as needed
+    var pdfLinks: [PDFLink] {
+        []
+    }
 }
 
 // MARK: - Library Lookup Service
@@ -150,6 +163,8 @@ public struct AnyPaper: PaperRepresentable {
     private let _pmid: String?
     private let _bibcode: String?
     private let _sourceType: PaperSourceType
+    private let _hasPDF: Bool
+    private let _pdfLinks: [PDFLink]
     private let _pdfURL: @Sendable () async -> URL?
     private let _bibtex: @Sendable () async throws -> String
 
@@ -165,6 +180,8 @@ public struct AnyPaper: PaperRepresentable {
         self._pmid = paper.pmid
         self._bibcode = paper.bibcode
         self._sourceType = paper.sourceType
+        self._hasPDF = paper.hasPDF
+        self._pdfLinks = paper.pdfLinks
         self._pdfURL = { await paper.pdfURL() }
         self._bibtex = { try await paper.bibtex() }
     }
@@ -180,6 +197,8 @@ public struct AnyPaper: PaperRepresentable {
     public var pmid: String? { _pmid }
     public var bibcode: String? { _bibcode }
     public var sourceType: PaperSourceType { _sourceType }
+    public var hasPDF: Bool { _hasPDF }
+    public var pdfLinks: [PDFLink] { _pdfLinks }
 
     public func pdfURL() async -> URL? {
         await _pdfURL()

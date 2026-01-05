@@ -37,7 +37,7 @@ public final class SettingsViewModel {
 
     public init(
         sourceManager: SourceManager = SourceManager(),
-        credentialManager: CredentialManager = CredentialManager(),
+        credentialManager: CredentialManager = .shared,
         enrichmentSettingsStore: EnrichmentSettingsStore = .shared
     ) {
         self.sourceManager = sourceManager

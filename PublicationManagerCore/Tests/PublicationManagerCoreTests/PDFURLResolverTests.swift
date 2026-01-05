@@ -10,56 +10,84 @@ import XCTest
 
 final class PDFURLResolverTests: XCTestCase {
 
+    // MARK: - Properties
+
+    private var persistenceController: PersistenceController!
+
+    // MARK: - Setup
+
+    override func setUp() {
+        super.setUp()
+        persistenceController = .preview
+    }
+
+    override func tearDown() {
+        persistenceController = nil
+        super.tearDown()
+    }
+
     // MARK: - Test Helpers
 
-    private func makeOnlinePaper(
-        id: String = "test-123",
+    @MainActor
+    private func makePublication(
         arxivID: String? = nil,
         remotePDFURL: URL? = nil
-    ) -> OnlinePaper {
-        OnlinePaper(result: SearchResult(
-            id: id,
-            sourceID: "test",
-            title: "Test Paper",
-            authors: ["Test Author"],
-            year: 2024,
-            venue: "Test Venue",
-            abstract: "Test abstract",
-            doi: "10.1234/test",
-            arxivID: arxivID,
-            pdfURL: remotePDFURL,
-            webURL: nil
-        ))
+    ) -> CDPublication {
+        let publication = CDPublication(context: persistenceController.viewContext)
+        publication.id = UUID()
+        publication.citeKey = "Test2024"
+        publication.entryType = "article"
+        publication.title = "Test Paper"
+        publication.year = 2024
+        publication.dateAdded = Date()
+        publication.dateModified = Date()
+
+        // Set arXiv ID via fields
+        var fields: [String: String] = [:]
+        if let arxivID = arxivID {
+            fields["eprint"] = arxivID
+            fields["archiveprefix"] = "arXiv"
+        }
+        publication.fields = fields
+
+        // Set PDF links
+        if let remotePDFURL = remotePDFURL {
+            publication.pdfLinks = [PDFLink(url: remotePDFURL, type: .publisher)]
+        }
+
+        return publication
     }
 
     // MARK: - Preprint Priority Tests
 
+    @MainActor
     func testPreprintPriority_withArXiv_returnsArXivURL() {
         // Given
-        let paper = makeOnlinePaper(
+        let publication = makePublication(
             arxivID: "2301.12345",
             remotePDFURL: URL(string: "https://publisher.com/paper.pdf")
         )
         let settings = PDFSettings(sourcePriority: .preprint, libraryProxyURL: "", proxyEnabled: false)
 
         // When
-        let result = PDFURLResolver.resolve(for: paper, settings: settings)
+        let result = PDFURLResolver.resolve(for: publication, settings: settings)
 
         // Then - should prefer arXiv
         XCTAssertEqual(result?.absoluteString, "https://arxiv.org/pdf/2301.12345.pdf")
     }
 
+    @MainActor
     func testPreprintPriority_noArXiv_fallsBackToPublisher() {
         // Given
         let publisherURL = URL(string: "https://publisher.com/paper.pdf")!
-        let paper = makeOnlinePaper(
+        let publication = makePublication(
             arxivID: nil,
             remotePDFURL: publisherURL
         )
         let settings = PDFSettings(sourcePriority: .preprint, libraryProxyURL: "", proxyEnabled: false)
 
         // When
-        let result = PDFURLResolver.resolve(for: paper, settings: settings)
+        let result = PDFURLResolver.resolve(for: publication, settings: settings)
 
         // Then - should fall back to publisher
         XCTAssertEqual(result, publisherURL)
@@ -67,32 +95,34 @@ final class PDFURLResolverTests: XCTestCase {
 
     // MARK: - Publisher Priority Tests
 
+    @MainActor
     func testPublisherPriority_withRemotePDF_returnsPublisherURL() {
         // Given
         let publisherURL = URL(string: "https://publisher.com/paper.pdf")!
-        let paper = makeOnlinePaper(
+        let publication = makePublication(
             arxivID: "2301.12345",
             remotePDFURL: publisherURL
         )
         let settings = PDFSettings(sourcePriority: .publisher, libraryProxyURL: "", proxyEnabled: false)
 
         // When
-        let result = PDFURLResolver.resolve(for: paper, settings: settings)
+        let result = PDFURLResolver.resolve(for: publication, settings: settings)
 
         // Then - should prefer publisher
         XCTAssertEqual(result, publisherURL)
     }
 
+    @MainActor
     func testPublisherPriority_noRemotePDF_fallsBackToArXiv() {
         // Given
-        let paper = makeOnlinePaper(
+        let publication = makePublication(
             arxivID: "2301.12345",
             remotePDFURL: nil
         )
         let settings = PDFSettings(sourcePriority: .publisher, libraryProxyURL: "", proxyEnabled: false)
 
         // When
-        let result = PDFURLResolver.resolve(for: paper, settings: settings)
+        let result = PDFURLResolver.resolve(for: publication, settings: settings)
 
         // Then - should fall back to arXiv
         XCTAssertEqual(result?.absoluteString, "https://arxiv.org/pdf/2301.12345.pdf")
@@ -100,10 +130,11 @@ final class PDFURLResolverTests: XCTestCase {
 
     // MARK: - Proxy Tests
 
+    @MainActor
     func testProxyEnabled_appliesProxyToPublisherURL() {
         // Given
         let publisherURL = URL(string: "https://publisher.com/paper.pdf")!
-        let paper = makeOnlinePaper(remotePDFURL: publisherURL)
+        let publication = makePublication(remotePDFURL: publisherURL)
         let proxyURL = "https://stanford.idm.oclc.org/login?url="
         let settings = PDFSettings(
             sourcePriority: .publisher,
@@ -112,7 +143,7 @@ final class PDFURLResolverTests: XCTestCase {
         )
 
         // When
-        let result = PDFURLResolver.resolve(for: paper, settings: settings)
+        let result = PDFURLResolver.resolve(for: publication, settings: settings)
 
         // Then
         XCTAssertEqual(
@@ -121,10 +152,11 @@ final class PDFURLResolverTests: XCTestCase {
         )
     }
 
+    @MainActor
     func testProxyDisabled_doesNotApplyProxy() {
         // Given
         let publisherURL = URL(string: "https://publisher.com/paper.pdf")!
-        let paper = makeOnlinePaper(remotePDFURL: publisherURL)
+        let publication = makePublication(remotePDFURL: publisherURL)
         let settings = PDFSettings(
             sourcePriority: .publisher,
             libraryProxyURL: "https://proxy.edu/",
@@ -132,16 +164,17 @@ final class PDFURLResolverTests: XCTestCase {
         )
 
         // When
-        let result = PDFURLResolver.resolve(for: paper, settings: settings)
+        let result = PDFURLResolver.resolve(for: publication, settings: settings)
 
         // Then - should return original URL without proxy
         XCTAssertEqual(result, publisherURL)
     }
 
+    @MainActor
     func testProxyEnabled_emptyProxyURL_doesNotApplyProxy() {
         // Given
         let publisherURL = URL(string: "https://publisher.com/paper.pdf")!
-        let paper = makeOnlinePaper(remotePDFURL: publisherURL)
+        let publication = makePublication(remotePDFURL: publisherURL)
         let settings = PDFSettings(
             sourcePriority: .publisher,
             libraryProxyURL: "",  // Empty
@@ -149,15 +182,16 @@ final class PDFURLResolverTests: XCTestCase {
         )
 
         // When
-        let result = PDFURLResolver.resolve(for: paper, settings: settings)
+        let result = PDFURLResolver.resolve(for: publication, settings: settings)
 
         // Then - should return original URL
         XCTAssertEqual(result, publisherURL)
     }
 
+    @MainActor
     func testProxyNotAppliedToArXiv() {
         // Given - arXiv is free, proxy should only apply to publisher
-        let paper = makeOnlinePaper(arxivID: "2301.12345")
+        let publication = makePublication(arxivID: "2301.12345")
         let settings = PDFSettings(
             sourcePriority: .preprint,
             libraryProxyURL: "https://proxy.edu/login?url=",
@@ -165,64 +199,41 @@ final class PDFURLResolverTests: XCTestCase {
         )
 
         // When
-        let result = PDFURLResolver.resolve(for: paper, settings: settings)
+        let result = PDFURLResolver.resolve(for: publication, settings: settings)
 
         // Then - arXiv URL should NOT have proxy
         XCTAssertEqual(result?.absoluteString, "https://arxiv.org/pdf/2301.12345.pdf")
     }
 
-    // MARK: - arXiv ID Format Tests
+    // MARK: - arXiv ID Format Tests (using direct arXivPDFURL method)
 
     func testArXivPDFURL_newFormat() {
-        // Given
-        let paper = makeOnlinePaper(arxivID: "2301.12345")
-
         // When
-        let result = PDFURLResolver.arXivPDFURL(for: paper)
+        let result = PDFURLResolver.arXivPDFURL(arxivID: "2301.12345")
 
         // Then
         XCTAssertEqual(result?.absoluteString, "https://arxiv.org/pdf/2301.12345.pdf")
     }
 
     func testArXivPDFURL_newFormatWithVersion() {
-        // Given - version suffix is preserved (arXiv handles redirects)
-        let paper = makeOnlinePaper(arxivID: "2301.12345v2")
-
-        // When
-        let result = PDFURLResolver.arXivPDFURL(for: paper)
+        // When - version suffix is preserved (arXiv handles redirects)
+        let result = PDFURLResolver.arXivPDFURL(arxivID: "2301.12345v2")
 
         // Then
         XCTAssertEqual(result?.absoluteString, "https://arxiv.org/pdf/2301.12345v2.pdf")
     }
 
     func testArXivPDFURL_oldFormat() {
-        // Given - old format: category/YYMMNNN
-        let paper = makeOnlinePaper(arxivID: "hep-th/9901001")
-
-        // When
-        let result = PDFURLResolver.arXivPDFURL(for: paper)
+        // When - old format: category/YYMMNNN
+        let result = PDFURLResolver.arXivPDFURL(arxivID: "hep-th/9901001")
 
         // Then
         XCTAssertEqual(result?.absoluteString, "https://arxiv.org/pdf/hep-th/9901001.pdf")
     }
 
-    func testArXivPDFURL_noArXivID_returnsNil() {
-        // Given
-        let paper = makeOnlinePaper(arxivID: nil)
-
-        // When
-        let result = PDFURLResolver.arXivPDFURL(for: paper)
-
-        // Then
-        XCTAssertNil(result)
-    }
-
     func testArXivPDFURL_emptyArXivID_returnsNil() {
-        // Given
-        let paper = makeOnlinePaper(arxivID: "")
-
         // When
-        let result = PDFURLResolver.arXivPDFURL(for: paper)
+        let result = PDFURLResolver.arXivPDFURL(arxivID: "")
 
         // Then
         XCTAssertNil(result)
@@ -230,13 +241,14 @@ final class PDFURLResolverTests: XCTestCase {
 
     // MARK: - No PDF Available Tests
 
+    @MainActor
     func testNoPDFAvailable_returnsNil() {
         // Given - no arXiv ID and no remote PDF
-        let paper = makeOnlinePaper(arxivID: nil, remotePDFURL: nil)
+        let publication = makePublication(arxivID: nil, remotePDFURL: nil)
         let settings = PDFSettings.default
 
         // When
-        let result = PDFURLResolver.resolve(for: paper, settings: settings)
+        let result = PDFURLResolver.resolve(for: publication, settings: settings)
 
         // Then
         XCTAssertNil(result)
@@ -244,27 +256,31 @@ final class PDFURLResolverTests: XCTestCase {
 
     // MARK: - hasPDF Tests
 
+    @MainActor
     func testHasPDF_withArXiv_returnsTrue() {
-        let paper = makeOnlinePaper(arxivID: "2301.12345")
-        XCTAssertTrue(PDFURLResolver.hasPDF(paper: paper))
+        let publication = makePublication(arxivID: "2301.12345")
+        XCTAssertTrue(PDFURLResolver.hasPDF(publication: publication))
     }
 
+    @MainActor
     func testHasPDF_withRemotePDF_returnsTrue() {
-        let paper = makeOnlinePaper(remotePDFURL: URL(string: "https://test.com/paper.pdf"))
-        XCTAssertTrue(PDFURLResolver.hasPDF(paper: paper))
+        let publication = makePublication(remotePDFURL: URL(string: "https://test.com/paper.pdf"))
+        XCTAssertTrue(PDFURLResolver.hasPDF(publication: publication))
     }
 
+    @MainActor
     func testHasPDF_withBoth_returnsTrue() {
-        let paper = makeOnlinePaper(
+        let publication = makePublication(
             arxivID: "2301.12345",
             remotePDFURL: URL(string: "https://test.com/paper.pdf")
         )
-        XCTAssertTrue(PDFURLResolver.hasPDF(paper: paper))
+        XCTAssertTrue(PDFURLResolver.hasPDF(publication: publication))
     }
 
+    @MainActor
     func testHasPDF_withNeither_returnsFalse() {
-        let paper = makeOnlinePaper(arxivID: nil, remotePDFURL: nil)
-        XCTAssertFalse(PDFURLResolver.hasPDF(paper: paper))
+        let publication = makePublication(arxivID: nil, remotePDFURL: nil)
+        XCTAssertFalse(PDFURLResolver.hasPDF(publication: publication))
     }
 
     // MARK: - ADS Gateway Tests
@@ -290,15 +306,16 @@ final class PDFURLResolverTests: XCTestCase {
 
     // MARK: - Available Sources Tests
 
+    @MainActor
     func testAvailableSources_withBothSources() {
         // Given
-        let paper = makeOnlinePaper(
+        let publication = makePublication(
             arxivID: "2301.12345",
             remotePDFURL: URL(string: "https://publisher.com/paper.pdf")
         )
 
         // When
-        let sources = PDFURLResolver.availableSources(for: paper)
+        let sources = PDFURLResolver.availableSources(for: publication)
 
         // Then
         XCTAssertEqual(sources.count, 2)
@@ -306,12 +323,13 @@ final class PDFURLResolverTests: XCTestCase {
         XCTAssertTrue(sources.contains { $0.type == .publisher && $0.name == "Publisher" })
     }
 
+    @MainActor
     func testAvailableSources_onlyArXiv() {
         // Given
-        let paper = makeOnlinePaper(arxivID: "2301.12345")
+        let publication = makePublication(arxivID: "2301.12345")
 
         // When
-        let sources = PDFURLResolver.availableSources(for: paper)
+        let sources = PDFURLResolver.availableSources(for: publication)
 
         // Then
         XCTAssertEqual(sources.count, 1)
@@ -320,12 +338,13 @@ final class PDFURLResolverTests: XCTestCase {
         XCTAssertFalse(sources.first?.requiresProxy ?? true)
     }
 
+    @MainActor
     func testAvailableSources_onlyPublisher() {
         // Given
-        let paper = makeOnlinePaper(remotePDFURL: URL(string: "https://publisher.com/paper.pdf"))
+        let publication = makePublication(remotePDFURL: URL(string: "https://publisher.com/paper.pdf"))
 
         // When
-        let sources = PDFURLResolver.availableSources(for: paper)
+        let sources = PDFURLResolver.availableSources(for: publication)
 
         // Then
         XCTAssertEqual(sources.count, 1)
@@ -334,12 +353,13 @@ final class PDFURLResolverTests: XCTestCase {
         XCTAssertTrue(sources.first?.requiresProxy ?? false)
     }
 
+    @MainActor
     func testAvailableSources_noSources() {
         // Given
-        let paper = makeOnlinePaper()
+        let publication = makePublication()
 
         // When
-        let sources = PDFURLResolver.availableSources(for: paper)
+        let sources = PDFURLResolver.availableSources(for: publication)
 
         // Then
         XCTAssertTrue(sources.isEmpty)
