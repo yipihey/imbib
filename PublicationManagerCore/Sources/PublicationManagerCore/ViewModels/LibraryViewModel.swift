@@ -271,20 +271,19 @@ public final class LibraryViewModel {
     /// Mark a publication as read
     public func markAsRead(_ publication: CDPublication) async {
         await repository.markAsRead(publication)
-        // Reload to update UI state
-        await loadPublications()
+        // No reload needed - CDPublication is @ObservedObject so row updates automatically
     }
 
     /// Mark a publication as unread
     public func markAsUnread(_ publication: CDPublication) async {
         await repository.markAsUnread(publication)
-        await loadPublications()
+        // No reload needed - CDPublication is @ObservedObject so row updates automatically
     }
 
     /// Toggle read/unread status
     public func toggleReadStatus(_ publication: CDPublication) async {
         await repository.toggleReadStatus(publication)
-        await loadPublications()
+        // No reload needed - CDPublication is @ObservedObject so row updates automatically
     }
 
     /// Mark all selected publications as read

@@ -67,13 +67,17 @@ struct SmartSearchResultsView: View {
     @State private var isLoading = false
     @State private var error: Error?
     @State private var selectedPublicationIDs: Set<UUID> = []
+    @State private var publications: [CDPublication] = []
 
-    // MARK: - Computed
+    // MARK: - Helpers
 
-    /// Publications from the smart search's result collection
-    private var publications: [CDPublication] {
-        guard let collection = smartSearch.resultCollection else { return [] }
-        return Array(collection.publications ?? [])
+    /// Refresh publications from the smart search's result collection
+    private func refreshPublicationsList() {
+        guard let collection = smartSearch.resultCollection else {
+            publications = []
+            return
+        }
+        publications = Array(collection.publications ?? [])
             .sorted { ($0.dateAdded) > ($1.dateAdded) }
     }
 
@@ -86,7 +90,9 @@ struct SmartSearchResultsView: View {
                 toolbarContent
             }
             .task(id: smartSearch.id) {
-                // Only auto-refresh if collection is empty (first time or after clear)
+                // Load cached publications first
+                refreshPublicationsList()
+                // Only auto-refresh from network if collection is empty
                 if publications.isEmpty {
                     await loadOrRefresh(forceRefresh: true)
                 }
@@ -220,6 +226,8 @@ struct SmartSearchResultsView: View {
             try await cachedProvider.refresh()
             await MainActor.run {
                 SmartSearchRepository.shared.markExecuted(smartSearch)
+                // Update the cached publications list after network fetch
+                refreshPublicationsList()
             }
         } catch {
             self.error = error
