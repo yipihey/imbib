@@ -318,6 +318,26 @@ Update the changelog below after significant work:
 
 ## Changelog
 
+### 2026-01-05 (Session 9)
+- Multi-library sidebar with disclosure groups
+  - Each library displayed as disclosure group with own publications, smart searches, collections
+  - Per-library navigation: All Publications, Unread, Smart Searches, Collections
+  - "Add..." menu for creating smart searches/collections within library
+  - Bottom toolbar with +/- for library management
+  - NewLibrarySheet with folder picker (macOS)
+- Core Data relationship updates
+  - Added owningLibrary relationship to CDPublication (many-to-one)
+  - Added library relationship to CDCollection (many-to-one)
+  - Added publications and collections relationships to CDLibrary (one-to-many)
+  - Cascade delete for publications/collections when library deleted
+- SidebarSection enum refactored
+  - .library(CDLibrary), .unread(CDLibrary) for library-specific views
+  - Smart searches and collections now library-scoped via relationships
+- LibraryListView now takes CDLibrary parameter
+- Fixed sort order to match LibrarySortOrder enum cases
+- Added ReadingPositionStore for PDF reading position tracking (page, zoom, date)
+- All 741 tests passing
+
 ### 2026-01-05 (Session 8)
 - Implemented ADR-016: Unified Paper Model
   - All papers are now CDPublication entities (no more OnlinePaper)
