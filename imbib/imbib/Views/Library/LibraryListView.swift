@@ -22,6 +22,9 @@ struct LibraryListView: View {
 
     // MARK: - Properties
 
+    /// The library to display publications from
+    let library: CDLibrary
+
     @Binding var selection: CDPublication?
 
     /// Filter mode for the publication list
@@ -33,18 +36,47 @@ struct LibraryListView: View {
 
     // MARK: - Computed Properties
 
-    /// Papers filtered by the current filter mode
-    private var filteredPapers: [LocalPaper] {
+    /// Publications from this library, filtered by the current filter mode
+    private var libraryPublications: [CDPublication] {
+        guard let publications = library.publications as? Set<CDPublication> else {
+            return []
+        }
+
+        var filtered = Array(publications)
+
+        // Apply filter mode
         switch filterMode {
         case .all:
-            return viewModel.papers
+            break
         case .unread:
-            // Filter to only show unread publications
-            return viewModel.papers.filter { paper in
-                guard let publication = viewModel.publications.first(where: { $0.id == paper.uuid }) else {
-                    return false
-                }
-                return !publication.isRead
+            filtered = filtered.filter { !$0.isRead }
+        }
+
+        // Apply search query if present
+        if !viewModel.searchQuery.isEmpty {
+            let query = viewModel.searchQuery.lowercased()
+            filtered = filtered.filter { pub in
+                pub.title?.lowercased().contains(query) == true ||
+                pub.authorString.lowercased().contains(query) ||
+                pub.citeKey.lowercased().contains(query)
+            }
+        }
+
+        // Sort by the current sort order
+        return filtered.sorted { lhs, rhs in
+            switch viewModel.sortOrder {
+            case .dateAdded:
+                return lhs.dateAdded > rhs.dateAdded  // Newest first
+            case .dateModified:
+                return lhs.dateModified > rhs.dateModified  // Most recent first
+            case .title:
+                return (lhs.title ?? "") < (rhs.title ?? "")
+            case .year:
+                return lhs.year > rhs.year  // Newest first
+            case .citeKey:
+                return lhs.citeKey < rhs.citeKey
+            case .citationCount:
+                return lhs.citationCount > rhs.citationCount  // Most cited first
             }
         }
     }
@@ -52,7 +84,7 @@ struct LibraryListView: View {
     /// Title based on filter mode
     private var navigationTitle: String {
         switch filterMode {
-        case .all: return "Library"
+        case .all: return library.displayName
         case .unread: return "Unread"
         }
     }
@@ -64,7 +96,7 @@ struct LibraryListView: View {
             if viewModel.isLoading {
                 ProgressView("Loading...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if filteredPapers.isEmpty {
+            } else if libraryPublications.isEmpty {
                 emptyState
             } else {
                 publicationList
@@ -86,24 +118,21 @@ struct LibraryListView: View {
     // MARK: - Publication List
 
     private var publicationList: some View {
-        List(filteredPapers, id: \.uuid, selection: $multiSelection) { paper in
-            // Get the CDPublication for MailStylePublicationRow
-            if let publication = viewModel.publications.first(where: { $0.id == paper.uuid }) {
-                MailStylePublicationRow(
-                    publication: publication,
-                    showUnreadIndicator: true,
-                    onToggleRead: {
-                        Task {
-                            await viewModel.toggleReadStatus(publication)
-                        }
+        List(libraryPublications, id: \.id, selection: $multiSelection) { publication in
+            MailStylePublicationRow(
+                publication: publication,
+                showUnreadIndicator: true,
+                onToggleRead: {
+                    Task {
+                        await viewModel.toggleReadStatus(publication)
                     }
-                )
-                .tag(paper.uuid)
-            }
+                }
+            )
+            .tag(publication.id)
         }
-        .onChange(of: multiSelection) { oldValue, newValue in
+        .onChange(of: multiSelection) { _, newValue in
             if let first = newValue.first {
-                selection = viewModel.publications.first { $0.id == first }
+                selection = libraryPublications.first { $0.id == first }
             }
         }
         .contextMenu(forSelectionType: UUID.self) { ids in
@@ -111,8 +140,8 @@ struct LibraryListView: View {
         } primaryAction: { ids in
             // Double-click to open PDF
             if let first = ids.first,
-               let paper = filteredPapers.first(where: { $0.uuid == first }) {
-                openPDF(for: paper)
+               let publication = libraryPublications.first(where: { $0.id == first }) {
+                openPDF(for: publication)
             }
         }
     }
@@ -161,15 +190,15 @@ struct LibraryListView: View {
     private func contextMenuItems(for ids: Set<UUID>) -> some View {
         Button("Open PDF") {
             if let first = ids.first,
-               let paper = viewModel.papers.first(where: { $0.uuid == first }) {
-                openPDF(for: paper)
+               let publication = libraryPublications.first(where: { $0.id == first }) {
+                openPDF(for: publication)
             }
         }
 
         Button("Copy Cite Key") {
             if let first = ids.first,
-               let paper = viewModel.papers.first(where: { $0.uuid == first }) {
-                copyToClipboard(paper.citeKey)
+               let publication = libraryPublications.first(where: { $0.id == first }) {
+                copyToClipboard(publication.citeKey)
             }
         }
 
@@ -184,9 +213,16 @@ struct LibraryListView: View {
 
     // MARK: - Helpers
 
-    private func openPDF(for paper: LocalPaper) {
-        // TODO: Implement PDF opening
-        // paper.primaryPDFPath contains the relative path if available
+    private func openPDF(for publication: CDPublication) {
+        // Open the first PDF if available
+        if let linkedFiles = publication.linkedFiles,
+           let pdfFile = linkedFiles.first(where: { $0.isPDF }),
+           let libraryURL = library.folderURL {
+            let pdfURL = libraryURL.appendingPathComponent(pdfFile.relativePath)
+            #if os(macOS)
+            NSWorkspace.shared.open(pdfURL)
+            #endif
+        }
     }
 
     private func copyToClipboard(_ text: String) {
@@ -200,6 +236,13 @@ struct LibraryListView: View {
 // MARK: - Preview
 
 #Preview {
-    LibraryListView(selection: .constant(nil))
-        .environment(LibraryViewModel())
+    // Preview requires a CDLibrary - use preview persistence controller
+    let libraryManager = LibraryManager(persistenceController: .preview)
+    if let library = libraryManager.libraries.first {
+        LibraryListView(library: library, selection: .constant(nil))
+            .environment(LibraryViewModel())
+            .environment(libraryManager)
+    } else {
+        Text("No library available in preview")
+    }
 }

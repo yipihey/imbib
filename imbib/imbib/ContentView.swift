@@ -21,7 +21,7 @@ struct ContentView: View {
 
     // MARK: - State
 
-    @State private var selectedSection: SidebarSection? = .library
+    @State private var selectedSection: SidebarSection? = nil
     @State private var selectedPublication: CDPublication?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showImportPreview = false
@@ -37,8 +37,13 @@ struct ContentView: View {
         } detail: {
             detailView
         }
-        .onReceive(NotificationCenter.default.publisher(for: .showLibrary)) { _ in
-            selectedSection = .library
+        .onReceive(NotificationCenter.default.publisher(for: .showLibrary)) { notification in
+            // Select the first library if available
+            if let library = notification.object as? CDLibrary {
+                selectedSection = .library(library)
+            } else if let firstLibrary = libraryManager.libraries.first {
+                selectedSection = .library(firstLibrary)
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .showSearch)) { _ in
             selectedSection = .search
@@ -77,30 +82,27 @@ struct ContentView: View {
     @ViewBuilder
     private var contentList: some View {
         switch selectedSection {
-        case .library, .recentlyAdded, .recentlyRead:
-            LibraryListView(selection: $selectedPublication)
+        case .library(let library):
+            LibraryListView(library: library, selection: $selectedPublication)
 
-        case .unread:
-            // Apple Mail-style unread publications list
-            LibraryListView(selection: $selectedPublication, filterMode: .unread)
+        case .unread(let library):
+            LibraryListView(library: library, selection: $selectedPublication, filterMode: .unread)
 
         case .search:
-            // ADR-016: Ad-hoc search results are now CDPublication entities
             SearchResultsListView(selectedPublication: $selectedPublication)
 
         case .smartSearch(let smartSearch):
-            // ADR-016: Smart search results are CDPublication entities
             SmartSearchResultsView(smartSearch: smartSearch, selectedPublication: $selectedPublication)
 
         case .collection(let collection):
             CollectionListView(collection: collection, selection: $selectedPublication)
 
-        case .tag(let tag):
-            TagListView(tag: tag, selection: $selectedPublication)
-
         case .none:
-            Text("Select a section")
-                .foregroundStyle(.secondary)
+            ContentUnavailableView(
+                "No Selection",
+                systemImage: "sidebar.left",
+                description: Text("Select a library or collection from the sidebar")
+            )
         }
     }
 
@@ -109,8 +111,8 @@ struct ContentView: View {
     @ViewBuilder
     private var detailView: some View {
         if let publication = selectedPublication {
-            // ADR-016: All papers are now CDPublication - full editing capabilities
-            let libraryID = libraryManager.activeLibrary?.id ?? UUID()
+            // Get library ID from the selected section
+            let libraryID = selectedLibraryID ?? UUID()
             DetailView(publication: publication, libraryID: libraryID)
         } else {
             ContentUnavailableView(
@@ -118,6 +120,20 @@ struct ContentView: View {
                 systemImage: "doc.text",
                 description: Text("Select a publication to view details")
             )
+        }
+    }
+
+    /// Extract library ID from current section selection
+    private var selectedLibraryID: UUID? {
+        switch selectedSection {
+        case .library(let library), .unread(let library):
+            return library.id
+        case .smartSearch(let smartSearch):
+            return smartSearch.library?.id
+        case .collection(let collection):
+            return collection.owningLibrary?.id
+        default:
+            return nil
         }
     }
 
@@ -186,14 +202,11 @@ struct ContentView: View {
 // MARK: - Sidebar Section
 
 enum SidebarSection: Hashable {
-    case library
-    case recentlyAdded
-    case recentlyRead
-    case unread  // Apple Mail-style unread publications
-    case search
-    case smartSearch(CDSmartSearch)
-    case collection(CDCollection)
-    case tag(CDTag)
+    case library(CDLibrary)           // All publications for specific library
+    case unread(CDLibrary)            // Unread publications for specific library
+    case search                        // Global search
+    case smartSearch(CDSmartSearch)   // Smart search (library-scoped via relationship)
+    case collection(CDCollection)     // Collection (library-scoped via relationship)
 }
 
 // MARK: - Placeholder Views
@@ -204,16 +217,6 @@ struct CollectionListView: View {
 
     var body: some View {
         Text("Collection: \(collection.name)")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-struct TagListView: View {
-    let tag: CDTag
-    @Binding var selection: CDPublication?
-
-    var body: some View {
-        Text("Tag: \(tag.name)")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

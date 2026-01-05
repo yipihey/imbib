@@ -53,6 +53,7 @@ public class CDPublication: NSManagedObject {
     @NSManaged public var linkedFiles: Set<CDLinkedFile>?
     @NSManaged public var tags: Set<CDTag>?
     @NSManaged public var collections: Set<CDCollection>?
+    @NSManaged public var owningLibrary: CDLibrary?      // Which library owns this publication
 }
 
 // MARK: - Publication Helpers
@@ -421,6 +422,7 @@ public class CDCollection: NSManagedObject, Identifiable {
     // Relationships
     @NSManaged public var publications: Set<CDPublication>?
     @NSManaged public var smartSearch: CDSmartSearch?     // Inverse of CDSmartSearch.resultCollection
+    @NSManaged public var library: CDLibrary?             // Inverse of CDLibrary.collections
     @NSManaged public var owningLibrary: CDLibrary?       // Inverse of CDLibrary.lastSearchCollection (for system collections)
 }
 
@@ -452,6 +454,8 @@ public class CDLibrary: NSManagedObject, Identifiable {
 
     // Relationships
     @NSManaged public var smartSearches: Set<CDSmartSearch>?
+    @NSManaged public var publications: Set<CDPublication>?    // All publications in this library
+    @NSManaged public var collections: Set<CDCollection>?      // All collections in this library
     @NSManaged public var lastSearchCollection: CDCollection?  // ADR-016: System collection for ad-hoc search results
 }
 
@@ -492,6 +496,11 @@ public extension CDLibrary {
 
         // If bookmark is stale, we should refresh it (handled elsewhere)
         return url
+    }
+
+    /// Folder URL where the library's files are stored (parent directory of .bib file)
+    var folderURL: URL? {
+        resolveURL()?.deletingLastPathComponent()
     }
 }
 

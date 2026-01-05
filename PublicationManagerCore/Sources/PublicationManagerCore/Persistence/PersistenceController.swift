@@ -113,6 +113,18 @@ public final class PersistenceController: @unchecked Sendable {
             collection: collectionEntity
         )
 
+        // Set up library <-> publications relationship
+        setupLibraryPublicationsRelationship(
+            library: libraryEntity,
+            publication: publicationEntity
+        )
+
+        // Set up library <-> collections relationship
+        setupLibraryCollectionsRelationship(
+            library: libraryEntity,
+            collection: collectionEntity
+        )
+
         model.entities = [
             publicationEntity,
             authorEntity,
@@ -701,6 +713,64 @@ public final class PersistenceController: @unchecked Sendable {
 
         // Add to entities
         library.properties.append(libraryToLastSearch)
+        collection.properties.append(collectionToLibrary)
+    }
+
+    // Library <-> Publications relationship (one-to-many)
+    private static func setupLibraryPublicationsRelationship(
+        library: NSEntityDescription,
+        publication: NSEntityDescription
+    ) {
+        // Library -> publications (one-to-many)
+        let libraryToPublications = NSRelationshipDescription()
+        libraryToPublications.name = "publications"
+        libraryToPublications.destinationEntity = publication
+        libraryToPublications.isOptional = true
+        libraryToPublications.deleteRule = .cascadeDeleteRule  // Delete publications when library is deleted
+
+        // Publication -> owningLibrary (many-to-one)
+        let publicationToLibrary = NSRelationshipDescription()
+        publicationToLibrary.name = "owningLibrary"
+        publicationToLibrary.destinationEntity = library
+        publicationToLibrary.maxCount = 1
+        publicationToLibrary.isOptional = true
+        publicationToLibrary.deleteRule = .nullifyDeleteRule
+
+        // Set inverse relationships
+        libraryToPublications.inverseRelationship = publicationToLibrary
+        publicationToLibrary.inverseRelationship = libraryToPublications
+
+        // Add to entities
+        library.properties.append(libraryToPublications)
+        publication.properties.append(publicationToLibrary)
+    }
+
+    // Library <-> Collections relationship (one-to-many)
+    private static func setupLibraryCollectionsRelationship(
+        library: NSEntityDescription,
+        collection: NSEntityDescription
+    ) {
+        // Library -> collections (one-to-many)
+        let libraryToCollections = NSRelationshipDescription()
+        libraryToCollections.name = "collections"
+        libraryToCollections.destinationEntity = collection
+        libraryToCollections.isOptional = true
+        libraryToCollections.deleteRule = .cascadeDeleteRule  // Delete collections when library is deleted
+
+        // Collection -> library (many-to-one)
+        let collectionToLibrary = NSRelationshipDescription()
+        collectionToLibrary.name = "library"
+        collectionToLibrary.destinationEntity = library
+        collectionToLibrary.maxCount = 1
+        collectionToLibrary.isOptional = true
+        collectionToLibrary.deleteRule = .nullifyDeleteRule
+
+        // Set inverse relationships
+        libraryToCollections.inverseRelationship = collectionToLibrary
+        collectionToLibrary.inverseRelationship = libraryToCollections
+
+        // Add to entities
+        library.properties.append(libraryToCollections)
         collection.properties.append(collectionToLibrary)
     }
 
