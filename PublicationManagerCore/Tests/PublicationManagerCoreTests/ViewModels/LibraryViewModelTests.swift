@@ -21,6 +21,7 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertEqual(LibrarySortOrder.title.displayName, "Title")
         XCTAssertEqual(LibrarySortOrder.year.displayName, "Year")
         XCTAssertEqual(LibrarySortOrder.citeKey.displayName, "Cite Key")
+        XCTAssertEqual(LibrarySortOrder.citationCount.displayName, "Citation Count")
     }
 
     func testLibrarySortOrder_sortKeys() {
@@ -29,10 +30,11 @@ final class LibraryViewModelTests: XCTestCase {
         XCTAssertEqual(LibrarySortOrder.title.sortKey, "title")
         XCTAssertEqual(LibrarySortOrder.year.sortKey, "year")
         XCTAssertEqual(LibrarySortOrder.citeKey.sortKey, "citeKey")
+        XCTAssertEqual(LibrarySortOrder.citationCount.sortKey, "citationCount")
     }
 
     func testLibrarySortOrder_allCases() {
-        XCTAssertEqual(LibrarySortOrder.allCases.count, 5)
+        XCTAssertEqual(LibrarySortOrder.allCases.count, 6)
     }
 
     func testLibrarySortOrder_identifiable() {

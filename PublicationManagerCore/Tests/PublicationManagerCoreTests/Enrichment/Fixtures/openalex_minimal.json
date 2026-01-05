@@ -1,0 +1,19 @@
+{
+  "id": "https://openalex.org/W123456",
+  "doi": null,
+  "title": "Minimal Work",
+  "publication_year": 2023,
+  "cited_by_count": 0,
+  "referenced_works": [],
+  "abstract_inverted_index": null,
+  "primary_location": null,
+  "open_access": {
+    "is_oa": false,
+    "oa_status": "closed",
+    "oa_url": null
+  },
+  "authorships": [],
+  "ids": {
+    "openalex": "https://openalex.org/W123456"
+  }
+}

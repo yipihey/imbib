@@ -304,6 +304,7 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
     case title
     case year
     case citeKey
+    case citationCount
 
     public var id: String { rawValue }
 
@@ -314,6 +315,7 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
         case .title: return "Title"
         case .year: return "Year"
         case .citeKey: return "Cite Key"
+        case .citationCount: return "Citation Count"
         }
     }
 
@@ -324,6 +326,7 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
         case .title: return "title"
         case .year: return "year"
         case .citeKey: return "citeKey"
+        case .citationCount: return "citationCount"
         }
     }
 }

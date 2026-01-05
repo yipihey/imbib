@@ -26,6 +26,11 @@ public class CDPublication: NSManagedObject {
     @NSManaged public var dateAdded: Date
     @NSManaged public var dateModified: Date
 
+    // Enrichment fields (ADR-014)
+    @NSManaged public var citationCount: Int32        // -1 = never enriched
+    @NSManaged public var enrichmentSource: String?   // Which source provided data
+    @NSManaged public var enrichmentDate: Date?       // When last enriched
+
     // Relationships
     @NSManaged public var publicationAuthors: Set<CDPublicationAuthor>?
     @NSManaged public var linkedFiles: Set<CDLinkedFile>?
@@ -130,6 +135,59 @@ public extension CDPublication {
 
         dateModified = Date()
     }
+
+    // MARK: - Enrichment Helpers
+
+    /// Whether this publication has been enriched
+    var hasBeenEnriched: Bool {
+        citationCount >= 0
+    }
+
+    /// Whether the enrichment data is stale (older than the threshold)
+    func isEnrichmentStale(thresholdDays: Int = 7) -> Bool {
+        guard let date = enrichmentDate else { return true }
+        let threshold = TimeInterval(thresholdDays * 24 * 60 * 60)
+        return Date().timeIntervalSince(date) > threshold
+    }
+
+    /// Staleness level for UI display
+    var enrichmentStaleness: EnrichmentStaleness {
+        guard hasBeenEnriched, let date = enrichmentDate else {
+            return .neverEnriched
+        }
+
+        let age = Date().timeIntervalSince(date)
+        if age < 86400 { return .fresh }           // <1 day
+        if age < 7 * 86400 { return .recent }      // 1-7 days
+        if age < 30 * 86400 { return .stale }      // 7-30 days
+        return .veryStale                           // >30 days
+    }
+
+    /// Update enrichment data
+    func updateEnrichment(citationCount: Int, source: String) {
+        self.citationCount = Int32(citationCount)
+        self.enrichmentSource = source
+        self.enrichmentDate = Date()
+        self.dateModified = Date()
+    }
+
+    /// Clear enrichment data (mark as needing refresh)
+    func clearEnrichment() {
+        self.citationCount = -1
+        self.enrichmentSource = nil
+        self.enrichmentDate = nil
+    }
+}
+
+// MARK: - Enrichment Staleness
+
+/// Staleness levels for enrichment data
+public enum EnrichmentStaleness: Sendable {
+    case neverEnriched  // Never fetched
+    case fresh          // <1 day old
+    case recent         // 1-7 days old
+    case stale          // 7-30 days old
+    case veryStale      // >30 days old
 }
 
 // MARK: - Author

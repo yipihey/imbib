@@ -36,6 +36,10 @@ public extension Logger {
     static let rateLimiter = Logger(subsystem: subsystem, category: "ratelimit")
     static let deduplication = Logger(subsystem: subsystem, category: "dedup")
 
+    // MARK: - Enrichment
+
+    static let enrichment = Logger(subsystem: subsystem, category: "enrichment")
+
     // MARK: - Credentials
 
     static let credentials = Logger(subsystem: subsystem, category: "credentials")

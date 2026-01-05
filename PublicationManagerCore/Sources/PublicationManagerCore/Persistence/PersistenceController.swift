@@ -204,6 +204,26 @@ public final class PersistenceController: @unchecked Sendable {
         dateModified.defaultValue = Date()
         properties.append(dateModified)
 
+        // Enrichment fields (ADR-014)
+        let citationCount = NSAttributeDescription()
+        citationCount.name = "citationCount"
+        citationCount.attributeType = .integer32AttributeType
+        citationCount.isOptional = false
+        citationCount.defaultValue = Int32(-1)  // -1 = never enriched
+        properties.append(citationCount)
+
+        let enrichmentSource = NSAttributeDescription()
+        enrichmentSource.name = "enrichmentSource"
+        enrichmentSource.attributeType = .stringAttributeType
+        enrichmentSource.isOptional = true
+        properties.append(enrichmentSource)
+
+        let enrichmentDate = NSAttributeDescription()
+        enrichmentDate.name = "enrichmentDate"
+        enrichmentDate.attributeType = .dateAttributeType
+        enrichmentDate.isOptional = true
+        properties.append(enrichmentDate)
+
         entity.properties = properties
         return entity
     }

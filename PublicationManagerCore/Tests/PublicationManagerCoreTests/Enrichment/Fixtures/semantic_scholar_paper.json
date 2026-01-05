@@ -1,0 +1,124 @@
+{
+  "paperId": "649def34f8be52c8b66281af98ae884c09aef38b",
+  "title": "Attention Is All You Need",
+  "abstract": "The dominant sequence transduction models are based on complex recurrent or convolutional neural networks that include an encoder and a decoder. The best performing models also connect the encoder and decoder through an attention mechanism. We propose a new simple network architecture, the Transformer, based solely on attention mechanisms, dispensing with recurrence and convolutions entirely. Experiments on two machine translation tasks show these models to be superior in quality while being more parallelizable and requiring significantly less time to train.",
+  "year": 2017,
+  "venue": "NIPS",
+  "citationCount": 125000,
+  "referenceCount": 45,
+  "openAccessPdf": {
+    "url": "https://arxiv.org/pdf/1706.03762.pdf",
+    "status": "GREEN"
+  },
+  "externalIds": {
+    "DOI": "10.48550/arXiv.1706.03762",
+    "ArXiv": "1706.03762",
+    "PubMed": null
+  },
+  "references": [
+    {
+      "paperId": "2e9d221c206e9503ceb452302d68d10e293f2a10",
+      "title": "Neural Machine Translation by Jointly Learning to Align and Translate",
+      "authors": [
+        { "authorId": "1741101", "name": "Dzmitry Bahdanau" },
+        { "authorId": "2068300", "name": "Kyunghyun Cho" },
+        { "authorId": "1701686", "name": "Yoshua Bengio" }
+      ],
+      "year": 2014,
+      "venue": "ICLR",
+      "externalIds": {
+        "DOI": "10.48550/arXiv.1409.0473",
+        "ArXiv": "1409.0473"
+      },
+      "citationCount": 25000,
+      "openAccessPdf": {
+        "url": "https://arxiv.org/pdf/1409.0473.pdf"
+      }
+    },
+    {
+      "paperId": "87f40e6f3022adbc1f1905e3e506abad05a9964f",
+      "title": "Long Short-Term Memory",
+      "authors": [
+        { "authorId": "145341374", "name": "Sepp Hochreiter" },
+        { "authorId": "145323386", "name": "Jürgen Schmidhuber" }
+      ],
+      "year": 1997,
+      "venue": "Neural Computation",
+      "externalIds": {
+        "DOI": "10.1162/neco.1997.9.8.1735"
+      },
+      "citationCount": 85000,
+      "openAccessPdf": null
+    }
+  ],
+  "citations": [
+    {
+      "paperId": "7cfa5683177f0a8c5dd4e04d04dafad10b4e02e4",
+      "title": "BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding",
+      "authors": [
+        { "authorId": "39172707", "name": "Jacob Devlin" },
+        { "authorId": "145755883", "name": "Ming-Wei Chang" },
+        { "authorId": "3259253", "name": "Kenton Lee" },
+        { "authorId": "2065040", "name": "Kristina Toutanova" }
+      ],
+      "year": 2018,
+      "venue": "NAACL",
+      "externalIds": {
+        "DOI": "10.18653/v1/N19-1423",
+        "ArXiv": "1810.04805"
+      },
+      "citationCount": 95000,
+      "openAccessPdf": {
+        "url": "https://aclanthology.org/N19-1423.pdf"
+      }
+    },
+    {
+      "paperId": "6c4c4f7d8b4e12e49a7dbf9e68b0e2c3e7a2f1d9",
+      "title": "Language Models are Few-Shot Learners",
+      "authors": [
+        { "authorId": "40348417", "name": "Tom B. Brown" },
+        { "authorId": "1879082", "name": "Benjamin Mann" },
+        { "authorId": "50123456", "name": "Nick Ryder" }
+      ],
+      "year": 2020,
+      "venue": "NeurIPS",
+      "externalIds": {
+        "ArXiv": "2005.14165"
+      },
+      "citationCount": 35000,
+      "openAccessPdf": {
+        "url": "https://arxiv.org/pdf/2005.14165.pdf"
+      }
+    }
+  ],
+  "authors": [
+    {
+      "authorId": "1846258",
+      "name": "Ashish Vaswani",
+      "hIndex": 38,
+      "citationCount": 150000,
+      "paperCount": 45,
+      "affiliations": [
+        { "name": "Google Brain" }
+      ]
+    },
+    {
+      "authorId": "1846366",
+      "name": "Noam Shazeer",
+      "hIndex": 45,
+      "citationCount": 200000,
+      "paperCount": 55,
+      "affiliations": [
+        { "name": "Google" }
+      ]
+    },
+    {
+      "authorId": "50001456",
+      "name": "Niki Parmar",
+      "hIndex": 25,
+      "citationCount": 50000,
+      "paperCount": 20,
+      "affiliations": []
+    }
+  ]
+}

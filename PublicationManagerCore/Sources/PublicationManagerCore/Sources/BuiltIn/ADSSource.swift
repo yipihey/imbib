@@ -27,16 +27,16 @@ public actor ADSSource: SourcePlugin {
         iconName: "sparkles"
     )
 
-    private let rateLimiter: RateLimiter
-    private let baseURL = "https://api.adsabs.harvard.edu/v1"
-    private let session: URLSession
-    private let credentialManager: CredentialManager
+    let rateLimiter: RateLimiter
+    let baseURL = "https://api.adsabs.harvard.edu/v1"
+    let session: URLSession
+    let credentialManager: any CredentialProviding
 
     // MARK: - Initialization
 
     public init(
         session: URLSession = .shared,
-        credentialManager: CredentialManager = CredentialManager()
+        credentialManager: any CredentialProviding = CredentialManager()
     ) {
         self.session = session
         self.credentialManager = credentialManager

@@ -26,10 +26,10 @@ public actor SemanticScholarSource: SourcePlugin {
         iconName: "brain"
     )
 
-    private let rateLimiter: RateLimiter
-    private let baseURL = "https://api.semanticscholar.org/graph/v1"
-    private let session: URLSession
-    private let credentialManager: CredentialManager
+    let rateLimiter: RateLimiter
+    let baseURL = "https://api.semanticscholar.org/graph/v1"
+    let session: URLSession
+    let credentialManager: CredentialManager
 
     // MARK: - Initialization
 

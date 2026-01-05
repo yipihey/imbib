@@ -9,10 +9,19 @@ import Foundation
 import KeychainSwift
 import OSLog
 
+// MARK: - Credential Providing Protocol
+
+/// Protocol for credential providers, enabling dependency injection in tests.
+public protocol CredentialProviding: Sendable {
+    func apiKey(for sourceID: String) async -> String?
+    func email(for sourceID: String) async -> String?
+    func hasCredential(for sourceID: String, type: CredentialType) async -> Bool
+}
+
 // MARK: - Credential Manager
 
 /// Manages API keys and other credentials stored in the Keychain.
-public actor CredentialManager {
+public actor CredentialManager: CredentialProviding {
 
     // MARK: - Properties
 

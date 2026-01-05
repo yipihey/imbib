@@ -26,10 +26,10 @@ public actor OpenAlexSource: SourcePlugin {
         iconName: "books.vertical"
     )
 
-    private let rateLimiter: RateLimiter
-    private let baseURL = "https://api.openalex.org"
-    private let session: URLSession
-    private let credentialManager: CredentialManager
+    let rateLimiter: RateLimiter
+    let baseURL = "https://api.openalex.org"
+    let session: URLSession
+    let credentialManager: CredentialManager
 
     // MARK: - Initialization
 

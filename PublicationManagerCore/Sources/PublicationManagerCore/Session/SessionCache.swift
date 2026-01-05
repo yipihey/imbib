@@ -38,6 +38,7 @@ public actor SessionCache {
     private var risCache: [String: String] = [:]
     private var pdfCache: [String: URL] = [:]
     private var pendingMetadata: [String: PendingPaperMetadata] = [:]
+    private var enrichmentCache: [String: CachedEnrichmentData] = [:]
 
     private let tempDirectory: URL
     private let fileManager = FileManager.default
@@ -118,6 +119,56 @@ public actor SessionCache {
     /// Get cached RIS
     public func getCachedRIS(for paperID: String) -> String? {
         risCache[paperID]
+    }
+
+    // MARK: - Enrichment Cache
+
+    /// Cache enrichment data for a paper (before import).
+    ///
+    /// This caches enrichment data (citation count, references, etc.) for online
+    /// search results so it can be applied when the paper is imported.
+    ///
+    /// - Parameters:
+    ///   - data: The enrichment data to cache
+    ///   - paperID: The paper identifier (typically from SearchResult.id)
+    public func cacheEnrichment(_ data: EnrichmentData, for paperID: String) {
+        enrichmentCache[paperID] = CachedEnrichmentData(
+            data: data,
+            timestamp: Date()
+        )
+        logger.debug("Cached enrichment for \(paperID): citations=\(data.citationCount ?? 0)")
+    }
+
+    /// Get cached enrichment data if still valid.
+    ///
+    /// - Parameter paperID: The paper identifier
+    /// - Returns: Cached enrichment data, or nil if not found or expired
+    public func getCachedEnrichment(for paperID: String) -> EnrichmentData? {
+        guard let cached = enrichmentCache[paperID] else { return nil }
+
+        // Check if expired (use same max age as search results)
+        if Date().timeIntervalSince(cached.timestamp) > Self.maxResultAge {
+            enrichmentCache.removeValue(forKey: paperID)
+            return nil
+        }
+
+        logger.debug("Enrichment cache hit for \(paperID)")
+        return cached.data
+    }
+
+    /// Check if enrichment data exists for a paper.
+    ///
+    /// - Parameter paperID: The paper identifier
+    /// - Returns: True if valid cached enrichment exists
+    public func hasEnrichment(for paperID: String) -> Bool {
+        getCachedEnrichment(for: paperID) != nil
+    }
+
+    /// Clear cached enrichment for a paper (e.g., after import).
+    ///
+    /// - Parameter paperID: The paper identifier
+    public func clearEnrichment(for paperID: String) {
+        enrichmentCache.removeValue(forKey: paperID)
     }
 
     // MARK: - PDF Cache
@@ -205,6 +256,7 @@ public actor SessionCache {
         risCache.removeAll()
         pdfCache.removeAll()
         pendingMetadata.removeAll()
+        enrichmentCache.removeAll()
 
         // Remove temp directory
         do {
@@ -223,6 +275,7 @@ public actor SessionCache {
         bibtexCache.removeAll()
         risCache.removeAll()
         pendingMetadata.removeAll()
+        enrichmentCache.removeAll()
 
         // Clear PDF files
         for (_, url) in pdfCache {
@@ -292,6 +345,13 @@ public actor SessionCache {
 
 private struct CachedSearchResults {
     let results: [SearchResult]
+    let timestamp: Date
+}
+
+// MARK: - Cached Enrichment Data
+
+private struct CachedEnrichmentData {
+    let data: EnrichmentData
     let timestamp: Date
 }
 

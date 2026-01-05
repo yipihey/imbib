@@ -9,7 +9,7 @@ import Foundation
 @testable import PublicationManagerCore
 
 /// Mock credential manager for testing without Keychain dependency.
-public actor MockCredentialManager {
+public actor MockCredentialManager: CredentialProviding {
 
     // MARK: - Storage
 

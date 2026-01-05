@@ -119,10 +119,11 @@ public extension SearchResult {
 // MARK: - Identifier Type
 
 /// Types of publication identifiers across different sources
-public enum IdentifierType: String, Sendable, CaseIterable, Hashable {
+public enum IdentifierType: String, Sendable, Codable, CaseIterable, Hashable {
     case doi
     case arxiv
     case pmid
+    case pmcid
     case bibcode
     case semanticScholar
     case openAlex
@@ -133,6 +134,7 @@ public enum IdentifierType: String, Sendable, CaseIterable, Hashable {
         case .doi: return "DOI"
         case .arxiv: return "arXiv"
         case .pmid: return "PubMed"
+        case .pmcid: return "PMC"
         case .bibcode: return "ADS Bibcode"
         case .semanticScholar: return "Semantic Scholar"
         case .openAlex: return "OpenAlex"

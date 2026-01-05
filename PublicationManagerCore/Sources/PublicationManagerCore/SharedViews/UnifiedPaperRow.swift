@@ -23,12 +23,25 @@ public struct UnifiedPaperRow<Paper: PaperRepresentable>: View {
     /// Whether to show source badges
     public var showSourceBadges: Bool = true
 
+    /// Whether to show citation metrics badge
+    public var showCitationBadge: Bool = true
+
+    /// Citation count for the paper (nil if not enriched)
+    public var citationCount: Int?
+
+    /// When the enrichment data was last updated
+    public var enrichmentDate: Date?
+
     /// Action when import button is tapped (nil to hide button)
     public var onImport: (() -> Void)?
+
+    /// Action when citation badge is tapped to refresh enrichment
+    public var onRefreshEnrichment: (() async -> Void)?
 
     // MARK: - State
 
     @State private var libraryState: LibraryState = .checking
+    @State private var isRefreshingEnrichment: Bool = false
 
     // MARK: - Initialization
 
@@ -36,12 +49,20 @@ public struct UnifiedPaperRow<Paper: PaperRepresentable>: View {
         paper: Paper,
         showLibraryIndicator: Bool = true,
         showSourceBadges: Bool = true,
-        onImport: (() -> Void)? = nil
+        showCitationBadge: Bool = true,
+        citationCount: Int? = nil,
+        enrichmentDate: Date? = nil,
+        onImport: (() -> Void)? = nil,
+        onRefreshEnrichment: (() async -> Void)? = nil
     ) {
         self.paper = paper
         self.showLibraryIndicator = showLibraryIndicator
         self.showSourceBadges = showSourceBadges
+        self.showCitationBadge = showCitationBadge
+        self.citationCount = citationCount
+        self.enrichmentDate = enrichmentDate
         self.onImport = onImport
+        self.onRefreshEnrichment = onRefreshEnrichment
     }
 
     // MARK: - Body
@@ -90,6 +111,20 @@ public struct UnifiedPaperRow<Paper: PaperRepresentable>: View {
                 }
 
                 Spacer()
+
+                // Citation metrics badge
+                if showCitationBadge {
+                    CitationMetricsBadge(
+                        citationCount: citationCount,
+                        enrichmentDate: enrichmentDate,
+                        isRefreshing: $isRefreshingEnrichment,
+                        onRefresh: onRefreshEnrichment != nil ? {
+                            isRefreshingEnrichment = true
+                            await onRefreshEnrichment?()
+                            isRefreshingEnrichment = false
+                        } : nil
+                    )
+                }
 
                 // Import button (for online results)
                 if let onImport = onImport, !paper.sourceType.isPersistent {

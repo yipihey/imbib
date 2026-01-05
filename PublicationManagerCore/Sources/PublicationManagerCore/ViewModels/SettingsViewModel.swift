@@ -22,19 +22,27 @@ public final class SettingsViewModel {
     public private(set) var isLoading = false
     public private(set) var error: Error?
 
+    // MARK: - Enrichment Settings State
+
+    public private(set) var enrichmentSettings: EnrichmentSettings = .default
+    public private(set) var isLoadingEnrichment = false
+
     // MARK: - Dependencies
 
     private let sourceManager: SourceManager
     private let credentialManager: CredentialManager
+    private let enrichmentSettingsStore: EnrichmentSettingsStore
 
     // MARK: - Initialization
 
     public init(
         sourceManager: SourceManager = SourceManager(),
-        credentialManager: CredentialManager = CredentialManager()
+        credentialManager: CredentialManager = CredentialManager(),
+        enrichmentSettingsStore: EnrichmentSettingsStore = .shared
     ) {
         self.sourceManager = sourceManager
         self.credentialManager = credentialManager
+        self.enrichmentSettingsStore = enrichmentSettingsStore
     }
 
     // MARK: - Loading
@@ -85,5 +93,70 @@ public final class SettingsViewModel {
 
     public func getEmail(for sourceID: String) async -> String? {
         await credentialManager.email(for: sourceID)
+    }
+
+    // MARK: - Enrichment Settings
+
+    /// Load current enrichment settings
+    public func loadEnrichmentSettings() async {
+        isLoadingEnrichment = true
+        enrichmentSettings = await enrichmentSettingsStore.settings
+        isLoadingEnrichment = false
+    }
+
+    /// Update the preferred enrichment source
+    public func updatePreferredSource(_ source: EnrichmentSource) async {
+        await enrichmentSettingsStore.updatePreferredSource(source)
+        enrichmentSettings = await enrichmentSettingsStore.settings
+        Logger.enrichment.infoCapture(
+            "Preferred citation source changed to \(source.displayName)",
+            category: "enrichment"
+        )
+    }
+
+    /// Update the source priority order
+    public func updateSourcePriority(_ priority: [EnrichmentSource]) async {
+        await enrichmentSettingsStore.updateSourcePriority(priority)
+        enrichmentSettings = await enrichmentSettingsStore.settings
+        Logger.enrichment.infoCapture(
+            "Source priority updated: \(priority.map { $0.displayName }.joined(separator: " → "))",
+            category: "enrichment"
+        )
+    }
+
+    /// Move a source to a new position in the priority list
+    public func moveSource(_ source: EnrichmentSource, to index: Int) async {
+        await enrichmentSettingsStore.moveSource(source, to: index)
+        enrichmentSettings = await enrichmentSettingsStore.settings
+    }
+
+    /// Update auto-sync enabled setting
+    public func updateAutoSyncEnabled(_ enabled: Bool) async {
+        await enrichmentSettingsStore.updateAutoSyncEnabled(enabled)
+        enrichmentSettings = await enrichmentSettingsStore.settings
+        Logger.enrichment.infoCapture(
+            "Background sync \(enabled ? "enabled" : "disabled")",
+            category: "enrichment"
+        )
+    }
+
+    /// Update refresh interval in days
+    public func updateRefreshIntervalDays(_ days: Int) async {
+        await enrichmentSettingsStore.updateRefreshIntervalDays(days)
+        enrichmentSettings = await enrichmentSettingsStore.settings
+        Logger.enrichment.infoCapture(
+            "Enrichment refresh interval set to \(days) days",
+            category: "enrichment"
+        )
+    }
+
+    /// Reset enrichment settings to defaults
+    public func resetEnrichmentSettingsToDefaults() async {
+        await enrichmentSettingsStore.resetToDefaults()
+        enrichmentSettings = await enrichmentSettingsStore.settings
+        Logger.enrichment.infoCapture(
+            "Enrichment settings reset to defaults",
+            category: "enrichment"
+        )
     }
 }
