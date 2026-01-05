@@ -1,5 +1,5 @@
 //
-//  UnifiedDetailView.swift
+//  DetailView.swift
 //  imbib
 //
 //  Created by Claude on 2026-01-04.
@@ -20,7 +20,7 @@ private let logger = Logger(subsystem: "com.imbib.app", category: "unifieddetail
 ///
 /// This view provides a consistent experience for viewing both online search results
 /// and local library papers, with editing capabilities enabled for persistent papers.
-struct UnifiedDetailView: View {
+struct DetailView: View {
 
     // MARK: - Properties
 
@@ -37,7 +37,7 @@ struct UnifiedDetailView: View {
 
     // MARK: - State
 
-    @State private var selectedTab: UnifiedDetailTab = .metadata
+    @State private var selectedTab: DetailTab = .metadata
 
     // MARK: - Computed Properties
 
@@ -69,23 +69,23 @@ struct UnifiedDetailView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            UnifiedMetadataTab(paper: paper, publication: publication)
+            MetadataTab(paper: paper, publication: publication)
                 .tabItem { Label("Metadata", systemImage: "doc.text") }
-                .tag(UnifiedDetailTab.metadata)
+                .tag(DetailTab.metadata)
 
-            UnifiedBibTeXTab(paper: paper, publication: publication)
+            BibTeXTab(paper: paper, publication: publication)
                 .tabItem { Label("BibTeX", systemImage: "chevron.left.forwardslash.chevron.right") }
-                .tag(UnifiedDetailTab.bibtex)
+                .tag(DetailTab.bibtex)
 
-            UnifiedPDFTab(paper: paper, publication: publication)
+            PDFTab(paper: paper, publication: publication)
                 .tabItem { Label("PDF", systemImage: "doc.richtext") }
-                .tag(UnifiedDetailTab.pdf)
+                .tag(DetailTab.pdf)
 
             // Notes tab only for persistent papers
             if canEdit, let pub = publication {
-                UnifiedNotesTab(publication: pub)
+                NotesTab(publication: pub)
                     .tabItem { Label("Notes", systemImage: "note.text") }
-                    .tag(UnifiedDetailTab.notes)
+                    .tag(DetailTab.notes)
             }
         }
         .navigationTitle(paper.title)
@@ -197,7 +197,7 @@ struct UnifiedDetailView: View {
 
 // MARK: - Unified Detail Tab
 
-enum UnifiedDetailTab: String, CaseIterable {
+enum DetailTab: String, CaseIterable {
     case metadata
     case bibtex
     case pdf
@@ -206,7 +206,7 @@ enum UnifiedDetailTab: String, CaseIterable {
 
 // MARK: - Metadata Tab
 
-struct UnifiedMetadataTab: View {
+struct MetadataTab: View {
     let paper: any PaperRepresentable
     let publication: CDPublication?
 
@@ -326,7 +326,7 @@ struct UnifiedMetadataTab: View {
 
 // MARK: - BibTeX Tab
 
-struct UnifiedBibTeXTab: View {
+struct BibTeXTab: View {
     let paper: any PaperRepresentable
     let publication: CDPublication?
 
@@ -461,7 +461,7 @@ struct UnifiedBibTeXTab: View {
 
 // MARK: - PDF Tab
 
-struct UnifiedPDFTab: View {
+struct PDFTab: View {
     let paper: any PaperRepresentable
     let publication: CDPublication?
 
@@ -591,18 +591,18 @@ struct UnifiedPDFTab: View {
 
     private func downloadPDF() async {
         guard let pub = publication else {
-            logger.warning("[UnifiedPDFTab] No publication available for PDF download")
+            logger.warning("[PDFTab] No publication available for PDF download")
             return
         }
 
         // Use PDFURLResolver to get the best URL based on user settings
         let settings = await PDFSettingsStore.shared.settings
         guard let resolvedURL = PDFURLResolver.resolve(for: pub, settings: settings) else {
-            logger.warning("[UnifiedPDFTab] No PDF URL could be resolved for paper: \(paper.id)")
+            logger.warning("[PDFTab] No PDF URL could be resolved for paper: \(paper.id)")
             return
         }
 
-        logger.info("[UnifiedPDFTab] Downloading PDF from: \(resolvedURL.absoluteString)")
+        logger.info("[PDFTab] Downloading PDF from: \(resolvedURL.absoluteString)")
 
         isDownloading = true
         downloadError = nil
@@ -622,13 +622,13 @@ struct UnifiedPDFTab: View {
             try? FileManager.default.removeItem(at: tempURL)
 
             await MainActor.run {
-                logger.info("[UnifiedPDFTab] PDF downloaded and imported successfully")
+                logger.info("[PDFTab] PDF downloaded and imported successfully")
                 resetAndCheckPDF()
             }
         } catch {
             await MainActor.run {
                 downloadError = error
-                logger.error("[UnifiedPDFTab] PDF download failed: \(error.localizedDescription)")
+                logger.error("[PDFTab] PDF download failed: \(error.localizedDescription)")
             }
         }
 
@@ -646,7 +646,7 @@ struct UnifiedPDFTab: View {
                 do {
                     // Import PDF using PDFManager
                     guard let library = libraryManager.activeLibrary else {
-                        logger.error("[UnifiedPDFTab] No active library for PDF import")
+                        logger.error("[PDFTab] No active library for PDF import")
                         return
                     }
 
@@ -658,9 +658,9 @@ struct UnifiedPDFTab: View {
                         resetAndCheckPDF()
                     }
 
-                    logger.info("[UnifiedPDFTab] PDF imported successfully")
+                    logger.info("[PDFTab] PDF imported successfully")
                 } catch {
-                    logger.error("[UnifiedPDFTab] PDF import failed: \(error.localizedDescription)")
+                    logger.error("[PDFTab] PDF import failed: \(error.localizedDescription)")
                     await MainActor.run {
                         downloadError = error
                     }
@@ -668,7 +668,7 @@ struct UnifiedPDFTab: View {
             }
 
         case .failure(let error):
-            logger.error("[UnifiedPDFTab] File import failed: \(error.localizedDescription)")
+            logger.error("[PDFTab] File import failed: \(error.localizedDescription)")
             downloadError = error
         }
     }
@@ -676,7 +676,7 @@ struct UnifiedPDFTab: View {
 
 // MARK: - Notes Tab
 
-struct UnifiedNotesTab: View {
+struct NotesTab: View {
     let publication: CDPublication
 
     @Environment(LibraryViewModel.self) private var viewModel
@@ -748,7 +748,7 @@ enum PDFDownloadError: LocalizedError {
     let libraryID = UUID()
 
     NavigationStack {
-        UnifiedDetailView(publication: publication, libraryID: libraryID)
+        DetailView(publication: publication, libraryID: libraryID)
     }
     .environment(LibraryViewModel())
     .environment(LibraryManager(persistenceController: .preview))

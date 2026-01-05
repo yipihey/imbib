@@ -111,7 +111,7 @@ struct ContentView: View {
         if let publication = selectedPublication {
             // ADR-016: All papers are now CDPublication - full editing capabilities
             let libraryID = libraryManager.activeLibrary?.id ?? UUID()
-            UnifiedDetailView(publication: publication, libraryID: libraryID)
+            DetailView(publication: publication, libraryID: libraryID)
         } else {
             ContentUnavailableView(
                 "No Selection",

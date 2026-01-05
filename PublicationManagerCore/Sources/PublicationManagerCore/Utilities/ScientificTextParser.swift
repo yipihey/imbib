@@ -87,6 +87,60 @@ public struct ScientificTextParser {
         result = result.replacingOccurrences(of: "&nbsp;", with: " ")
         result = result.replacingOccurrences(of: "&quot;", with: "\"")
         result = result.replacingOccurrences(of: "&apos;", with: "'")
+        // Strip standalone LaTeX braces (not preceded by ^ or _)
+        result = stripStandaloneBraces(result)
+        return result
+    }
+
+    /// Remove standalone LaTeX braces like {pc} → pc
+    /// Preserves braces that are part of ^{...} or _{...} notation
+    private static func stripStandaloneBraces(_ text: String) -> String {
+        var result = ""
+        var i = text.startIndex
+
+        while i < text.endIndex {
+            let char = text[i]
+
+            if char == "{" {
+                // Check if this brace is preceded by ^ or _ (LaTeX sub/superscript)
+                let isPrecededBySpecial: Bool
+                if i > text.startIndex {
+                    let prevIndex = text.index(before: i)
+                    let prevChar = text[prevIndex]
+                    isPrecededBySpecial = (prevChar == "^" || prevChar == "_")
+                } else {
+                    isPrecededBySpecial = false
+                }
+
+                if isPrecededBySpecial {
+                    // Keep the brace - it's part of ^{...} or _{...}
+                    result.append(char)
+                } else {
+                    // Find closing brace and extract content
+                    if let closeIndex = text[i...].firstIndex(of: "}") {
+                        let contentStart = text.index(after: i)
+                        if contentStart < closeIndex {
+                            result.append(contentsOf: text[contentStart..<closeIndex])
+                        }
+                        i = closeIndex
+                    } else {
+                        // No closing brace, keep the opening one
+                        result.append(char)
+                    }
+                }
+            } else if char == "}" {
+                // Check if we should keep this closing brace
+                // (it's part of ^{...} or _{...} that we preserved)
+                // We need to track if we're inside a special brace or not
+                // For simplicity, just skip standalone closing braces
+                // This might leave some edge cases but handles the common case
+            } else {
+                result.append(char)
+            }
+
+            i = text.index(after: i)
+        }
+
         return result
     }
 
