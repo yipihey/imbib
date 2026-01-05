@@ -38,8 +38,14 @@ struct SmartSearchEditorView: View {
         NavigationStack {
             Form {
                 Section("Details") {
-                    TextField("Name", text: $name)
-                    TextField("Search Query", text: $query)
+                    LabeledContent("Name") {
+                        TextField("", text: $name, prompt: Text("My papers").foregroundColor(.secondary))
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    LabeledContent("query:") {
+                        TextField("", text: $query, prompt: Text("author: Rubin, Vera").foregroundColor(.secondary))
+                            .textFieldStyle(.roundedBorder)
+                    }
                 }
 
                 Section("Sources") {
