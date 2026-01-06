@@ -75,6 +75,12 @@ struct ContentView: View {
             // Clear selection when switching sections
             selectedPublication = nil
         }
+        .onChange(of: selectedPublication) { _, newValue in
+            // Clear selection if publication was deleted (managedObjectContext becomes nil)
+            if let pub = newValue, pub.managedObjectContext == nil {
+                selectedPublication = nil
+            }
+        }
     }
 
     // MARK: - Content List
@@ -110,7 +116,9 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        if let publication = selectedPublication {
+        // Guard against deleted Core Data objects - check managedObjectContext
+        if let publication = selectedPublication,
+           publication.managedObjectContext != nil {
             // Get library ID from the selected section
             let libraryID = selectedLibraryID ?? UUID()
             DetailView(publication: publication, libraryID: libraryID)
