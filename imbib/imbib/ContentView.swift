@@ -245,6 +245,7 @@ struct CollectionListView: View {
     @State private var publications: [CDPublication] = []
     @State private var multiSelection = Set<UUID>()
     @State private var filterMode: LibraryFilterMode = .all
+    @StateObject private var dropHandler = FileDropHandler()
 
     // MARK: - Body
 
@@ -293,6 +294,16 @@ struct CollectionListView: View {
             onImport: nil,
             onOpenPDF: { publication in
                 openPDF(for: publication)
+            },
+            onFileDrop: { publication, providers in
+                Task {
+                    await dropHandler.handleDrop(
+                        providers: providers,
+                        for: publication,
+                        in: collection.owningLibrary
+                    )
+                    refreshPublications()
+                }
             }
         )
         .navigationTitle(collection.name)

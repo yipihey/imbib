@@ -218,8 +218,7 @@ public struct FileTypeIcon: View {
         "sav": "tablecells",
         "dat": "tablecells",
 
-        // Scientific/LaTeX
-        "eps": "photo",
+        // Scientific/LaTeX (eps already in Images)
         "ps": "photo",
         "dvi": "doc",
 

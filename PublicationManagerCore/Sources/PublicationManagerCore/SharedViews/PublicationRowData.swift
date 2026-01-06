@@ -162,17 +162,12 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         return parsed > 0 ? parsed : nil
     }
 
-    // MARK: - PDF Check
+    // MARK: - Attachment Check
 
     private static func checkHasPDF(_ publication: CDPublication) -> Bool {
-        // Check for local linked files
-        if let linkedFiles = publication.linkedFiles, !linkedFiles.isEmpty {
-            if linkedFiles.contains(where: { $0.isPDF }) {
-                return true
-            }
-        }
-        // Check for remote PDF links
-        return !publication.pdfLinks.isEmpty
+        // Only show paperclip for actual stored attachments (not potential download URLs)
+        guard let linkedFiles = publication.linkedFiles else { return false }
+        return !linkedFiles.isEmpty
     }
 }
 

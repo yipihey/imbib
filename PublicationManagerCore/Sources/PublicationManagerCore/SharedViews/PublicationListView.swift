@@ -89,6 +89,9 @@ public struct PublicationListView: View {
     /// Called when open PDF is requested
     public var onOpenPDF: ((CDPublication) -> Void)?
 
+    /// Called when files are dropped onto a publication row
+    public var onFileDrop: ((CDPublication, [NSItemProvider]) -> Void)?
+
     // MARK: - Internal State
 
     @State private var searchQuery: String = ""
@@ -98,6 +101,9 @@ public struct PublicationListView: View {
 
     /// Cached row data - rebuilt when publications change
     @State private var rowDataCache: [UUID: PublicationRowData] = [:]
+
+    /// ID of row currently targeted by file drop
+    @State private var dropTargetedRowID: UUID?
 
     // MARK: - Computed Properties
 
@@ -161,7 +167,8 @@ public struct PublicationListView: View {
         onAddToCollection: ((Set<UUID>, CDCollection) async -> Void)? = nil,
         onRemoveFromAllCollections: ((Set<UUID>) async -> Void)? = nil,
         onImport: (() -> Void)? = nil,
-        onOpenPDF: ((CDPublication) -> Void)? = nil
+        onOpenPDF: ((CDPublication) -> Void)? = nil,
+        onFileDrop: ((CDPublication, [NSItemProvider]) -> Void)? = nil
     ) {
         self.publications = publications
         self._selection = selection
@@ -183,6 +190,7 @@ public struct PublicationListView: View {
         self.onRemoveFromAllCollections = onRemoveFromAllCollections
         self.onImport = onImport
         self.onOpenPDF = onOpenPDF
+        self.onFileDrop = onFileDrop
     }
 
     // MARK: - Body
@@ -383,6 +391,23 @@ public struct PublicationListView: View {
                 } : nil
             )
             .tag(rowData.id)
+            // File drop support for attaching files to publications
+            .onDrop(of: FileDropHandler.acceptedTypes, isTargeted: Binding(
+                get: { dropTargetedRowID == rowData.id },
+                set: { isTargeted in
+                    if isTargeted {
+                        dropTargetedRowID = rowData.id
+                    } else if dropTargetedRowID == rowData.id {
+                        dropTargetedRowID = nil
+                    }
+                }
+            )) { providers in
+                handleFileDrop(providers: providers, for: rowData.id)
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .stroke(dropTargetedRowID == rowData.id ? Color.accentColor : Color.clear, lineWidth: 2)
+            )
         }
         .contextMenu(forSelectionType: UUID.self) { ids in
             contextMenuItems(for: ids)
@@ -561,6 +586,19 @@ public struct PublicationListView: View {
         #else
         UIPasteboard.general.string = text
         #endif
+    }
+
+    /// Handle file drop on a publication row
+    private func handleFileDrop(providers: [NSItemProvider], for publicationID: UUID) -> Bool {
+        guard let onFileDrop = onFileDrop,
+              let publication = publications.first(where: { $0.id == publicationID }),
+              !publication.isDeleted,
+              publication.managedObjectContext != nil else {
+            return false
+        }
+
+        onFileDrop(publication, providers)
+        return true
     }
 }
 

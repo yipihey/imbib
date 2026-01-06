@@ -112,6 +112,7 @@ struct UnifiedPublicationListWrapper: View {
     @State private var error: Error?
     @State private var filterMode: LibraryFilterMode = .all
     @State private var provider: SmartSearchProvider?
+    @StateObject private var dropHandler = FileDropHandler()
 
     // MARK: - Computed Properties
 
@@ -267,6 +268,17 @@ struct UnifiedPublicationListWrapper: View {
             onImport: nil,
             onOpenPDF: { publication in
                 openPDF(for: publication)
+            },
+            onFileDrop: { publication, providers in
+                Task {
+                    await dropHandler.handleDrop(
+                        providers: providers,
+                        for: publication,
+                        in: currentLibrary
+                    )
+                    // Refresh to show new attachments (paperclip indicator)
+                    refreshPublicationsList()
+                }
             }
         )
     }
