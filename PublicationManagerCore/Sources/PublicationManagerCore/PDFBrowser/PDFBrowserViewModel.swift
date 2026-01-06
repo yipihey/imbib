@@ -153,7 +153,7 @@ public final class PDFBrowserViewModel {
 
     // MARK: - PDF Capture
 
-    /// Save the detected PDF to the library
+    /// Save the detected PDF to the library and close the browser
     public func saveDetectedPDF() async {
         guard let data = detectedPDFData else {
             Logger.pdfBrowser.warning("No PDF data to save")
@@ -168,7 +168,10 @@ public final class PDFBrowserViewModel {
         detectedPDFData = nil
         detectedPDFFilename = nil
 
-        Logger.pdfBrowser.info("PDF saved successfully")
+        Logger.pdfBrowser.info("PDF saved successfully, closing browser")
+
+        // Auto-close the browser window after saving
+        dismiss()
     }
 
     /// Called when a PDF is detected by the download interceptor

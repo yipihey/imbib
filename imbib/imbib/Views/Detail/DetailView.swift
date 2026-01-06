@@ -978,12 +978,17 @@ struct PDFTab: View {
         await PDFBrowserWindowController.shared.openBrowser(
             for: pub,
             libraryID: library.id
-        ) { [weak libraryManager] data in
+        ) { [weak libraryManager, weak self] data in
             // This is called when user saves the detected PDF
             guard let library = libraryManager?.activeLibrary else { return }
             do {
                 try PDFManager.shared.importPDF(data: data, for: pub, in: library)
                 logger.info("[PDFTab] PDF imported from browser successfully")
+
+                // Refresh the PDF view to show the newly imported file
+                await MainActor.run {
+                    self?.resetAndCheckPDF()
+                }
             } catch {
                 logger.error("[PDFTab] Failed to import PDF from browser: \(error)")
             }
