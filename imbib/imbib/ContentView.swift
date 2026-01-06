@@ -229,15 +229,168 @@ enum SidebarSection: Hashable {
     case collection(CDCollection)     // Collection (library-scoped via relationship)
 }
 
-// MARK: - Placeholder Views
+// MARK: - Collection List View
 
 struct CollectionListView: View {
     let collection: CDCollection
     @Binding var selection: CDPublication?
 
+    // MARK: - Environment
+
+    @Environment(LibraryViewModel.self) private var libraryViewModel
+    @Environment(LibraryManager.self) private var libraryManager
+
+    // MARK: - State
+
+    @State private var publications: [CDPublication] = []
+    @State private var multiSelection = Set<UUID>()
+    @State private var filterMode: LibraryFilterMode = .all
+
+    // MARK: - Body
+
     var body: some View {
-        Text("Collection: \(collection.name)")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        PublicationListView(
+            publications: publications,
+            selection: $multiSelection,
+            selectedPublication: $selection,
+            library: collection.owningLibrary,
+            allLibraries: libraryManager.libraries,
+            showImportButton: false,
+            showSortMenu: true,
+            emptyStateMessage: "No Publications",
+            emptyStateDescription: "Drag publications to this collection.",
+            listID: .collection(collection.id),
+            onDelete: { ids in
+                await libraryViewModel.delete(ids: ids)
+                refreshPublications()
+            },
+            onToggleRead: { publication in
+                await libraryViewModel.toggleReadStatus(publication)
+                refreshPublications()
+            },
+            onCopy: { ids in
+                await libraryViewModel.copyToClipboard(ids)
+            },
+            onCut: { ids in
+                await libraryViewModel.cutToClipboard(ids)
+                refreshPublications()
+            },
+            onPaste: {
+                try? await libraryViewModel.pasteFromClipboard()
+                refreshPublications()
+            },
+            onAddToLibrary: { ids, targetLibrary in
+                await libraryViewModel.addToLibrary(ids, library: targetLibrary)
+                refreshPublications()
+            },
+            onAddToCollection: { ids, targetCollection in
+                await libraryViewModel.addToCollection(ids, collection: targetCollection)
+            },
+            onRemoveFromAllCollections: { ids in
+                await libraryViewModel.removeFromAllCollections(ids)
+                refreshPublications()
+            },
+            onImport: nil,
+            onOpenPDF: { publication in
+                openPDF(for: publication)
+            }
+        )
+        .navigationTitle(collection.name)
+        .toolbar {
+            ToolbarItem(placement: .automatic) {
+                Picker("Filter", selection: $filterMode) {
+                    Text("All").tag(LibraryFilterMode.all)
+                    Text("Unread").tag(LibraryFilterMode.unread)
+                }
+                .pickerStyle(.segmented)
+                .fixedSize()
+            }
+
+            ToolbarItem(placement: .automatic) {
+                Text("\(publications.count) items")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .task(id: collection.id) {
+            refreshPublications()
+        }
+        .onChange(of: filterMode) { _, _ in
+            refreshPublications()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
+            toggleReadStatusForSelected()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .copyPublications)) { _ in
+            Task { await copySelectedPublications() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .cutPublications)) { _ in
+            Task { await cutSelectedPublications() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pastePublications)) { _ in
+            Task {
+                try? await libraryViewModel.pasteFromClipboard()
+                refreshPublications()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .selectAllPublications)) { _ in
+            selectAllPublications()
+        }
+    }
+
+    // MARK: - Data Refresh
+
+    private func refreshPublications() {
+        var result = (collection.publications ?? [])
+            .filter { !$0.isDeleted && $0.managedObjectContext != nil }
+
+        if filterMode == .unread {
+            result = result.filter { !$0.isRead }
+        }
+
+        publications = result.sorted { $0.dateAdded > $1.dateAdded }
+    }
+
+    // MARK: - Notification Handlers
+
+    private func selectAllPublications() {
+        multiSelection = Set(publications.map { $0.id })
+    }
+
+    private func toggleReadStatusForSelected() {
+        guard !multiSelection.isEmpty else { return }
+
+        Task {
+            for uuid in multiSelection {
+                if let publication = publications.first(where: { $0.id == uuid }) {
+                    await libraryViewModel.toggleReadStatus(publication)
+                }
+            }
+            refreshPublications()
+        }
+    }
+
+    private func copySelectedPublications() async {
+        guard !multiSelection.isEmpty else { return }
+        await libraryViewModel.copyToClipboard(multiSelection)
+    }
+
+    private func cutSelectedPublications() async {
+        guard !multiSelection.isEmpty else { return }
+        await libraryViewModel.cutToClipboard(multiSelection)
+        refreshPublications()
+    }
+
+    // MARK: - Helpers
+
+    private func openPDF(for publication: CDPublication) {
+        if let linkedFiles = publication.linkedFiles,
+           let pdfFile = linkedFiles.first(where: { $0.isPDF }),
+           let libraryURL = collection.owningLibrary?.folderURL {
+            let pdfURL = libraryURL.appendingPathComponent(pdfFile.relativePath)
+            #if os(macOS)
+            NSWorkspace.shared.open(pdfURL)
+            #endif
+        }
     }
 }
 
