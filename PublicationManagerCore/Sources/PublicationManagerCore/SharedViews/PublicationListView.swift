@@ -230,8 +230,10 @@ public struct PublicationListView: View {
 
             // Restore selection if publication still exists
             if let selectedID = state.selectedPublicationID,
-               publications.contains(where: { $0.id == selectedID }) {
+               let publication = publications.first(where: { $0.id == selectedID }) {
                 selection = [selectedID]
+                // Also update selectedPublication directly - onChange may not fire during initial load
+                selectedPublication = publication
             }
         }
 
