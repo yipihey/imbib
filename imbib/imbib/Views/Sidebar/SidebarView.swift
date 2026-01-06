@@ -454,6 +454,11 @@ struct SidebarView: View {
         collection.predicate = predicate
         collection.library = library
         try? context.save()
+
+        // Trigger sidebar refresh to show the new collection
+        await MainActor.run {
+            refreshTrigger = UUID()
+        }
     }
 
     private func createStaticCollection(in library: CDLibrary) {
@@ -464,6 +469,9 @@ struct SidebarView: View {
         collection.isSmartCollection = false
         collection.library = library
         try? context.save()
+
+        // Trigger sidebar refresh to show the new collection
+        refreshTrigger = UUID()
     }
 
     private func updateCollection(_ collection: CDCollection, name: String, predicate: String) async {
