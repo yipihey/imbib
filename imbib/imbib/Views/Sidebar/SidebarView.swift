@@ -34,6 +34,7 @@ struct SidebarView: View {
     @State private var dropTargetedLibrary: UUID?
     @State private var dropTargetedLibraryHeader: UUID?
     @State private var refreshTrigger = UUID()  // Triggers re-render when read status changes
+    @State private var renamingCollection: CDCollection?  // Collection being renamed inline
 
     // MARK: - Body
 
@@ -181,11 +182,15 @@ struct SidebarView: View {
                     collectionDropTarget(for: collection)
                         .tag(SidebarSection.collection(collection))
                         .contextMenu {
+                            Button("Rename") {
+                                renamingCollection = collection
+                            }
                             if collection.isSmartCollection {
                                 Button("Edit") {
                                     editingCollection = collection
                                 }
                             }
+                            Divider()
                             Button("Delete", role: .destructive) {
                                 deleteCollection(collection)
                             }
@@ -263,16 +268,27 @@ struct SidebarView: View {
     @ViewBuilder
     private func collectionDropTarget(for collection: CDCollection) -> some View {
         let count = publicationCount(for: collection)
+        let isEditing = renamingCollection?.id == collection.id
         if collection.isSmartCollection {
             // Smart collections don't accept drops
-            CollectionRow(collection: collection, count: count)
+            CollectionRow(
+                collection: collection,
+                count: count,
+                isEditing: isEditing,
+                onRename: { newName in renameCollection(collection, to: newName) }
+            )
         } else {
             // Static collections accept drops
             SidebarDropTarget(
                 isTargeted: dropTargetedCollection == collection.id,
                 showPlusBadge: true
             ) {
-                CollectionRow(collection: collection, count: count)
+                CollectionRow(
+                    collection: collection,
+                    count: count,
+                    isEditing: isEditing,
+                    onRename: { newName in renameCollection(collection, to: newName) }
+                )
             }
             .onDrop(of: [.publicationID], isTargeted: makeCollectionTargetBinding(collection.id)) { providers in
                 handleDrop(providers: providers) { uuids in
@@ -470,7 +486,19 @@ struct SidebarView: View {
         collection.library = library
         try? context.save()
 
-        // Trigger sidebar refresh to show the new collection
+        // Trigger sidebar refresh and enter rename mode
+        refreshTrigger = UUID()
+        renamingCollection = collection
+    }
+
+    private func renameCollection(_ collection: CDCollection, to newName: String) {
+        guard !newName.isEmpty else {
+            renamingCollection = nil
+            return
+        }
+        collection.name = newName
+        try? collection.managedObjectContext?.save()
+        renamingCollection = nil
         refreshTrigger = UUID()
     }
 
@@ -617,13 +645,31 @@ struct SmartSearchRow: View {
 // MARK: - Collection Row
 
 struct CollectionRow: View {
-    let collection: CDCollection
+    @ObservedObject var collection: CDCollection
     var count: Int = 0
+    var isEditing: Bool = false
+    var onRename: ((String) -> Void)?
+
+    @State private var editedName: String = ""
+    @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack {
             Label {
-                Text(collection.name)
+                if isEditing {
+                    TextField("Collection Name", text: $editedName)
+                        .textFieldStyle(.plain)
+                        .focused($isFocused)
+                        .onSubmit {
+                            onRename?(editedName)
+                        }
+                        .onAppear {
+                            editedName = collection.name
+                            isFocused = true
+                        }
+                } else {
+                    Text(collection.name)
+                }
             } icon: {
                 Image(systemName: collection.isSmartCollection ? "folder.badge.gearshape" : "folder")
             }
