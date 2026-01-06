@@ -284,23 +284,29 @@ public final class LibraryViewModel {
     /// Mark a publication as read
     public func markAsRead(_ publication: CDPublication) async {
         await repository.markAsRead(publication)
-        // No reload needed - CDPublication is @ObservedObject so row updates automatically
+        // Post notification so PublicationListView rebuilds row data cache
+        // (rows use immutable PublicationRowData snapshots, not @ObservedObject)
+        await MainActor.run {
+            NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: nil)
+        }
     }
 
     /// Mark a publication as unread
     public func markAsUnread(_ publication: CDPublication) async {
         await repository.markAsUnread(publication)
-        // No reload needed - CDPublication is @ObservedObject so row updates automatically
+        // Post notification so PublicationListView rebuilds row data cache
+        await MainActor.run {
+            NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: nil)
+        }
     }
 
     /// Toggle read/unread status
     public func toggleReadStatus(_ publication: CDPublication) async {
         await repository.toggleReadStatus(publication)
-        // Post notification so sidebar can update unread count
+        // Post notification so PublicationListView rebuilds row data cache
         await MainActor.run {
             NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: nil)
         }
-        // No reload needed - CDPublication is @ObservedObject so row updates automatically
     }
 
     /// Mark all selected publications as read
