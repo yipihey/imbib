@@ -1,0 +1,451 @@
+//
+//  UnifiedPublicationListWrapper.swift
+//  imbib
+//
+//  Created by Claude on 2026-01-05.
+//
+
+import SwiftUI
+import PublicationManagerCore
+import OSLog
+
+private let logger = Logger(subsystem: "com.imbib.app", category: "publicationlist")
+
+// MARK: - Publication Source
+
+/// The data source for publications in the unified list view.
+enum PublicationSource: Hashable {
+    case library(CDLibrary)
+    case smartSearch(CDSmartSearch)
+
+    var id: UUID {
+        switch self {
+        case .library(let library): return library.id
+        case .smartSearch(let smartSearch): return smartSearch.id
+        }
+    }
+
+    var isLibrary: Bool {
+        if case .library = self { return true }
+        return false
+    }
+
+    var isSmartSearch: Bool {
+        if case .smartSearch = self { return true }
+        return false
+    }
+}
+
+// MARK: - Filter Mode
+
+/// Filter mode for the publication list.
+enum LibraryFilterMode: String, CaseIterable {
+    case all
+    case unread
+}
+
+// MARK: - Provider Cache
+
+/// Caches SmartSearchProvider instances to avoid re-fetching when switching between views
+actor SmartSearchProviderCache {
+    static let shared = SmartSearchProviderCache()
+
+    private var providers: [UUID: SmartSearchProvider] = [:]
+
+    func getOrCreate(
+        for smartSearch: CDSmartSearch,
+        sourceManager: SourceManager,
+        repository: PublicationRepository
+    ) -> SmartSearchProvider {
+        if let existing = providers[smartSearch.id] {
+            return existing
+        }
+        let provider = SmartSearchProvider(
+            from: smartSearch,
+            sourceManager: sourceManager,
+            repository: repository
+        )
+        providers[smartSearch.id] = provider
+        return provider
+    }
+
+    /// Invalidate cached provider (call when smart search is edited)
+    func invalidate(_ id: UUID) {
+        providers.removeValue(forKey: id)
+    }
+}
+
+// MARK: - Unified Publication List Wrapper
+
+/// A unified wrapper view that displays publications from either a library or a smart search.
+///
+/// This view uses the same @State + explicit refresh pattern for both sources,
+/// ensuring consistent behavior and immediate UI updates after mutations.
+///
+/// Features (same for both sources):
+/// - @State publications with explicit refresh
+/// - All/Unread filter toggle
+/// - Refresh button (library = future enrichment, smart search = re-search)
+/// - Loading/error states
+/// - OSLog logging
+struct UnifiedPublicationListWrapper: View {
+
+    // MARK: - Properties
+
+    let source: PublicationSource
+    @Binding var selectedPublication: CDPublication?
+
+    /// Initial filter mode (for Unread sidebar item)
+    var initialFilterMode: LibraryFilterMode = .all
+
+    // MARK: - Environment
+
+    @Environment(LibraryViewModel.self) private var libraryViewModel
+    @Environment(SearchViewModel.self) private var searchViewModel
+    @Environment(LibraryManager.self) private var libraryManager
+
+    // MARK: - Unified State
+
+    @State private var publications: [CDPublication] = []
+    @State private var multiSelection = Set<UUID>()
+    @State private var isLoading = false
+    @State private var error: Error?
+    @State private var filterMode: LibraryFilterMode = .all
+    @State private var provider: SmartSearchProvider?
+
+    // MARK: - Computed Properties
+
+    private var navigationTitle: String {
+        switch source {
+        case .library(let library):
+            return filterMode == .unread ? "Unread" : library.displayName
+        case .smartSearch(let smartSearch):
+            return smartSearch.name
+        }
+    }
+
+    private var currentLibrary: CDLibrary? {
+        switch source {
+        case .library(let library):
+            return library
+        case .smartSearch(let smartSearch):
+            return smartSearch.resultCollection?.library ?? smartSearch.library
+        }
+    }
+
+    private var listID: ListViewID {
+        switch source {
+        case .library(let library):
+            return .library(library.id)
+        case .smartSearch(let smartSearch):
+            return .smartSearch(smartSearch.id)
+        }
+    }
+
+    private var emptyMessage: String {
+        switch source {
+        case .library:
+            return "No Publications"
+        case .smartSearch(let smartSearch):
+            return "No Results for \"\(smartSearch.query)\""
+        }
+    }
+
+    private var emptyDescription: String {
+        switch source {
+        case .library:
+            return "Add publications to your library or search online sources."
+        case .smartSearch:
+            return "Click refresh to search again."
+        }
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        contentView
+            .navigationTitle(navigationTitle)
+            .toolbar { toolbarContent }
+            .task(id: source.id) {
+                filterMode = initialFilterMode
+                refreshPublicationsList()
+                // Auto-refresh smart search if empty
+                if case .smartSearch = source, publications.isEmpty {
+                    await refreshFromNetwork()
+                }
+            }
+            .onChange(of: filterMode) { _, _ in
+                refreshPublicationsList()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
+                toggleReadStatusForSelected()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .copyPublications)) { _ in
+                Task { await copySelectedPublications() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .cutPublications)) { _ in
+                Task { await cutSelectedPublications() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .pastePublications)) { _ in
+                Task {
+                    try? await libraryViewModel.pasteFromClipboard()
+                    refreshPublicationsList()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .selectAllPublications)) { _ in
+                selectAllPublications()
+            }
+    }
+
+    // MARK: - Content View
+
+    @ViewBuilder
+    private var contentView: some View {
+        if isLoading && publications.isEmpty {
+            ProgressView("Loading...")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let error {
+            errorView(error)
+        } else {
+            listView
+        }
+    }
+
+    private func errorView(_ error: Error) -> some View {
+        ContentUnavailableView {
+            Label("Error", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text(error.localizedDescription)
+        } actions: {
+            Button("Retry") {
+                Task { await refreshFromNetwork() }
+            }
+        }
+    }
+
+    private var listView: some View {
+        PublicationListView(
+            publications: publications,
+            selection: $multiSelection,
+            selectedPublication: $selectedPublication,
+            library: currentLibrary,
+            allLibraries: libraryManager.libraries,
+            showImportButton: false,
+            showSortMenu: true,
+            emptyStateMessage: emptyMessage,
+            emptyStateDescription: emptyDescription,
+            listID: listID,
+            onDelete: { ids in
+                await libraryViewModel.delete(ids: ids)
+                refreshPublicationsList()
+            },
+            onToggleRead: { publication in
+                await libraryViewModel.toggleReadStatus(publication)
+                refreshPublicationsList()
+            },
+            onCopy: { ids in
+                await libraryViewModel.copyToClipboard(ids)
+            },
+            onCut: { ids in
+                await libraryViewModel.cutToClipboard(ids)
+                refreshPublicationsList()
+            },
+            onPaste: {
+                try? await libraryViewModel.pasteFromClipboard()
+                refreshPublicationsList()
+            },
+            onMoveToLibrary: { ids, targetLibrary in
+                await libraryViewModel.moveToLibrary(ids, library: targetLibrary)
+                refreshPublicationsList()
+            },
+            onAddToCollection: { ids, collection in
+                await libraryViewModel.addToCollection(ids, collection: collection)
+            },
+            onImport: nil,
+            onOpenPDF: { publication in
+                openPDF(for: publication)
+            }
+        )
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        // Filter toggle (both sources)
+        ToolbarItem(placement: .automatic) {
+            Picker("Filter", selection: $filterMode) {
+                Text("All").tag(LibraryFilterMode.all)
+                Text("Unread").tag(LibraryFilterMode.unread)
+            }
+            .pickerStyle(.segmented)
+            .fixedSize()
+        }
+
+        // Refresh button (both sources)
+        ToolbarItem(placement: .automatic) {
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+            } else {
+                Button {
+                    Task { await refreshFromNetwork() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .help(source.isLibrary ? "Refresh library" : "Refresh search results")
+            }
+        }
+
+        // Result count (both sources)
+        ToolbarItem(placement: .automatic) {
+            Text("\(publications.count) items")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: - Data Refresh
+
+    /// Refresh publications from data source (synchronous read)
+    private func refreshPublicationsList() {
+        switch source {
+        case .library(let library):
+            guard let nsSet = library.publications as? NSSet else {
+                publications = []
+                return
+            }
+            var result = nsSet.compactMap { $0 as? CDPublication }
+                .filter { !$0.isDeleted && $0.managedObjectContext != nil }
+
+            // Apply filter mode
+            if filterMode == .unread {
+                result = result.filter { !$0.isRead }
+            }
+
+            publications = result.sorted { $0.dateAdded > $1.dateAdded }
+            logger.info("Refreshed library publications: \(self.publications.count) items")
+
+        case .smartSearch(let smartSearch):
+            guard let collection = smartSearch.resultCollection else {
+                publications = []
+                return
+            }
+            var result = (collection.publications ?? [])
+                .filter { !$0.isDeleted && $0.managedObjectContext != nil }
+
+            // Apply filter mode
+            if filterMode == .unread {
+                result = result.filter { !$0.isRead }
+            }
+
+            publications = result.sorted { $0.dateAdded > $1.dateAdded }
+            logger.info("Refreshed smart search publications: \(self.publications.count) items")
+        }
+    }
+
+    /// Refresh from network (async operation with loading state)
+    private func refreshFromNetwork() async {
+        isLoading = true
+        error = nil
+
+        switch source {
+        case .library(let library):
+            // TODO: Future enrichment protocol
+            // For now, just refresh the list
+            logger.info("Library refresh requested for: \(library.displayName)")
+            try? await Task.sleep(for: .milliseconds(100))
+            await MainActor.run {
+                refreshPublicationsList()
+            }
+
+        case .smartSearch(let smartSearch):
+            logger.info("Smart search refresh requested for: \(smartSearch.name)")
+            let cachedProvider = await SmartSearchProviderCache.shared.getOrCreate(
+                for: smartSearch,
+                sourceManager: searchViewModel.sourceManager,
+                repository: libraryViewModel.repository
+            )
+            provider = cachedProvider
+
+            do {
+                try await cachedProvider.refresh()
+                await MainActor.run {
+                    SmartSearchRepository.shared.markExecuted(smartSearch)
+                    refreshPublicationsList()
+                }
+                logger.info("Smart search refresh completed")
+            } catch {
+                logger.error("Smart search refresh failed: \(error.localizedDescription)")
+                self.error = error
+            }
+        }
+
+        isLoading = false
+    }
+
+    // MARK: - Notification Handlers
+
+    private func selectAllPublications() {
+        multiSelection = Set(publications.map { $0.id })
+    }
+
+    private func toggleReadStatusForSelected() {
+        guard !multiSelection.isEmpty else { return }
+
+        Task {
+            for uuid in multiSelection {
+                if let publication = publications.first(where: { $0.id == uuid }) {
+                    await libraryViewModel.toggleReadStatus(publication)
+                }
+            }
+            refreshPublicationsList()
+        }
+    }
+
+    private func copySelectedPublications() async {
+        guard !multiSelection.isEmpty else { return }
+        await libraryViewModel.copyToClipboard(multiSelection)
+    }
+
+    private func cutSelectedPublications() async {
+        guard !multiSelection.isEmpty else { return }
+        await libraryViewModel.cutToClipboard(multiSelection)
+        refreshPublicationsList()
+    }
+
+    // MARK: - Helpers
+
+    private func openPDF(for publication: CDPublication) {
+        if let linkedFiles = publication.linkedFiles,
+           let pdfFile = linkedFiles.first(where: { $0.isPDF }),
+           let libraryURL = currentLibrary?.folderURL {
+            let pdfURL = libraryURL.appendingPathComponent(pdfFile.relativePath)
+            #if os(macOS)
+            NSWorkspace.shared.open(pdfURL)
+            #endif
+        }
+    }
+}
+
+// MARK: - Preview
+
+#Preview {
+    let libraryManager = LibraryManager(persistenceController: .preview)
+    if let library = libraryManager.libraries.first {
+        NavigationStack {
+            UnifiedPublicationListWrapper(
+                source: .library(library),
+                selectedPublication: .constant(nil)
+            )
+        }
+        .environment(LibraryViewModel())
+        .environment(SearchViewModel(
+            sourceManager: SourceManager(),
+            deduplicationService: DeduplicationService(),
+            repository: PublicationRepository()
+        ))
+        .environment(libraryManager)
+    } else {
+        Text("No library available in preview")
+    }
+}

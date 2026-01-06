@@ -89,16 +89,26 @@ struct ContentView: View {
     private var contentList: some View {
         switch selectedSection {
         case .library(let library):
-            LibraryListView(library: library, selection: $selectedPublication)
+            UnifiedPublicationListWrapper(
+                source: .library(library),
+                selectedPublication: $selectedPublication
+            )
 
         case .unread(let library):
-            LibraryListView(library: library, selection: $selectedPublication, filterMode: .unread)
+            UnifiedPublicationListWrapper(
+                source: .library(library),
+                selectedPublication: $selectedPublication,
+                initialFilterMode: .unread
+            )
 
         case .search:
             SearchResultsListView(selectedPublication: $selectedPublication)
 
         case .smartSearch(let smartSearch):
-            SmartSearchResultsView(smartSearch: smartSearch, selectedPublication: $selectedPublication)
+            UnifiedPublicationListWrapper(
+                source: .smartSearch(smartSearch),
+                selectedPublication: $selectedPublication
+            )
 
         case .collection(let collection):
             CollectionListView(collection: collection, selection: $selectedPublication)

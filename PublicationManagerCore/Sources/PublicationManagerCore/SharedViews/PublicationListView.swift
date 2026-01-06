@@ -17,6 +17,12 @@ import SwiftUI
 /// - Keyboard delete support
 /// - Multi-selection
 /// - State persistence (selection, sort order, filters) via ListViewStateStore
+///
+/// ## Thread Safety
+///
+/// This view converts `[CDPublication]` to `[PublicationRowData]` (value types)
+/// before rendering. This eliminates crashes during bulk deletion where Core Data
+/// objects become invalid while SwiftUI is still rendering.
 public struct PublicationListView: View {
 
     // MARK: - Properties
@@ -87,11 +93,14 @@ public struct PublicationListView: View {
     @State private var sortOrder: LibrarySortOrder = .dateAdded
     @State private var hasLoadedState: Bool = false
 
+    /// Cached row data - rebuilt when publications change
+    @State private var rowDataCache: [UUID: PublicationRowData] = [:]
+
     // MARK: - Computed Properties
 
-    /// Filtered and sorted publications
-    private var filteredPublications: [CDPublication] {
-        var result = publications
+    /// Filtered and sorted row data (safe value types)
+    private var filteredRowData: [PublicationRowData] {
+        var result = Array(rowDataCache.values)
 
         // Filter by unread
         if showUnreadOnly {
@@ -101,10 +110,10 @@ public struct PublicationListView: View {
         // Filter by search query
         if !searchQuery.isEmpty {
             let query = searchQuery.lowercased()
-            result = result.filter { pub in
-                pub.title?.lowercased().contains(query) == true ||
-                pub.authorString.lowercased().contains(query) ||
-                pub.citeKey.lowercased().contains(query)
+            result = result.filter { rowData in
+                rowData.title.lowercased().contains(query) ||
+                rowData.authorString.lowercased().contains(query) ||
+                rowData.citeKey.lowercased().contains(query)
             }
         }
 
@@ -112,13 +121,23 @@ public struct PublicationListView: View {
         return result.sorted { lhs, rhs in
             switch sortOrder {
             case .dateAdded:
-                return lhs.dateAdded > rhs.dateAdded
+                // For row data, we need to look up the original publication for date
+                // Fall back to title sort if dates not available
+                guard let lhsPub = publications.first(where: { $0.id == lhs.id }),
+                      let rhsPub = publications.first(where: { $0.id == rhs.id }) else {
+                    return lhs.title < rhs.title
+                }
+                return lhsPub.dateAdded > rhsPub.dateAdded
             case .dateModified:
-                return lhs.dateModified > rhs.dateModified
+                guard let lhsPub = publications.first(where: { $0.id == lhs.id }),
+                      let rhsPub = publications.first(where: { $0.id == rhs.id }) else {
+                    return lhs.title < rhs.title
+                }
+                return lhsPub.dateModified > rhsPub.dateModified
             case .title:
-                return (lhs.title ?? "") < (rhs.title ?? "")
+                return lhs.title < rhs.title
             case .year:
-                return lhs.year > rhs.year
+                return (lhs.year ?? 0) > (rhs.year ?? 0)
             case .citeKey:
                 return lhs.citeKey < rhs.citeKey
             case .citationCount:
@@ -181,7 +200,7 @@ public struct PublicationListView: View {
             Divider()
 
             // Content
-            if filteredPublications.isEmpty {
+            if filteredRowData.isEmpty {
                 emptyState
             } else {
                 publicationList
@@ -190,10 +209,22 @@ public struct PublicationListView: View {
         .task(id: listID) {
             await loadState()
         }
+        .onAppear {
+            rebuildRowData()
+        }
+        .onChange(of: publications.map { $0.id }) { _, _ in
+            // Rebuild row data when publications change (add/delete)
+            rebuildRowData()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("readStatusDidChange"))) { _ in
+            // Rebuild row data when read status changes
+            rebuildRowData()
+        }
         .onChange(of: selection) { _, newValue in
+            // Find publication for single-selection binding
             if let firstID = newValue.first {
                 // Check if publication exists and is not deleted before binding
-                if let pub = filteredPublications.first(where: { $0.id == firstID }),
+                if let pub = publications.first(where: { $0.id == firstID }),
                    !pub.isDeleted,
                    pub.managedObjectContext != nil {
                     selectedPublication = pub
@@ -218,6 +249,20 @@ public struct PublicationListView: View {
                 Task { await saveState() }
             }
         }
+    }
+
+    // MARK: - Row Data Management
+
+    /// Rebuild the row data cache from current publications.
+    /// This filters out any deleted objects and creates immutable snapshots.
+    private func rebuildRowData() {
+        var newCache: [UUID: PublicationRowData] = [:]
+        for pub in publications {
+            if let data = PublicationRowData(publication: pub) {
+                newCache[pub.id] = data
+            }
+        }
+        rowDataCache = newCache
     }
 
     // MARK: - State Persistence
@@ -333,24 +378,27 @@ public struct PublicationListView: View {
     // MARK: - Publication List
 
     private var publicationList: some View {
-        List(filteredPublications, id: \.id, selection: $selection) { publication in
+        List(filteredRowData, id: \.id, selection: $selection) { rowData in
             MailStylePublicationRow(
-                publication: publication,
+                data: rowData,
                 showUnreadIndicator: true,
                 onToggleRead: onToggleRead != nil ? {
-                    Task {
-                        await onToggleRead?(publication)
+                    // Look up CDPublication for mutation
+                    if let pub = publications.first(where: { $0.id == rowData.id }) {
+                        Task {
+                            await onToggleRead?(pub)
+                        }
                     }
                 } : nil
             )
-            .tag(publication.id)
+            .tag(rowData.id)
         }
         .contextMenu(forSelectionType: UUID.self) { ids in
             contextMenuItems(for: ids)
         } primaryAction: { ids in
             // Double-click to open PDF
             if let first = ids.first,
-               let publication = filteredPublications.first(where: { $0.id == first }),
+               let publication = publications.first(where: { $0.id == first }),
                let onOpenPDF = onOpenPDF {
                 onOpenPDF(publication)
             }
@@ -376,7 +424,7 @@ public struct PublicationListView: View {
         if let onOpenPDF = onOpenPDF {
             Button("Open PDF") {
                 if let first = ids.first,
-                   let publication = filteredPublications.first(where: { $0.id == first }) {
+                   let publication = publications.first(where: { $0.id == first }) {
                     onOpenPDF(publication)
                 }
             }
@@ -400,8 +448,8 @@ public struct PublicationListView: View {
         // Copy Cite Key
         Button("Copy Cite Key") {
             if let first = ids.first,
-               let publication = filteredPublications.first(where: { $0.id == first }) {
-                copyToClipboard(publication.citeKey)
+               let rowData = rowDataCache[first] {
+                copyToClipboard(rowData.citeKey)
             }
         }
 

@@ -35,11 +35,18 @@ extension UUID: Transferable {
 /// - Row 1: Blue dot (unread) | Authors (bold) · Year | Citation count (right-aligned)
 /// - Row 2: Title
 /// - Row 3: Paperclip icon (if PDF) | Abstract preview (2 lines max)
+///
+/// ## Thread Safety
+///
+/// This view accepts `PublicationRowData` (a value type) instead of `CDPublication`
+/// directly. This eliminates crashes during bulk deletion where Core Data objects
+/// become invalid while SwiftUI is still rendering.
 public struct MailStylePublicationRow: View {
 
     // MARK: - Properties
 
-    @ObservedObject public var publication: CDPublication
+    /// Immutable snapshot of publication data for display
+    public let data: PublicationRowData
 
     /// Whether to show the unread indicator dot
     public var showUnreadIndicator: Bool = true
@@ -49,30 +56,33 @@ public struct MailStylePublicationRow: View {
 
     // MARK: - Computed Properties
 
-    private var isUnread: Bool { !publication.isRead }
+    private var isUnread: Bool { !data.isRead }
+
+    /// Author string with year for display
+    private var authorYearString: String {
+        if let year = data.year {
+            return "\(data.authorString) · \(year)"
+        }
+        return data.authorString
+    }
 
     // MARK: - Initialization
 
     public init(
-        publication: CDPublication,
+        data: PublicationRowData,
         showUnreadIndicator: Bool = true,
         onToggleRead: (() -> Void)? = nil
     ) {
-        self.publication = publication
+        self.data = data
         self.showUnreadIndicator = showUnreadIndicator
         self.onToggleRead = onToggleRead
     }
 
     // MARK: - Body
 
-    @ViewBuilder
     public var body: some View {
-        // Guard against deleted Core Data objects during List re-render after bulk deletion
-        if publication.isDeleted || publication.managedObjectContext == nil {
-            EmptyView()
-        } else {
-            rowContent
-        }
+        // No guard needed - data is an immutable value type that cannot become invalid
+        rowContent
     }
 
     private var rowContent: some View {
@@ -98,28 +108,28 @@ public struct MailStylePublicationRow: View {
 
                     Spacer()
 
-                    if publication.citationCount > 0 {
-                        Text("\(publication.citationCount)")
+                    if data.citationCount > 0 {
+                        Text("\(data.citationCount)")
                             .font(MailStyleTokens.dateFont)
                             .foregroundStyle(MailStyleTokens.secondaryTextColor)
                     }
                 }
 
                 // Row 2: Title
-                Text(publication.title ?? "Untitled")
+                Text(data.title)
                     .font(MailStyleTokens.titleFont)
                     .fontWeight(isUnread ? .medium : .regular)
                     .lineLimit(MailStyleTokens.titleLineLimit)
 
                 // Row 3: Attachment indicator + Abstract preview
                 HStack(spacing: 4) {
-                    if hasPDF {
+                    if data.hasPDF {
                         Image(systemName: "paperclip")
                             .font(MailStyleTokens.attachmentFont)
                             .foregroundStyle(MailStyleTokens.tertiaryTextColor)
                     }
 
-                    if let abstract = publication.abstract, !abstract.isEmpty {
+                    if let abstract = data.abstract, !abstract.isEmpty {
                         Text(abstract)
                             .font(MailStyleTokens.abstractFont)
                             .foregroundStyle(MailStyleTokens.secondaryTextColor)
@@ -130,9 +140,9 @@ public struct MailStylePublicationRow: View {
         }
         .padding(.vertical, MailStyleTokens.rowVerticalPadding)
         .contentShape(Rectangle())
-        .draggable(publication.id) {
+        .draggable(data.id) {
             // Drag preview
-            Label(publication.title ?? "Publication", systemImage: "doc.text")
+            Label(data.title, systemImage: "doc.text")
                 .padding(8)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         }
@@ -158,14 +168,14 @@ public struct MailStylePublicationRow: View {
             Divider()
         }
 
-        // Standard context menu items can be added here
+        // Standard context menu items
         Button {
             copyTitle()
         } label: {
             Label("Copy Title", systemImage: "doc.on.doc")
         }
 
-        if let doi = publication.doi {
+        if let doi = data.doi {
             Button {
                 copyDOI(doi)
             } label: {
@@ -174,100 +184,14 @@ public struct MailStylePublicationRow: View {
         }
     }
 
-    // MARK: - Author & Year String
-
-    private var authorYearString: String {
-        let authors = authorString
-
-        // Try Int16 year first, then fallback to fields["year"]
-        var yearValue: Int = Int(publication.year)
-        if yearValue == 0, let yearStr = publication.fields["year"], let parsed = Int(yearStr) {
-            yearValue = parsed
-        }
-
-        if yearValue > 0 {
-            return "\(authors) · \(yearValue)"
-        }
-        return authors
-    }
-
-    private var authorString: String {
-        // Get authors from CDAuthor entities if available
-        let sortedAuthors = publication.sortedAuthors
-        if !sortedAuthors.isEmpty {
-            // Clean braces from display names (ADS-style escaping)
-            return formatAuthorList(sortedAuthors.map { BibTeXFieldCleaner.cleanAuthorName($0.displayName) })
-        }
-
-        // Fall back to raw author field (BibTeX format with " and ")
-        guard let rawAuthor = publication.fields["author"] else {
-            return "Unknown Author"
-        }
-
-        let authors = rawAuthor.components(separatedBy: " and ")
-            .map { BibTeXFieldCleaner.cleanAuthorName($0) }
-            .filter { !$0.isEmpty }
-
-        return formatAuthorList(authors)
-    }
-
-    /// Format author list for Mail-style display
-    /// - 1 author: "LastName"
-    /// - 2 authors: "LastName1, LastName2"
-    /// - 3 authors: "LastName1, LastName2, LastName3"
-    /// - 4+ authors: "LastName1, LastName2 ... LastNameN"
-    private func formatAuthorList(_ authors: [String]) -> String {
-        guard !authors.isEmpty else {
-            return "Unknown Author"
-        }
-
-        let lastNames = authors.map { extractLastName(from: $0) }
-
-        switch lastNames.count {
-        case 1:
-            return lastNames[0]
-        case 2:
-            return "\(lastNames[0]), \(lastNames[1])"
-        case 3:
-            return "\(lastNames[0]), \(lastNames[1]), \(lastNames[2])"
-        default:
-            // 4+ authors: first two ... last
-            return "\(lastNames[0]), \(lastNames[1]) ... \(lastNames[lastNames.count - 1])"
-        }
-    }
-
-    private func extractLastName(from author: String) -> String {
-        let trimmed = author.trimmingCharacters(in: .whitespaces)
-
-        if trimmed.contains(",") {
-            // "Last, First" format
-            return trimmed.components(separatedBy: ",").first?.trimmingCharacters(in: .whitespaces) ?? trimmed
-        } else {
-            // "First Last" format - get the last word
-            let parts = trimmed.components(separatedBy: " ").filter { !$0.isEmpty }
-            return parts.last ?? trimmed
-        }
-    }
-
-    // MARK: - PDF Check
-
-    private var hasPDF: Bool {
-        // Check for local linked files
-        if let linkedFiles = publication.linkedFiles, !linkedFiles.isEmpty {
-            return linkedFiles.contains { $0.isPDF }
-        }
-        // Check for remote PDF links
-        return !publication.pdfLinks.isEmpty
-    }
-
     // MARK: - Actions
 
     private func copyTitle() {
         #if os(macOS)
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(publication.title ?? "", forType: .string)
+        NSPasteboard.general.setString(data.title, forType: .string)
         #else
-        UIPasteboard.general.string = publication.title ?? ""
+        UIPasteboard.general.string = data.title
         #endif
     }
 
@@ -285,39 +209,64 @@ public struct MailStylePublicationRow: View {
 // MARK: - Preview
 
 #Preview {
-    let context = PersistenceController.preview.viewContext
-    let publication = context.performAndWait {
-        let pub = CDPublication(context: context)
-        pub.id = UUID()
-        pub.citeKey = "Einstein1905"
-        pub.entryType = "article"
-        pub.title = "On the Electrodynamics of Moving Bodies"
-        pub.year = 1905
-        pub.abstract = "It is known that Maxwell's electrodynamics—as usually understood at the present time—when applied to moving bodies, leads to asymmetries which do not appear to be inherent in the phenomena."
-        pub.dateAdded = Date()
-        pub.dateModified = Date()
-        pub.isRead = false
-        pub.fields = ["author": "Einstein, Albert"]
-        return pub
-    }
+    // Create mock data for preview
+    let unreadData = PublicationRowData(
+        id: UUID(),
+        citeKey: "Einstein1905",
+        title: "On the Electrodynamics of Moving Bodies",
+        authorString: "Einstein",
+        year: 1905,
+        abstract: "It is known that Maxwell's electrodynamics—as usually understood at the present time—when applied to moving bodies, leads to asymmetries which do not appear to be inherent in the phenomena.",
+        isRead: false,
+        hasPDF: true,
+        citationCount: 42,
+        doi: "10.1002/andp.19053221004"
+    )
 
-    let readPublication = context.performAndWait {
-        let pub = CDPublication(context: context)
-        pub.id = UUID()
-        pub.citeKey = "Hawking1974"
-        pub.entryType = "article"
-        pub.title = "Black hole explosions?"
-        pub.year = 1974
-        pub.abstract = "Quantum gravitational effects are usually ignored in calculations of the formation and evolution of black holes."
-        pub.dateAdded = Calendar.current.date(byAdding: .day, value: -3, to: Date())!
-        pub.dateModified = Date()
-        pub.isRead = true
-        pub.fields = ["author": "Hawking, Stephen W."]
-        return pub
-    }
+    let readData = PublicationRowData(
+        id: UUID(),
+        citeKey: "Hawking1974",
+        title: "Black hole explosions?",
+        authorString: "Hawking",
+        year: 1974,
+        abstract: "Quantum gravitational effects are usually ignored in calculations of the formation and evolution of black holes.",
+        isRead: true,
+        hasPDF: false,
+        citationCount: 1500,
+        doi: nil
+    )
 
     return List {
-        MailStylePublicationRow(publication: publication)
-        MailStylePublicationRow(publication: readPublication)
+        MailStylePublicationRow(data: unreadData)
+        MailStylePublicationRow(data: readData)
+    }
+}
+
+// MARK: - PublicationRowData Extension for Preview
+
+extension PublicationRowData {
+    /// Convenience initializer for previews and testing
+    init(
+        id: UUID,
+        citeKey: String,
+        title: String,
+        authorString: String,
+        year: Int?,
+        abstract: String?,
+        isRead: Bool,
+        hasPDF: Bool,
+        citationCount: Int,
+        doi: String?
+    ) {
+        self.id = id
+        self.citeKey = citeKey
+        self.title = title
+        self.authorString = authorString
+        self.year = year
+        self.abstract = abstract
+        self.isRead = isRead
+        self.hasPDF = hasPDF
+        self.citationCount = citationCount
+        self.doi = doi
     }
 }
