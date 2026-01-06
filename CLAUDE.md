@@ -329,16 +329,25 @@ Update the changelog below after significant work:
   - Keyboard delete support
   - Multi-selection with UUID-based selection binding
   - Configurable callbacks for all operations
+  - **State persistence** via ListViewStateStore (selection, sort order, filters)
+- ListViewStateStore (new)
+  - Actor-based with UserDefaults + in-memory cache (same pattern as ReadingPositionStore)
+  - Persists per library/collection/smart search/last search
+  - Stores: selectedPublicationID, sortOrder, showUnreadOnly, lastVisitedDate
+  - ListViewID enum: .library(UUID), .collection(UUID), .smartSearch(UUID), .lastSearch(UUID)
 - LibraryListView simplified (~380 → ~175 lines)
   - Now wraps PublicationListView with library-specific callbacks
   - Maintains notification handlers for keyboard shortcuts
+  - Passes listID: .library(library.id) for state persistence
 - SmartSearchResultsView gains full library features
   - Context menu, keyboard shortcuts, sorting, filtering
   - Keeps refresh toolbar button for re-executing search
+  - Passes listID: .smartSearch(smartSearch.id) for state persistence
 - SearchResultsListView unified
   - Replaced PublicationSearchRow with MailStylePublicationRow
   - Keeps search header with source filter chips
   - Gains all library features (context menu, shortcuts, sorting)
+  - Passes listID: .lastSearch(collection.id) for state persistence
 - Per ADR-016: No material difference between library and search views
 - All 741 tests passing
 

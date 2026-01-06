@@ -77,6 +77,7 @@ struct LibraryListView: View {
             showSortMenu: true,
             emptyStateMessage: "No Publications",
             emptyStateDescription: "Import a BibTeX file or search online sources to add publications.",
+            listID: .library(library.id),
             onDelete: { ids in
                 await viewModel.delete(ids: ids)
             },

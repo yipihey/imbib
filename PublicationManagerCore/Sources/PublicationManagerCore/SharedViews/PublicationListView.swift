@@ -16,6 +16,7 @@ import SwiftUI
 /// - Full context menu
 /// - Keyboard delete support
 /// - Multi-selection
+/// - State persistence (selection, sort order, filters) via ListViewStateStore
 public struct PublicationListView: View {
 
     // MARK: - Properties
@@ -46,6 +47,9 @@ public struct PublicationListView: View {
 
     /// Custom empty state description
     public var emptyStateDescription: String = "Import a BibTeX file or search online sources to add publications."
+
+    /// Identifier for state persistence (nil = no persistence)
+    public var listID: ListViewID?
 
     // MARK: - Callbacks
 
@@ -81,6 +85,7 @@ public struct PublicationListView: View {
     @State private var searchQuery: String = ""
     @State private var showUnreadOnly: Bool = false
     @State private var sortOrder: LibrarySortOrder = .dateAdded
+    @State private var hasLoadedState: Bool = false
 
     // MARK: - Computed Properties
 
@@ -134,6 +139,7 @@ public struct PublicationListView: View {
         showSortMenu: Bool = true,
         emptyStateMessage: String = "No publications found.",
         emptyStateDescription: String = "Import a BibTeX file or search online sources to add publications.",
+        listID: ListViewID? = nil,
         onDelete: ((Set<UUID>) async -> Void)? = nil,
         onToggleRead: ((CDPublication) async -> Void)? = nil,
         onCopy: ((Set<UUID>) async -> Void)? = nil,
@@ -153,6 +159,7 @@ public struct PublicationListView: View {
         self.showSortMenu = showSortMenu
         self.emptyStateMessage = emptyStateMessage
         self.emptyStateDescription = emptyStateDescription
+        self.listID = listID
         self.onDelete = onDelete
         self.onToggleRead = onToggleRead
         self.onCopy = onCopy
@@ -180,13 +187,69 @@ public struct PublicationListView: View {
                 publicationList
             }
         }
+        .task(id: listID) {
+            await loadState()
+        }
         .onChange(of: selection) { _, newValue in
             if let firstID = newValue.first {
                 selectedPublication = filteredPublications.first { $0.id == firstID }
             } else {
                 selectedPublication = nil
             }
+            // Save selection state
+            if hasLoadedState {
+                Task { await saveState() }
+            }
         }
+        .onChange(of: sortOrder) { _, _ in
+            if hasLoadedState {
+                Task { await saveState() }
+            }
+        }
+        .onChange(of: showUnreadOnly) { _, _ in
+            if hasLoadedState {
+                Task { await saveState() }
+            }
+        }
+    }
+
+    // MARK: - State Persistence
+
+    private func loadState() async {
+        guard let listID = listID else {
+            hasLoadedState = true
+            return
+        }
+
+        if let state = await ListViewStateStore.shared.get(for: listID) {
+            // Restore sort order
+            if let order = LibrarySortOrder(rawValue: state.sortOrder) {
+                sortOrder = order
+            }
+            showUnreadOnly = state.showUnreadOnly
+
+            // Restore selection if publication still exists
+            if let selectedID = state.selectedPublicationID,
+               publications.contains(where: { $0.id == selectedID }) {
+                selection = [selectedID]
+            }
+        }
+
+        hasLoadedState = true
+    }
+
+    private func saveState() async {
+        guard let listID = listID else { return }
+
+        let state = ListViewState(
+            selectedPublicationID: selection.first,
+            sortOrder: sortOrder.rawValue,
+            sortAscending: false,  // Currently not configurable
+            showUnreadOnly: showUnreadOnly,
+            lastVisitedDate: Date()
+        )
+
+        await ListViewStateStore.shared.save(state, for: listID)
     }
 
     // MARK: - Inline Toolbar

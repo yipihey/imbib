@@ -196,6 +196,7 @@ struct SmartSearchResultsView: View {
             showSortMenu: true,
             emptyStateMessage: "No Results",
             emptyStateDescription: "No papers found for \"\(smartSearch.query)\".",
+            listID: .smartSearch(smartSearch.id),
             onDelete: { ids in
                 await libraryViewModel.delete(ids: ids)
                 refreshPublicationsList()
