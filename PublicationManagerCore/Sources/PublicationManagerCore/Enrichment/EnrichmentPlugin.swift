@@ -176,7 +176,20 @@ public extension CDPublication {
             result[.pmcid] = pmcid
         }
 
+        // Also check stored identifier fields
+        if let ssID = semanticScholarID, !ssID.isEmpty {
+            result[.semanticScholar] = ssID
+        }
+        if let oaID = openAlexID, !oaID.isEmpty {
+            result[.openAlex] = oaID
+        }
+
         return result
+    }
+
+    /// Whether this publication has any identifiers suitable for enrichment
+    var hasEnrichmentIdentifiers: Bool {
+        !enrichmentIdentifiers.isEmpty
     }
 }
 

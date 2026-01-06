@@ -218,6 +218,15 @@ public extension CDPublication {
         }
     }
 
+    /// Add or update a PDF link, replacing any existing link from the same source
+    func addPDFLink(_ link: PDFLink) {
+        var links = pdfLinks
+        // Remove existing link from same source to avoid duplicates
+        links.removeAll { $0.sourceID == link.sourceID }
+        links.append(link)
+        pdfLinks = links
+    }
+
     /// Best remote PDF URL based on priority (preprint > publisher > author > adsScan)
     var bestRemotePDFURL: URL? {
         let priority: [PDFLinkType] = [.preprint, .publisher, .author, .adsScan]
@@ -271,6 +280,7 @@ public extension CDPublication {
         // - Old: hep-th/9901001
         return URL(string: "https://arxiv.org/pdf/\(baseID).pdf")
     }
+
 }
 
 // MARK: - Enrichment Staleness

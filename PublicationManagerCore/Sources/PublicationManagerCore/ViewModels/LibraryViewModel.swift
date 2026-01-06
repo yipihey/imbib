@@ -126,6 +126,9 @@ public final class LibraryViewModel {
         let imported = await repository.importEntries(entries)
         await loadPublications()
 
+        // Queue newly imported papers for enrichment
+        await queueNewlyImportedForEnrichment()
+
         Logger.viewModels.infoCapture("Successfully imported \(imported) entries", category: "import")
         return imported
     }
@@ -142,6 +145,9 @@ public final class LibraryViewModel {
 
         let imported = await repository.importRISEntries(entries)
         await loadPublications()
+
+        // Queue newly imported papers for enrichment
+        await queueNewlyImportedForEnrichment()
 
         Logger.viewModels.infoCapture("Successfully imported \(imported) RIS entries", category: "import")
         return imported
@@ -422,6 +428,30 @@ public final class LibraryViewModel {
 
         await repository.addPublications(toAdd, to: collection)
         Logger.viewModels.infoCapture("Added \(toAdd.count) publications to \(collection.name)", category: "library")
+    }
+
+    // MARK: - Enrichment
+
+    /// Queue recently added publications for background enrichment.
+    ///
+    /// This finds publications that haven't been enriched and queues them
+    /// for background processing to fetch PDF URLs, citation counts, etc.
+    private func queueNewlyImportedForEnrichment() async {
+        let unenriched = publications.filter { pub in
+            pub.hasEnrichmentIdentifiers && !pub.hasBeenEnriched
+        }
+
+        guard !unenriched.isEmpty else { return }
+
+        Logger.viewModels.infoCapture(
+            "Queueing \(unenriched.count) papers for enrichment",
+            category: "enrichment"
+        )
+
+        await EnrichmentCoordinator.shared.queueForEnrichment(
+            unenriched,
+            priority: .libraryPaper
+        )
     }
 }
 

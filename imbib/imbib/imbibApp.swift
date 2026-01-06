@@ -56,10 +56,14 @@ struct imbibApp: App {
 
         appLogger.info("ViewModels initialized")
 
-        // Register built-in sources
+        // Register built-in sources and start enrichment
         Task {
             await sourceManager.registerBuiltInSources()
             appLogger.info("Built-in sources registered")
+
+            // Start background enrichment coordinator
+            await EnrichmentCoordinator.shared.start()
+            appLogger.info("EnrichmentCoordinator started")
         }
 
         appLogger.info("imbib app initialization complete")

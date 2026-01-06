@@ -205,6 +205,64 @@ public actor PublicationRepository {
         }
     }
 
+    // MARK: - Enrichment Operations
+
+    /// Save enrichment result to a publication
+    ///
+    /// Updates citation count, PDF URLs, abstract, and other enrichment data.
+    /// Called from EnrichmentService.onEnrichmentComplete callback.
+    public func saveEnrichmentResult(publicationID: UUID, result: EnrichmentResult) async {
+        guard let publication = await fetch(byID: publicationID) else {
+            Logger.persistence.warning("Cannot save enrichment - publication not found: \(publicationID)")
+            return
+        }
+
+        let context = persistenceController.viewContext
+        let data = result.data
+
+        await context.perform {
+            // Citation count
+            if let count = data.citationCount {
+                publication.citationCount = Int32(count)
+            }
+
+            // PDF URLs from enrichment source (e.g., OpenAlex)
+            if let pdfURLs = data.pdfURLs, !pdfURLs.isEmpty {
+                for pdfURL in pdfURLs {
+                    let link = PDFLink(
+                        url: pdfURL,
+                        type: .publisher,  // OpenAlex typically returns publisher/OA URLs
+                        sourceID: data.source.sourceID
+                    )
+                    publication.addPDFLink(link)
+                }
+                Logger.persistence.info("Added \(pdfURLs.count) PDF link(s) from \(data.source.displayName)")
+            }
+
+            // Abstract (if we don't have one and enrichment provides it)
+            if publication.abstract == nil || publication.abstract?.isEmpty == true,
+               let abstract = data.abstract, !abstract.isEmpty {
+                publication.abstract = abstract
+            }
+
+            // Resolved identifiers
+            if let oaID = result.resolvedIdentifiers[.openAlex], publication.openAlexID == nil {
+                publication.openAlexID = oaID
+            }
+            if let ssID = result.resolvedIdentifiers[.semanticScholar], publication.semanticScholarID == nil {
+                publication.semanticScholarID = ssID
+            }
+
+            // Update enrichment tracking fields
+            publication.enrichmentSource = data.source.sourceID
+            publication.enrichmentDate = Date()
+            publication.dateModified = Date()
+
+            self.persistenceController.save()
+            Logger.persistence.info("Saved enrichment result for: \(publication.citeKey)")
+        }
+    }
+
     // MARK: - Delete Operations
 
     /// Delete a publication

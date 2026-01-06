@@ -46,6 +46,12 @@ public actor EnrichmentService {
     private var isBackgroundSyncRunning = false
     private var backgroundTask: Task<Void, Never>?
 
+    // MARK: - Persistence Callback
+
+    /// Called when enrichment completes successfully.
+    /// The app layer sets this to persist enrichment data to Core Data.
+    public var onEnrichmentComplete: ((UUID, EnrichmentResult) async -> Void)?
+
     // MARK: - Initialization
 
     /// Create an enrichment service with the given plugins.
@@ -259,11 +265,17 @@ public actor EnrichmentService {
             if let (publicationID, result) = await processNextQueued() {
                 processedCount += 1
                 switch result {
-                case .success(let data):
+                case .success(let enrichmentResult):
                     Logger.enrichment.infoCapture(
-                        "Background enriched \(publicationID.uuidString.prefix(8))... - citations: \(data.data.citationCount ?? 0)",
+                        "Background enriched \(publicationID.uuidString.prefix(8))... - citations: \(enrichmentResult.data.citationCount ?? 0)",
                         category: "enrichment"
                     )
+
+                    // Persist the enrichment result to Core Data
+                    if let callback = onEnrichmentComplete {
+                        await callback(publicationID, enrichmentResult)
+                    }
+
                 case .failure(let error):
                     Logger.enrichment.warningCapture(
                         "Background enrichment failed \(publicationID.uuidString.prefix(8))...: \(error.localizedDescription)",
