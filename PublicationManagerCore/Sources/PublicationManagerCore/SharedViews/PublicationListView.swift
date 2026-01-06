@@ -36,10 +36,10 @@ public struct PublicationListView: View {
     /// Single-selection binding (updated when selection changes)
     @Binding public var selectedPublication: CDPublication?
 
-    /// Library for context menu operations (Move To, Add To Collection)
+    /// Library for context menu operations (Add to Library, Add to Collection)
     public var library: CDLibrary?
 
-    /// All available libraries for "Move To Library" menu
+    /// All available libraries for "Add to Library" menu
     public var allLibraries: [CDLibrary] = []
 
     /// Whether to show the import button
@@ -74,11 +74,14 @@ public struct PublicationListView: View {
     /// Called when paste is requested
     public var onPaste: (() async -> Void)?
 
-    /// Called when move to library is requested
-    public var onMoveToLibrary: ((Set<UUID>, CDLibrary) async -> Void)?
+    /// Called when add to library is requested (publications can belong to multiple libraries)
+    public var onAddToLibrary: ((Set<UUID>, CDLibrary) async -> Void)?
 
     /// Called when add to collection is requested
     public var onAddToCollection: ((Set<UUID>, CDCollection) async -> Void)?
+
+    /// Called when remove from all collections is requested ("All Publications")
+    public var onRemoveFromAllCollections: ((Set<UUID>) async -> Void)?
 
     /// Called when import is requested (import button clicked)
     public var onImport: (() -> Void)?
@@ -154,8 +157,9 @@ public struct PublicationListView: View {
         onCopy: ((Set<UUID>) async -> Void)? = nil,
         onCut: ((Set<UUID>) async -> Void)? = nil,
         onPaste: (() async -> Void)? = nil,
-        onMoveToLibrary: ((Set<UUID>, CDLibrary) async -> Void)? = nil,
+        onAddToLibrary: ((Set<UUID>, CDLibrary) async -> Void)? = nil,
         onAddToCollection: ((Set<UUID>, CDCollection) async -> Void)? = nil,
+        onRemoveFromAllCollections: ((Set<UUID>) async -> Void)? = nil,
         onImport: (() -> Void)? = nil,
         onOpenPDF: ((CDPublication) -> Void)? = nil
     ) {
@@ -174,8 +178,9 @@ public struct PublicationListView: View {
         self.onCopy = onCopy
         self.onCut = onCut
         self.onPaste = onPaste
-        self.onMoveToLibrary = onMoveToLibrary
+        self.onAddToLibrary = onAddToLibrary
         self.onAddToCollection = onAddToCollection
+        self.onRemoveFromAllCollections = onRemoveFromAllCollections
         self.onImport = onImport
         self.onOpenPDF = onOpenPDF
     }
@@ -441,15 +446,15 @@ public struct PublicationListView: View {
 
         Divider()
 
-        // Move To Library submenu
-        if let onMoveToLibrary = onMoveToLibrary, !allLibraries.isEmpty {
+        // Add to Library submenu (publications can belong to multiple libraries)
+        if let onAddToLibrary = onAddToLibrary, !allLibraries.isEmpty {
             let otherLibraries = allLibraries.filter { $0.id != library?.id }
             if !otherLibraries.isEmpty {
-                Menu("Move To Library") {
+                Menu("Add to Library") {
                     ForEach(otherLibraries, id: \.id) { targetLibrary in
                         Button(targetLibrary.displayName) {
                             Task {
-                                await onMoveToLibrary(ids, targetLibrary)
+                                await onAddToLibrary(ids, targetLibrary)
                             }
                         }
                     }
@@ -457,18 +462,37 @@ public struct PublicationListView: View {
             }
         }
 
-        // Add To Collection submenu
-        if let onAddToCollection = onAddToCollection,
-           let collections = library?.collections as? Set<CDCollection>,
-           !collections.isEmpty {
-            let staticCollections = collections.filter { !$0.isSmartCollection && !$0.isSmartSearchResults }
-                .sorted { $0.name < $1.name }
-            if !staticCollections.isEmpty {
-                Menu("Add To Collection") {
-                    ForEach(staticCollections, id: \.id) { collection in
-                        Button(collection.name) {
+        // Add to Collection submenu (with "All Publications" option to remove from all collections)
+        if onAddToCollection != nil || onRemoveFromAllCollections != nil {
+            let staticCollections: [CDCollection] = {
+                guard let collections = library?.collections as? Set<CDCollection> else { return [] }
+                return collections.filter { !$0.isSmartCollection && !$0.isSmartSearchResults }
+                    .sorted { $0.name < $1.name }
+            }()
+
+            // Show menu if we have collections OR have the remove callback
+            if !staticCollections.isEmpty || onRemoveFromAllCollections != nil {
+                Menu("Add to Collection") {
+                    // "All Publications" removes from all collections
+                    if let onRemoveFromAllCollections = onRemoveFromAllCollections {
+                        Button("All Publications") {
                             Task {
-                                await onAddToCollection(ids, collection)
+                                await onRemoveFromAllCollections(ids)
+                            }
+                        }
+
+                        if !staticCollections.isEmpty {
+                            Divider()
+                        }
+                    }
+
+                    // Static collections
+                    if let onAddToCollection = onAddToCollection {
+                        ForEach(staticCollections, id: \.id) { collection in
+                            Button(collection.name) {
+                                Task {
+                                    await onAddToCollection(ids, collection)
+                                }
                             }
                         }
                     }

@@ -716,33 +716,33 @@ public final class PersistenceController: @unchecked Sendable {
         collection.properties.append(collectionToLibrary)
     }
 
-    // Library <-> Publications relationship (one-to-many)
+    // Library <-> Publications relationship (many-to-many)
+    // Publications can belong to multiple libraries
     private static func setupLibraryPublicationsRelationship(
         library: NSEntityDescription,
         publication: NSEntityDescription
     ) {
-        // Library -> publications (one-to-many)
+        // Library -> publications (to-many)
         let libraryToPublications = NSRelationshipDescription()
         libraryToPublications.name = "publications"
         libraryToPublications.destinationEntity = publication
         libraryToPublications.isOptional = true
-        libraryToPublications.deleteRule = .cascadeDeleteRule  // Delete publications when library is deleted
+        libraryToPublications.deleteRule = .nullifyDeleteRule  // Don't delete publications when library is deleted
 
-        // Publication -> owningLibrary (many-to-one)
-        let publicationToLibrary = NSRelationshipDescription()
-        publicationToLibrary.name = "owningLibrary"
-        publicationToLibrary.destinationEntity = library
-        publicationToLibrary.maxCount = 1
-        publicationToLibrary.isOptional = true
-        publicationToLibrary.deleteRule = .nullifyDeleteRule
+        // Publication -> libraries (to-many) - publications can be in multiple libraries
+        let publicationToLibraries = NSRelationshipDescription()
+        publicationToLibraries.name = "libraries"
+        publicationToLibraries.destinationEntity = library
+        publicationToLibraries.isOptional = true
+        publicationToLibraries.deleteRule = .nullifyDeleteRule
 
         // Set inverse relationships
-        libraryToPublications.inverseRelationship = publicationToLibrary
-        publicationToLibrary.inverseRelationship = libraryToPublications
+        libraryToPublications.inverseRelationship = publicationToLibraries
+        publicationToLibraries.inverseRelationship = libraryToPublications
 
         // Add to entities
         library.properties.append(libraryToPublications)
-        publication.properties.append(publicationToLibrary)
+        publication.properties.append(publicationToLibraries)
     }
 
     // Library <-> Collections relationship (one-to-many)

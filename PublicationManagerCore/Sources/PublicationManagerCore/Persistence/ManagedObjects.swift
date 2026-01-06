@@ -53,7 +53,7 @@ public class CDPublication: NSManagedObject {
     @NSManaged public var linkedFiles: Set<CDLinkedFile>?
     @NSManaged public var tags: Set<CDTag>?
     @NSManaged public var collections: Set<CDCollection>?
-    @NSManaged public var owningLibrary: CDLibrary?      // Which library owns this publication
+    @NSManaged public var libraries: Set<CDLibrary>?     // Publications can belong to multiple libraries
 }
 
 // MARK: - Publication Helpers
@@ -225,6 +225,48 @@ public extension CDPublication {
         links.removeAll { $0.sourceID == link.sourceID }
         links.append(link)
         pdfLinks = links
+    }
+
+    // MARK: - Library Management
+
+    /// Add this publication to a library
+    func addToLibrary(_ library: CDLibrary) {
+        var currentLibraries = libraries ?? []
+        currentLibraries.insert(library)
+        libraries = currentLibraries
+    }
+
+    /// Remove this publication from a library
+    func removeFromLibrary(_ library: CDLibrary) {
+        var currentLibraries = libraries ?? []
+        currentLibraries.remove(library)
+        libraries = currentLibraries
+    }
+
+    /// Check if publication belongs to a specific library
+    func belongsToLibrary(_ library: CDLibrary) -> Bool {
+        libraries?.contains(library) ?? false
+    }
+
+    // MARK: - Collection Management
+
+    /// Add this publication to a collection
+    func addToCollection(_ collection: CDCollection) {
+        var currentCollections = collections ?? []
+        currentCollections.insert(collection)
+        collections = currentCollections
+    }
+
+    /// Remove this publication from a collection
+    func removeFromCollection(_ collection: CDCollection) {
+        var currentCollections = collections ?? []
+        currentCollections.remove(collection)
+        collections = currentCollections
+    }
+
+    /// Remove this publication from all collections (returns to "All Publications")
+    func removeFromAllCollections() {
+        collections = []
     }
 
     /// Best remote PDF URL based on priority (preprint > publisher > author > adsScan)

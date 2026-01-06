@@ -780,13 +780,37 @@ public actor PublicationRepository {
         }
     }
 
-    /// Move publications to a different library
-    public func moveToLibrary(_ publications: [CDPublication], library: CDLibrary) async {
+    /// Add publications to a library (publications can belong to multiple libraries)
+    public func addToLibrary(_ publications: [CDPublication], library: CDLibrary) async {
         let context = persistenceController.viewContext
 
         await context.perform {
             for publication in publications {
-                publication.owningLibrary = library
+                publication.addToLibrary(library)
+            }
+            self.persistenceController.save()
+        }
+    }
+
+    /// Remove publications from a library
+    public func removeFromLibrary(_ publications: [CDPublication], library: CDLibrary) async {
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            for publication in publications {
+                publication.removeFromLibrary(library)
+            }
+            self.persistenceController.save()
+        }
+    }
+
+    /// Remove publications from all collections (return to "All Publications")
+    public func removeFromAllCollections(_ publications: [CDPublication]) async {
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            for publication in publications {
+                publication.removeFromAllCollections()
             }
             self.persistenceController.save()
         }

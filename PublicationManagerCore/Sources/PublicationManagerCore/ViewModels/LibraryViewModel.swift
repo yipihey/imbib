@@ -403,22 +403,18 @@ public final class LibraryViewModel {
         return imported
     }
 
-    // MARK: - Move Operations
+    // MARK: - Library and Collection Operations
 
-    /// Move publications by IDs to a different library
-    public func moveToLibrary(_ ids: Set<UUID>, library: CDLibrary) async {
-        let toMove = publications.filter { ids.contains($0.id) }
-        guard !toMove.isEmpty else { return }
+    /// Add publications by IDs to another library (publications can belong to multiple libraries)
+    public func addToLibrary(_ ids: Set<UUID>, library: CDLibrary) async {
+        let toAdd = publications.filter { ids.contains($0.id) }
+        guard !toAdd.isEmpty else { return }
 
-        await repository.moveToLibrary(toMove, library: library)
+        await repository.addToLibrary(toAdd, library: library)
 
-        // Remove from selection if they were selected
-        for id in ids {
-            selectedPublications.remove(id)
-        }
-
-        await loadPublications()
-        Logger.viewModels.infoCapture("Moved \(toMove.count) publications to \(library.displayName)", category: "library")
+        // Publications stay in current library, just also added to target library
+        // No need to remove from selection or reload
+        Logger.viewModels.infoCapture("Added \(toAdd.count) publications to \(library.displayName)", category: "library")
     }
 
     /// Add publications by IDs to a collection
@@ -428,6 +424,15 @@ public final class LibraryViewModel {
 
         await repository.addPublications(toAdd, to: collection)
         Logger.viewModels.infoCapture("Added \(toAdd.count) publications to \(collection.name)", category: "library")
+    }
+
+    /// Remove publications from all collections (return to "All Publications")
+    public func removeFromAllCollections(_ ids: Set<UUID>) async {
+        let toRemove = publications.filter { ids.contains($0.id) }
+        guard !toRemove.isEmpty else { return }
+
+        await repository.removeFromAllCollections(toRemove)
+        Logger.viewModels.infoCapture("Removed \(toRemove.count) publications from all collections", category: "library")
     }
 
     // MARK: - Enrichment

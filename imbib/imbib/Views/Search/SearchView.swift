@@ -182,11 +182,14 @@ struct SearchResultsListView: View {
                 onPaste: {
                     try? await libraryViewModel.pasteFromClipboard()
                 },
-                onMoveToLibrary: { ids, targetLibrary in
-                    await libraryViewModel.moveToLibrary(ids, library: targetLibrary)
+                onAddToLibrary: { ids, targetLibrary in
+                    await libraryViewModel.addToLibrary(ids, library: targetLibrary)
                 },
                 onAddToCollection: { ids, collection in
                     await libraryViewModel.addToCollection(ids, collection: collection)
+                },
+                onRemoveFromAllCollections: { ids in
+                    await libraryViewModel.removeFromAllCollections(ids)
                 },
                 onOpenPDF: { publication in
                     openPDF(for: publication)

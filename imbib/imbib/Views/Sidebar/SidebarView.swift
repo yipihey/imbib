@@ -135,7 +135,7 @@ struct SidebarView: View {
             .onDrop(of: [.publicationID], isTargeted: makeLibraryTargetBinding(library.id)) { providers in
                 handleDrop(providers: providers) { uuids in
                     Task {
-                        await movePublications(uuids, to: library)
+                        await addPublicationsToLibrary(uuids, library: library)
                     }
                 }
                 return true
@@ -251,7 +251,7 @@ struct SidebarView: View {
             }
             handleDrop(providers: providers) { uuids in
                 Task {
-                    await movePublications(uuids, to: library)
+                    await addPublicationsToLibrary(uuids, library: library)
                 }
             }
             return true
@@ -526,8 +526,8 @@ struct SidebarView: View {
         }
     }
 
-    /// Move publications to a different library
-    private func movePublications(_ uuids: [UUID], to library: CDLibrary) async {
+    /// Add publications to a library (publications can belong to multiple libraries)
+    private func addPublicationsToLibrary(_ uuids: [UUID], library: CDLibrary) async {
         let context = PersistenceController.shared.viewContext
 
         await context.perform {
@@ -537,7 +537,7 @@ struct SidebarView: View {
                 request.fetchLimit = 1
 
                 if let publication = try? context.fetch(request).first {
-                    publication.owningLibrary = library
+                    publication.addToLibrary(library)
                 }
             }
             try? context.save()

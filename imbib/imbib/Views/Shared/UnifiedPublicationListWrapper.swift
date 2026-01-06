@@ -254,12 +254,15 @@ struct UnifiedPublicationListWrapper: View {
                 try? await libraryViewModel.pasteFromClipboard()
                 refreshPublicationsList()
             },
-            onMoveToLibrary: { ids, targetLibrary in
-                await libraryViewModel.moveToLibrary(ids, library: targetLibrary)
+            onAddToLibrary: { ids, targetLibrary in
+                await libraryViewModel.addToLibrary(ids, library: targetLibrary)
                 refreshPublicationsList()
             },
             onAddToCollection: { ids, collection in
                 await libraryViewModel.addToCollection(ids, collection: collection)
+            },
+            onRemoveFromAllCollections: { ids in
+                await libraryViewModel.removeFromAllCollections(ids)
             },
             onImport: nil,
             onOpenPDF: { publication in
