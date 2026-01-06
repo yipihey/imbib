@@ -632,6 +632,23 @@ struct PDFTab: View {
             // Download to temp location
             let (tempURL, _) = try await URLSession.shared.download(from: resolvedURL)
 
+            // Validate it's actually a PDF (check for %PDF header)
+            let fileHandle = try FileHandle(forReadingFrom: tempURL)
+            let header = fileHandle.readData(ofLength: 4)
+            try fileHandle.close()
+
+            guard header.count >= 4,
+                  header[0] == 0x25, // %
+                  header[1] == 0x50, // P
+                  header[2] == 0x44, // D
+                  header[3] == 0x46  // F
+            else {
+                // Not a valid PDF - likely HTML error page
+                logger.warning("[PDFTab] Downloaded file is not a valid PDF (invalid header)")
+                try? FileManager.default.removeItem(at: tempURL)
+                throw PDFDownloadError.downloadFailed("Downloaded file is not a valid PDF")
+            }
+
             // Import into library using PDFManager
             guard let library = libraryManager.activeLibrary else {
                 throw PDFDownloadError.noActiveLibrary

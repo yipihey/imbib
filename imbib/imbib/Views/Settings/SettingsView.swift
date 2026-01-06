@@ -101,13 +101,13 @@ struct GeneralSettingsTab: View {
                                 }
                             }
                         ),
-                        in: 10...1000,
-                        step: 10
+                        in: 10...30000,
+                        step: 50
                     )
                     .labelsHidden()
                 }
 
-                Text("Maximum records to retrieve per smart search query (10–1000)")
+                Text("Maximum records to retrieve per smart search query (10–30000)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -48,15 +48,20 @@ public struct PDFKitViewer: View {
 
     /// Create viewer for a linked file (resolves path relative to library)
     public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil) {
+        // Normalize unicode to match how PDFManager saved the file
+        let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
+
         if let library, let bibURL = library.resolveURL() {
             let baseURL = bibURL.deletingLastPathComponent()
-            let fileURL = baseURL.appendingPathComponent(linkedFile.relativePath)
+            let fileURL = baseURL.appendingPathComponent(normalizedPath)
+            Logger.files.debugCapture("PDFKitViewer resolving path: \(fileURL.path)", category: "pdf")
             self.source = .url(fileURL)
         } else {
             // Fall back to app support directory
             let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                 .appendingPathComponent("imbib")
-            let fileURL = appSupport.appendingPathComponent(linkedFile.relativePath)
+            let fileURL = appSupport.appendingPathComponent(normalizedPath)
+            Logger.files.debugCapture("PDFKitViewer resolving path (fallback): \(fileURL.path)", category: "pdf")
             self.source = .url(fileURL)
         }
     }
@@ -489,14 +494,19 @@ public struct PDFViewerWithControls: View {
     }
 
     public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil, publicationID: UUID? = nil) {
+        // Normalize unicode to match how PDFManager saved the file
+        let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
+
         if let library, let bibURL = library.resolveURL() {
             let baseURL = bibURL.deletingLastPathComponent()
-            let fileURL = baseURL.appendingPathComponent(linkedFile.relativePath)
+            let fileURL = baseURL.appendingPathComponent(normalizedPath)
+            Logger.files.debugCapture("PDFViewerWithControls resolving path: \(fileURL.path)", category: "pdf")
             self.source = .url(fileURL)
         } else {
             let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
                 .appendingPathComponent("imbib")
-            let fileURL = appSupport.appendingPathComponent(linkedFile.relativePath)
+            let fileURL = appSupport.appendingPathComponent(normalizedPath)
+            Logger.files.debugCapture("PDFViewerWithControls resolving path (fallback): \(fileURL.path)", category: "pdf")
             self.source = .url(fileURL)
         }
         self.publicationID = publicationID
@@ -813,8 +823,17 @@ public struct PDFViewerWithControls: View {
     private func loadPDFDocument() async throws -> PDFDocument {
         switch source {
         case .url(let url):
+            Logger.files.debugCapture("Attempting to load PDF from: \(url.path)", category: "pdf")
+
             guard FileManager.default.fileExists(atPath: url.path) else {
+                Logger.files.errorCapture("PDF file not found at: \(url.path)", category: "pdf")
                 throw PDFViewerError.fileNotFound(url)
+            }
+
+            // Check file size for debugging
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+               let size = attrs[.size] as? Int64 {
+                Logger.files.debugCapture("PDF file size: \(size) bytes", category: "pdf")
             }
 
             let accessing = url.startAccessingSecurityScopedResource()
@@ -823,12 +842,19 @@ public struct PDFViewerWithControls: View {
             }
 
             guard let document = PDFDocument(url: url) else {
+                // Try to read first few bytes to diagnose
+                if let data = try? Data(contentsOf: url, options: .mappedIfSafe),
+                   data.count >= 4 {
+                    let headerBytes = data.prefix(4).map { String(format: "%02X", $0) }.joined(separator: " ")
+                    Logger.files.errorCapture("Invalid PDF - file header bytes: \(headerBytes) (expected: 25 50 44 46 = %PDF)", category: "pdf")
+                }
                 throw PDFViewerError.invalidPDF(url)
             }
 
             return document
 
         case .data(let data):
+            Logger.files.debugCapture("Loading PDF from data (\(data.count) bytes)", category: "pdf")
             guard let document = PDFDocument(data: data) else {
                 throw PDFViewerError.invalidData
             }
