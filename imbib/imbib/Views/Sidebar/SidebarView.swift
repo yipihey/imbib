@@ -162,7 +162,7 @@ struct SidebarView: View {
             // Smart Searches for this library
             if let smartSearches = library.smartSearches as? Set<CDSmartSearch>, !smartSearches.isEmpty {
                 ForEach(Array(smartSearches).sorted(by: { $0.name < $1.name }), id: \.id) { smartSearch in
-                    SmartSearchRow(smartSearch: smartSearch)
+                    SmartSearchRow(smartSearch: smartSearch, count: resultCount(for: smartSearch))
                         .tag(SidebarSection.smartSearch(smartSearch))
                         .contextMenu {
                             Button("Edit") {
@@ -231,11 +231,18 @@ struct SidebarView: View {
 
     @ViewBuilder
     private func libraryHeaderDropTarget(for library: CDLibrary) -> some View {
+        let count = publicationCount(for: library)
         SidebarDropTarget(
             isTargeted: dropTargetedLibraryHeader == library.id,
             showPlusBadge: true
         ) {
-            Label(library.displayName, systemImage: "building.columns")
+            HStack {
+                Label(library.displayName, systemImage: "building.columns")
+                Spacer()
+                if count > 0 {
+                    CountBadge(count: count)
+                }
+            }
         }
         .onDrop(of: [.publicationID], isTargeted: makeLibraryHeaderTargetBinding(library.id)) { providers in
             // Auto-expand collapsed library when dropping on header
@@ -255,16 +262,17 @@ struct SidebarView: View {
 
     @ViewBuilder
     private func collectionDropTarget(for collection: CDCollection) -> some View {
+        let count = publicationCount(for: collection)
         if collection.isSmartCollection {
             // Smart collections don't accept drops
-            CollectionRow(collection: collection)
+            CollectionRow(collection: collection, count: count)
         } else {
             // Static collections accept drops
             SidebarDropTarget(
                 isTargeted: dropTargetedCollection == collection.id,
                 showPlusBadge: true
             ) {
-                CollectionRow(collection: collection)
+                CollectionRow(collection: collection, count: count)
             }
             .onDrop(of: [.publicationID], isTargeted: makeCollectionTargetBinding(collection.id)) { providers in
                 handleDrop(providers: providers) { uuids in
@@ -407,6 +415,18 @@ struct SidebarView: View {
         return publications.filter { !$0.isRead }.count
     }
 
+    private func publicationCount(for library: CDLibrary) -> Int {
+        (library.publications as? Set<CDPublication>)?.count ?? 0
+    }
+
+    private func publicationCount(for collection: CDCollection) -> Int {
+        collection.publications?.count ?? 0
+    }
+
+    private func resultCount(for smartSearch: CDSmartSearch) -> Int {
+        smartSearch.resultCollection?.publications?.count ?? 0
+    }
+
     // MARK: - Smart Search Management
 
     private func deleteSmartSearch(_ smartSearch: CDSmartSearch) {
@@ -525,22 +545,47 @@ struct SidebarView: View {
     }
 }
 
+// MARK: - Count Badge
+
+struct CountBadge: View {
+    let count: Int
+    var color: Color = .secondary
+
+    var body: some View {
+        Text("\(count)")
+            .font(.caption2)
+            .fontWeight(.medium)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(color.opacity(0.2))
+            .foregroundColor(color)
+            .clipShape(Capsule())
+    }
+}
+
 // MARK: - Smart Search Row
 
 struct SmartSearchRow: View {
     let smartSearch: CDSmartSearch
+    var count: Int = 0
 
     var body: some View {
-        Label {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(smartSearch.name)
-                Text(smartSearch.query)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+        HStack {
+            Label {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(smartSearch.name)
+                    Text(smartSearch.query)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            } icon: {
+                Image(systemName: "magnifyingglass.circle.fill")
             }
-        } icon: {
-            Image(systemName: "magnifyingglass.circle.fill")
+            Spacer()
+            if count > 0 {
+                CountBadge(count: count)
+            }
         }
     }
 }
@@ -549,12 +594,19 @@ struct SmartSearchRow: View {
 
 struct CollectionRow: View {
     let collection: CDCollection
+    var count: Int = 0
 
     var body: some View {
-        Label {
-            Text(collection.name)
-        } icon: {
-            Image(systemName: collection.isSmartCollection ? "folder.badge.gearshape" : "folder")
+        HStack {
+            Label {
+                Text(collection.name)
+            } icon: {
+                Image(systemName: collection.isSmartCollection ? "folder.badge.gearshape" : "folder")
+            }
+            Spacer()
+            if count > 0 {
+                CountBadge(count: count)
+            }
         }
     }
 }
