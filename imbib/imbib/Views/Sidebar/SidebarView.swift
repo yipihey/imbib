@@ -530,6 +530,11 @@ struct SidebarView: View {
             }
             try? context.save()
         }
+
+        // Trigger sidebar refresh to update counts
+        await MainActor.run {
+            refreshTrigger = UUID()
+        }
     }
 
     /// Add publications to a library (publications can belong to multiple libraries)
@@ -547,6 +552,11 @@ struct SidebarView: View {
                 }
             }
             try? context.save()
+        }
+
+        // Trigger sidebar refresh to update counts
+        await MainActor.run {
+            refreshTrigger = UUID()
         }
     }
 }
