@@ -256,7 +256,9 @@ extension PublicationRowData {
         isRead: Bool,
         hasPDF: Bool,
         citationCount: Int,
-        doi: String?
+        doi: String?,
+        dateAdded: Date = Date(),
+        dateModified: Date = Date()
     ) {
         self.id = id
         self.citeKey = citeKey
@@ -268,5 +270,7 @@ extension PublicationRowData {
         self.hasPDF = hasPDF
         self.citationCount = citationCount
         self.doi = doi
+        self.dateAdded = dateAdded
+        self.dateModified = dateModified
     }
 }

@@ -117,29 +117,19 @@ public struct PublicationListView: View {
             }
         }
 
-        // Sort
+        // Sort using data already in PublicationRowData - no CDPublication lookups needed
         return result.sorted { lhs, rhs in
             switch sortOrder {
             case .dateAdded:
-                // For row data, we need to look up the original publication for date
-                // Fall back to title sort if dates not available
-                guard let lhsPub = publications.first(where: { $0.id == lhs.id }),
-                      let rhsPub = publications.first(where: { $0.id == rhs.id }) else {
-                    return lhs.title < rhs.title
-                }
-                return lhsPub.dateAdded > rhsPub.dateAdded
+                return lhs.dateAdded > rhs.dateAdded
             case .dateModified:
-                guard let lhsPub = publications.first(where: { $0.id == lhs.id }),
-                      let rhsPub = publications.first(where: { $0.id == rhs.id }) else {
-                    return lhs.title < rhs.title
-                }
-                return lhsPub.dateModified > rhsPub.dateModified
+                return lhs.dateModified > rhs.dateModified
             case .title:
-                return lhs.title < rhs.title
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
             case .year:
                 return (lhs.year ?? 0) > (rhs.year ?? 0)
             case .citeKey:
-                return lhs.citeKey < rhs.citeKey
+                return lhs.citeKey.localizedCaseInsensitiveCompare(rhs.citeKey) == .orderedAscending
             case .citationCount:
                 return lhs.citationCount > rhs.citationCount
             }
@@ -222,15 +212,11 @@ public struct PublicationListView: View {
         }
         .onChange(of: selection) { _, newValue in
             // Find publication for single-selection binding
-            if let firstID = newValue.first {
-                // Check if publication exists and is not deleted before binding
-                if let pub = publications.first(where: { $0.id == firstID }),
-                   !pub.isDeleted,
-                   pub.managedObjectContext != nil {
-                    selectedPublication = pub
-                } else {
-                    selectedPublication = nil
-                }
+            if let firstID = newValue.first,
+               let pub = publications.first(where: { $0.id == firstID }),
+               !pub.isDeleted,
+               pub.managedObjectContext != nil {
+                selectedPublication = pub
             } else {
                 selectedPublication = nil
             }

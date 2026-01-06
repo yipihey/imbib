@@ -59,6 +59,12 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     /// DOI for context menu "Copy DOI" action
     public let doi: String?
 
+    /// Date added to library (for sorting)
+    public let dateAdded: Date
+
+    /// Date last modified (for sorting)
+    public let dateModified: Date
+
     // MARK: - Initialization
 
     /// Create a snapshot from a CDPublication.
@@ -82,6 +88,8 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         self.hasPDF = Self.checkHasPDF(publication)
         self.citationCount = Int(publication.citationCount)
         self.doi = publication.doi
+        self.dateAdded = publication.dateAdded
+        self.dateModified = publication.dateModified
     }
 
     // MARK: - Author Formatting
