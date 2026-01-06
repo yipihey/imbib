@@ -332,6 +332,24 @@ Update the changelog below after significant work:
   - Record Info section (NEW): Cite key, entry type, dates, read status, citation count
 - Added FlowLayout for responsive identifier display
 - File: `DetailView.swift`
+- Added delete button for attachments in Info tab
+  - Trash icon button on attachment rows
+  - Confirmation dialog before deletion
+  - Uses PDFManager.shared.delete() for cleanup
+- Auto-retry for corrupt PDFs
+  - PDFViewerError.corruptPDF case for HTML-as-PDF detection
+  - HTML detection via 0x3C byte in file header
+  - onCorruptPDF callback triggers delete + re-download
+  - File: `PDFViewer.swift`, `DetailView.swift`
+- Wired up OpenAlex enrichment for PDF URLs
+  - New EnrichmentCoordinator.swift: Manages enrichment lifecycle
+  - addPDFLink() helper on CDPublication for updating PDF links
+  - EnrichmentService.onEnrichmentComplete callback for persistence
+  - PublicationRepository.saveEnrichmentResult() persists citation count, PDF URLs, abstract
+  - Papers queued for enrichment on BibTeX/RIS import
+  - Background sync started on app launch
+  - Flow: Import → Queue → OpenAlex API → Save PDF URLs to pdfLinks
+- All 743 tests passing
 
 ### 2026-01-05 (Session 10)
 - Unified publication list views for feature parity
