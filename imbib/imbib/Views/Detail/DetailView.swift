@@ -81,7 +81,7 @@ struct DetailView: View {
                 .tabItem { Label("BibTeX", systemImage: "chevron.left.forwardslash.chevron.right") }
                 .tag(DetailTab.bibtex)
 
-            PDFTab(paper: paper, publication: publication)
+            PDFTab(paper: paper, publication: publication, selectedTab: $selectedTab)
                 .tabItem { Label("PDF", systemImage: "doc.richtext") }
                 .tag(DetailTab.pdf)
 
@@ -468,6 +468,7 @@ struct BibTeXTab: View {
 struct PDFTab: View {
     let paper: any PaperRepresentable
     let publication: CDPublication?
+    @Binding var selectedTab: DetailTab
 
     @Environment(LibraryManager.self) private var libraryManager
     @State private var linkedFile: CDLinkedFile?
@@ -499,8 +500,17 @@ struct PDFTab: View {
                 noPDFView
             }
         }
-        .onChange(of: paper.id, initial: true) { _, _ in
-            resetAndCheckPDF()
+        .onChange(of: selectedTab) { oldTab, newTab in
+            // Only check PDF when switching TO the PDF tab
+            if newTab == .pdf {
+                resetAndCheckPDF()
+            }
+        }
+        .onChange(of: paper.id) { _, _ in
+            // Only check PDF if the PDF tab is currently visible
+            if selectedTab == .pdf {
+                resetAndCheckPDF()
+            }
         }
         .fileImporter(
             isPresented: $showFileImporter,
