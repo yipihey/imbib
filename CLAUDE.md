@@ -349,6 +349,35 @@ Update the changelog below after significant work:
   `LibraryViewModel.swift`, `PublicationListView.swift`, `SidebarView.swift`
 - All 743 tests passing
 
+### 2026-01-06 (Session 13)
+- Interactive PDF Browser for publisher authentication
+  - Web browser window for PDFs requiring auth, CAPTCHAs, or multi-step access
+  - Users navigate publisher flow while app monitors for PDF downloads
+  - Auto-detect PDFs via %PDF magic bytes (WKDownloadDelegate)
+  - Manual capture button always available as fallback
+  - Persistent sessions: cookies survive between downloads (WKWebsiteDataStore)
+  - URL copy button for external browser fallback
+- New PDFBrowser module in PublicationManagerCore:
+  - PDFBrowserViewModel: Platform-agnostic state management
+  - PDFBrowserSession: @MainActor cookie/session management
+  - PDFDownloadInterceptor: WKDownloadDelegate for PDF detection
+  - BrowserURLProvider: Protocol + registry for source-specific URLs
+  - PDFBrowserToolbar: Shared SwiftUI navigation toolbar
+  - PDFBrowserStatusBar: Status bar with PDF detection alerts
+- macOS implementation:
+  - MacPDFBrowserView: NSViewRepresentable wrapper for WKWebView
+  - PDFBrowserWindowController: Separate window lifecycle management
+- ADS BrowserURLProvider conformance:
+  - Bibcode → link_gateway URL (https://ui.adsabs.harvard.edu/link_gateway/{bibcode}/PUB_PDF)
+  - Fallback to DOI resolver for non-ADS papers
+- UI integration:
+  - "Open in Browser" button in PDF tab (error view and no-PDF view)
+  - Registered ADS provider on app startup
+- Added 30 new tests (PDFBrowserViewModelTests, BrowserURLProviderTests, PDFDownloadInterceptorTests)
+- Files: PDFBrowser/*.swift, MacPDFBrowserView.swift, PDFBrowserWindowController.swift,
+  Logger+Extensions.swift, ADSSource.swift, DetailView.swift, imbibApp.swift
+- All 773 tests passing
+
 ### 2026-01-05 (Session 11)
 - Rebranded "Metadata" tab to "Info" tab (email mental model)
   - Renamed DetailTab.metadata → .info
