@@ -80,6 +80,8 @@ struct LibraryListView: View {
             emptyStateDescription: "Import a BibTeX file or search online sources to add publications.",
             listID: .library(library.id),
             onDelete: { ids in
+                // Clear local selection immediately before deletion
+                multiSelection.removeAll()
                 await viewModel.delete(ids: ids)
             },
             onToggleRead: { publication in

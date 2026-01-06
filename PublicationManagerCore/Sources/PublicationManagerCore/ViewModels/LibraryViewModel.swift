@@ -221,12 +221,16 @@ public final class LibraryViewModel {
         // This prevents SwiftUI from trying to render deleted objects during re-render
         publications.removeAll { ids.contains($0.id) }
 
-        // 3. Delete from Core Data by fetching fresh objects by ID
+        // 3. Give SwiftUI a moment to process the state change before Core Data deletion
+        // This helps prevent race conditions where SwiftUI tries to render deleted objects
+        try? await Task.sleep(for: .milliseconds(50))
+
+        // 4. Delete from Core Data by fetching fresh objects by ID
         // This ensures deletion works even if publications came from a different source
         // (e.g., library.publications vs viewModel.publications)
         await repository.deleteByIDs(ids)
 
-        // 4. Reload to sync with database
+        // 5. Reload to sync with database
         await loadPublications()
     }
 

@@ -358,7 +358,11 @@ public struct PublicationListView: View {
         #if os(macOS)
         .onDeleteCommand {
             if let onDelete = onDelete {
-                Task { await onDelete(selection) }
+                let idsToDelete = selection
+                // Clear selection immediately before deletion to prevent accessing deleted objects
+                selection.removeAll()
+                selectedPublication = nil
+                Task { await onDelete(idsToDelete) }
             }
         }
         #endif
@@ -443,6 +447,9 @@ public struct PublicationListView: View {
         // Delete
         if let onDelete = onDelete {
             Button("Delete", role: .destructive) {
+                // Clear selection immediately before deletion
+                selection.removeAll()
+                selectedPublication = nil
                 Task {
                     await onDelete(ids)
                 }
