@@ -359,6 +359,15 @@ Update the changelog below after significant work:
   - Fix: Clear `selection` BEFORE deletion in `deleteSmartSearch()`, `deleteCollection()`, `deleteLibrary()`
   - Also handles cascade: deleting library now clears selection if any nested item is selected
   - File: `SidebarView.swift` (lines 412-423, 455-464, 468-484)
+- Restored Cmd-A select all functionality
+  - `CommandGroup(replacing: .pasteboard)` removed native Select All
+  - Added explicit Cmd-A handler with `.selectAllPublications` notification
+  - Handled in LibraryListView, SmartSearchResultsView, SearchResultsListView
+- Fixed clipboard commands breaking text editing
+  - Problem: Cmd-C/X/V always triggered publication clipboard, breaking TextEditor/TextField
+  - Fix: Context-aware commands check `isTextFieldFocused()` via NSApp.keyWindow.firstResponder
+  - Text fields: Forward to system (NSText.copy/cut/paste/selectAll)
+  - List views: Use publication clipboard (BibTeX copy/paste)
 - All 743 tests passing
 
 ### 2026-01-05 (Session 9)
