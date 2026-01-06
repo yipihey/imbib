@@ -447,14 +447,34 @@ public struct PublicationListView: View {
         Divider()
 
         // Add to Library submenu (publications can belong to multiple libraries)
+        // Each library is a submenu showing "All Publications" plus any collections
         if let onAddToLibrary = onAddToLibrary, !allLibraries.isEmpty {
             let otherLibraries = allLibraries.filter { $0.id != library?.id }
             if !otherLibraries.isEmpty {
                 Menu("Add to Library") {
                     ForEach(otherLibraries, id: \.id) { targetLibrary in
-                        Button(targetLibrary.displayName) {
-                            Task {
-                                await onAddToLibrary(ids, targetLibrary)
+                        let targetCollections = (targetLibrary.collections as? Set<CDCollection>)?
+                            .filter { !$0.isSmartCollection && !$0.isSmartSearchResults }
+                            .sorted { $0.name < $1.name } ?? []
+
+                        Menu(targetLibrary.displayName) {
+                            Button("All Publications") {
+                                Task {
+                                    await onAddToLibrary(ids, targetLibrary)
+                                }
+                            }
+                            if !targetCollections.isEmpty {
+                                Divider()
+                                ForEach(targetCollections, id: \.id) { collection in
+                                    Button(collection.name) {
+                                        Task {
+                                            await onAddToLibrary(ids, targetLibrary)
+                                            if let onAddToCollection = onAddToCollection {
+                                                await onAddToCollection(ids, collection)
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
