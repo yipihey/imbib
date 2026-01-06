@@ -18,6 +18,7 @@ struct SearchResultsListView: View {
     // MARK: - Environment
 
     @Environment(SearchViewModel.self) private var viewModel
+    @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(LibraryManager.self) private var libraryManager
 
     // MARK: - State
@@ -56,6 +57,42 @@ struct SearchResultsListView: View {
             // Ensure SearchViewModel has access to LibraryManager
             viewModel.setLibraryManager(libraryManager)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
+            toggleReadStatusForSelected()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .copyPublications)) { _ in
+            Task { await copySelectedPublications() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .cutPublications)) { _ in
+            Task { await cutSelectedPublications() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pastePublications)) { _ in
+            Task { try? await libraryViewModel.pasteFromClipboard() }
+        }
+    }
+
+    // MARK: - Notification Handlers
+
+    private func toggleReadStatusForSelected() {
+        guard !viewModel.selectedPublicationIDs.isEmpty else { return }
+
+        Task {
+            for uuid in viewModel.selectedPublicationIDs {
+                if let publication = viewModel.publications.first(where: { $0.id == uuid }) {
+                    await libraryViewModel.toggleReadStatus(publication)
+                }
+            }
+        }
+    }
+
+    private func copySelectedPublications() async {
+        guard !viewModel.selectedPublicationIDs.isEmpty else { return }
+        await libraryViewModel.copyToClipboard(viewModel.selectedPublicationIDs)
+    }
+
+    private func cutSelectedPublications() async {
+        guard !viewModel.selectedPublicationIDs.isEmpty else { return }
+        await libraryViewModel.cutToClipboard(viewModel.selectedPublicationIDs)
     }
 
     // MARK: - Search Header
@@ -112,17 +149,41 @@ struct SearchResultsListView: View {
         } else if viewModel.publications.isEmpty {
             emptyState
         } else {
-            List(viewModel.publications, id: \.id, selection: $viewModel.selectedPublicationIDs) { publication in
-                PublicationSearchRow(publication: publication)
-                    .tag(publication.id)
-            }
-            .onChange(of: viewModel.selectedPublicationIDs) { _, newValue in
-                if let firstID = newValue.first {
-                    selectedPublication = viewModel.publications.first { $0.id == firstID }
-                } else {
-                    selectedPublication = nil
+            PublicationListView(
+                publications: viewModel.publications,
+                selection: $viewModel.selectedPublicationIDs,
+                selectedPublication: $selectedPublication,
+                library: libraryManager.activeLibrary,
+                allLibraries: libraryManager.libraries,
+                showImportButton: false,  // Search view doesn't need import
+                showSortMenu: true,
+                emptyStateMessage: "No Results",
+                emptyStateDescription: "Enter a query to search across multiple sources.",
+                onDelete: { ids in
+                    await libraryViewModel.delete(ids: ids)
+                },
+                onToggleRead: { publication in
+                    await libraryViewModel.toggleReadStatus(publication)
+                },
+                onCopy: { ids in
+                    await libraryViewModel.copyToClipboard(ids)
+                },
+                onCut: { ids in
+                    await libraryViewModel.cutToClipboard(ids)
+                },
+                onPaste: {
+                    try? await libraryViewModel.pasteFromClipboard()
+                },
+                onMoveToLibrary: { ids, targetLibrary in
+                    await libraryViewModel.moveToLibrary(ids, library: targetLibrary)
+                },
+                onAddToCollection: { ids, collection in
+                    await libraryViewModel.addToCollection(ids, collection: collection)
+                },
+                onOpenPDF: { publication in
+                    openPDF(for: publication)
                 }
-            }
+            )
         }
     }
 
@@ -145,57 +206,16 @@ struct SearchResultsListView: View {
             await viewModel.search()
         }
     }
-}
 
-// MARK: - Publication Search Row
-
-/// A row for displaying a CDPublication in search results
-private struct PublicationSearchRow: View {
-    let publication: CDPublication
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(publication.title ?? "Untitled")
-                .font(.headline)
-                .lineLimit(2)
-
-            HStack {
-                Text(publication.authorString)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                if publication.year > 0 {
-                    Text("(\(publication.year))")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            // Show source badge if available
-            if let sourceID = publication.originalSourceID {
-                HStack(spacing: 4) {
-                    Image(systemName: sourceIcon(for: sourceID))
-                        .font(.caption)
-                    Text(sourceID.capitalized)
-                        .font(.caption)
-                }
-                .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 2)
-    }
-
-    private func sourceIcon(for sourceID: String) -> String {
-        switch sourceID.lowercased() {
-        case "arxiv": return "doc.text"
-        case "crossref": return "globe"
-        case "ads": return "star"
-        case "pubmed": return "cross.case"
-        case "semanticscholar": return "brain"
-        case "openalex": return "book"
-        case "dblp": return "server.rack"
-        default: return "magnifyingglass"
+    private func openPDF(for publication: CDPublication) {
+        // Open the first PDF if available
+        if let linkedFiles = publication.linkedFiles,
+           let pdfFile = linkedFiles.first(where: { $0.isPDF }),
+           let libraryURL = libraryManager.activeLibrary?.folderURL {
+            let pdfURL = libraryURL.appendingPathComponent(pdfFile.relativePath)
+            #if os(macOS)
+            NSWorkspace.shared.open(pdfURL)
+            #endif
         }
     }
 }
@@ -268,5 +288,6 @@ struct SourceChip: View {
             deduplicationService: DeduplicationService(),
             repository: PublicationRepository()
         ))
+        .environment(LibraryViewModel(repository: PublicationRepository()))
         .environment(LibraryManager())
 }

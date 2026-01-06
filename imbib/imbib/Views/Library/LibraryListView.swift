@@ -34,11 +34,10 @@ struct LibraryListView: View {
     // MARK: - State
 
     @State private var multiSelection = Set<UUID>()
-    @State private var showUnreadOnly = false
 
     // MARK: - Computed Properties
 
-    /// Publications from this library, filtered by the current filter mode
+    /// Publications from this library
     private var libraryPublications: [CDPublication] {
         guard let publications = library.publications as? Set<CDPublication> else {
             return []
@@ -46,45 +45,15 @@ struct LibraryListView: View {
 
         var filtered = Array(publications)
 
-        // Apply filter mode or showUnreadOnly toggle
-        if showUnreadOnly {
+        // Apply filter mode (unread filter is now handled by PublicationListView's toggle)
+        switch filterMode {
+        case .all:
+            break
+        case .unread:
             filtered = filtered.filter { !$0.isRead }
-        } else {
-            switch filterMode {
-            case .all:
-                break
-            case .unread:
-                filtered = filtered.filter { !$0.isRead }
-            }
         }
 
-        // Apply search query if present
-        if !viewModel.searchQuery.isEmpty {
-            let query = viewModel.searchQuery.lowercased()
-            filtered = filtered.filter { pub in
-                pub.title?.lowercased().contains(query) == true ||
-                pub.authorString.lowercased().contains(query) ||
-                pub.citeKey.lowercased().contains(query)
-            }
-        }
-
-        // Sort by the current sort order
-        return filtered.sorted { lhs, rhs in
-            switch viewModel.sortOrder {
-            case .dateAdded:
-                return lhs.dateAdded > rhs.dateAdded  // Newest first
-            case .dateModified:
-                return lhs.dateModified > rhs.dateModified  // Most recent first
-            case .title:
-                return (lhs.title ?? "") < (rhs.title ?? "")
-            case .year:
-                return lhs.year > rhs.year  // Newest first
-            case .citeKey:
-                return lhs.citeKey < rhs.citeKey
-            case .citationCount:
-                return lhs.citationCount > rhs.citationCount  // Most cited first
-            }
-        }
+        return filtered
     }
 
     /// Title based on filter mode
@@ -98,84 +67,44 @@ struct LibraryListView: View {
     // MARK: - Body
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Inline toolbar above the list
-            HStack(spacing: 12) {
-                // Search field
-                HStack {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.secondary)
-                    TextField("Search publications", text: Binding(
-                        get: { viewModel.searchQuery },
-                        set: { viewModel.searchQuery = $0 }
-                    ))
-                    .textFieldStyle(.plain)
-                    if !viewModel.searchQuery.isEmpty {
-                        Button {
-                            viewModel.searchQuery = ""
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(6)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-
-                Spacer()
-
-                // Filter button
-                Button {
-                    showUnreadOnly.toggle()
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
-                }
-                .foregroundStyle(showUnreadOnly ? .blue : .secondary)
-                .help(showUnreadOnly ? "Show all publications" : "Show unread only")
-                .buttonStyle(.plain)
-
-                // Import button
-                Button {
-                    NotificationCenter.default.post(name: .importBibTeX, object: nil)
-                } label: {
-                    Image(systemName: "square.and.arrow.down")
-                }
-                .foregroundStyle(.secondary)
-                .help("Import BibTeX")
-                .buttonStyle(.plain)
-
-                // Sort menu
-                Menu {
-                    ForEach(LibrarySortOrder.allCases, id: \.self) { order in
-                        Button(order.displayName) {
-                            viewModel.sortOrder = order
-                        }
-                    }
-                } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                }
-                .foregroundStyle(.secondary)
-                .menuStyle(.borderlessButton)
-                .fixedSize()
+        PublicationListView(
+            publications: libraryPublications,
+            selection: $multiSelection,
+            selectedPublication: $selection,
+            library: library,
+            allLibraries: libraryManager.libraries,
+            showImportButton: true,
+            showSortMenu: true,
+            emptyStateMessage: "No Publications",
+            emptyStateDescription: "Import a BibTeX file or search online sources to add publications.",
+            onDelete: { ids in
+                await viewModel.delete(ids: ids)
+            },
+            onToggleRead: { publication in
+                await viewModel.toggleReadStatus(publication)
+            },
+            onCopy: { ids in
+                await viewModel.copyToClipboard(ids)
+            },
+            onCut: { ids in
+                await viewModel.cutToClipboard(ids)
+            },
+            onPaste: {
+                try? await viewModel.pasteFromClipboard()
+            },
+            onMoveToLibrary: { ids, targetLibrary in
+                await viewModel.moveToLibrary(ids, library: targetLibrary)
+            },
+            onAddToCollection: { ids, collection in
+                await viewModel.addToCollection(ids, collection: collection)
+            },
+            onImport: {
+                NotificationCenter.default.post(name: .importBibTeX, object: nil)
+            },
+            onOpenPDF: { publication in
+                openPDF(for: publication)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-
-            Divider()
-
-            // Content
-            Group {
-                if viewModel.isLoading {
-                    ProgressView("Loading...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if libraryPublications.isEmpty {
-                    emptyState
-                } else {
-                    publicationList
-                }
-            }
-        }
+        )
         .navigationTitle(navigationTitle)
         .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
             toggleReadStatusForSelected()
@@ -191,7 +120,7 @@ struct LibraryListView: View {
         }
     }
 
-    // MARK: - Toggle Read Status
+    // MARK: - Notification Handlers
 
     private func toggleReadStatusForSelected() {
         guard !multiSelection.isEmpty else { return }
@@ -204,131 +133,6 @@ struct LibraryListView: View {
             }
         }
     }
-
-    // MARK: - Publication List
-
-    private var publicationList: some View {
-        List(libraryPublications, id: \.id, selection: $multiSelection) { publication in
-            MailStylePublicationRow(
-                publication: publication,
-                showUnreadIndicator: true,
-                onToggleRead: {
-                    Task {
-                        await viewModel.toggleReadStatus(publication)
-                    }
-                }
-            )
-            .tag(publication.id)
-        }
-        .onChange(of: multiSelection) { _, newValue in
-            if let first = newValue.first {
-                selection = libraryPublications.first { $0.id == first }
-            }
-        }
-        .contextMenu(forSelectionType: UUID.self) { ids in
-            contextMenuItems(for: ids)
-        } primaryAction: { ids in
-            // Double-click to open PDF
-            if let first = ids.first,
-               let publication = libraryPublications.first(where: { $0.id == first }) {
-                openPDF(for: publication)
-            }
-        }
-        #if os(macOS)
-        .onDeleteCommand {
-            Task { await viewModel.delete(ids: multiSelection) }
-        }
-        #endif
-    }
-
-    // MARK: - Empty State
-
-    private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No Publications", systemImage: "books.vertical")
-        } description: {
-            Text("Import a BibTeX file or search online sources to add publications.")
-        } actions: {
-            Button("Import BibTeX...") {
-                NotificationCenter.default.post(name: .importBibTeX, object: nil)
-            }
-            .buttonStyle(.borderedProminent)
-        }
-    }
-
-    // MARK: - Context Menu
-
-    @ViewBuilder
-    private func contextMenuItems(for ids: Set<UUID>) -> some View {
-        // Open PDF
-        Button("Open PDF") {
-            if let first = ids.first,
-               let publication = libraryPublications.first(where: { $0.id == first }) {
-                openPDF(for: publication)
-            }
-        }
-
-        Divider()
-
-        // Copy/Cut (clipboard operations - BibTeX format)
-        Button("Copy") {
-            Task { await viewModel.copyToClipboard(ids) }
-        }
-
-        Button("Cut") {
-            Task { await viewModel.cutToClipboard(ids) }
-        }
-
-        Button("Copy Cite Key") {
-            if let first = ids.first,
-               let publication = libraryPublications.first(where: { $0.id == first }) {
-                copyToClipboard(publication.citeKey)
-            }
-        }
-
-        Divider()
-
-        // Move To Library submenu (direct UUID-based operation)
-        Menu("Move To Library") {
-            ForEach(libraryManager.libraries, id: \.id) { targetLibrary in
-                if targetLibrary.id != library.id {
-                    Button(targetLibrary.displayName) {
-                        Task {
-                            await viewModel.moveToLibrary(ids, library: targetLibrary)
-                        }
-                    }
-                }
-            }
-        }
-
-        // Add To Collection submenu (direct UUID-based operation)
-        if let collections = library.collections as? Set<CDCollection>,
-           !collections.isEmpty {
-            let staticCollections = collections.filter { !$0.isSmartCollection }.sorted { $0.name < $1.name }
-            if !staticCollections.isEmpty {
-                Menu("Add To Collection") {
-                    ForEach(staticCollections, id: \.id) { collection in
-                        Button(collection.name) {
-                            Task {
-                                await viewModel.addToCollection(ids, collection: collection)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        Divider()
-
-        // Delete
-        Button("Delete", role: .destructive) {
-            Task {
-                await viewModel.delete(ids: ids)
-            }
-        }
-    }
-
-    // MARK: - Clipboard Actions
 
     private func copySelectedPublications() async {
         guard !multiSelection.isEmpty else { return }
@@ -352,13 +156,6 @@ struct LibraryListView: View {
             NSWorkspace.shared.open(pdfURL)
             #endif
         }
-    }
-
-    private func copyToClipboard(_ text: String) {
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
-        #endif
     }
 }
 

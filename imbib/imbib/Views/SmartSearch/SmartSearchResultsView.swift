@@ -60,6 +60,7 @@ struct SmartSearchResultsView: View {
 
     @Environment(SearchViewModel.self) private var searchViewModel
     @Environment(LibraryViewModel.self) private var libraryViewModel
+    @Environment(LibraryManager.self) private var libraryManager
 
     // MARK: - State
 
@@ -68,7 +69,6 @@ struct SmartSearchResultsView: View {
     @State private var error: Error?
     @State private var selectedPublicationIDs: Set<UUID> = []
     @State private var publications: [CDPublication] = []
-    @State private var showUnreadOnly = false
 
     // MARK: - Helpers
 
@@ -82,12 +82,9 @@ struct SmartSearchResultsView: View {
             .sorted { ($0.dateAdded) > ($1.dateAdded) }
     }
 
-    /// Publications filtered by read status
-    private var filteredPublications: [CDPublication] {
-        if showUnreadOnly {
-            return publications.filter { !$0.isRead }
-        }
-        return publications
+    /// Get the library for this smart search (from the result collection or owning library)
+    private var library: CDLibrary? {
+        smartSearch.resultCollection?.library ?? smartSearch.library
     }
 
     // MARK: - Body
@@ -106,11 +103,17 @@ struct SmartSearchResultsView: View {
                     await loadOrRefresh(forceRefresh: true)
                 }
             }
-            .onChange(of: selectedPublicationIDs) { _, newValue in
-                handleSelectionChange(newValue)
-            }
             .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
                 toggleReadStatusForSelected()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .copyPublications)) { _ in
+                Task { await copySelectedPublications() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .cutPublications)) { _ in
+                Task { await cutSelectedPublications() }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .pastePublications)) { _ in
+                Task { try? await libraryViewModel.pasteFromClipboard() }
             }
     }
 
@@ -121,11 +124,21 @@ struct SmartSearchResultsView: View {
 
         Task {
             for uuid in selectedPublicationIDs {
-                if let publication = filteredPublications.first(where: { $0.id == uuid }) {
+                if let publication = publications.first(where: { $0.id == uuid }) {
                     await libraryViewModel.toggleReadStatus(publication)
                 }
             }
         }
+    }
+
+    private func copySelectedPublications() async {
+        guard !selectedPublicationIDs.isEmpty else { return }
+        await libraryViewModel.copyToClipboard(selectedPublicationIDs)
+    }
+
+    private func cutSelectedPublications() async {
+        guard !selectedPublicationIDs.isEmpty else { return }
+        await libraryViewModel.cutToClipboard(selectedPublicationIDs)
     }
 
     // MARK: - Content View
@@ -173,34 +186,49 @@ struct SmartSearchResultsView: View {
     }
 
     private var listView: some View {
-        List(filteredPublications, id: \.id, selection: $selectedPublicationIDs) { publication in
-            MailStylePublicationRow(
-                publication: publication,
-                showUnreadIndicator: true,
-                onToggleRead: {
-                    Task {
-                        await libraryViewModel.toggleReadStatus(publication)
-                    }
-                }
-            )
-            .tag(publication.id)
-        }
+        PublicationListView(
+            publications: publications,
+            selection: $selectedPublicationIDs,
+            selectedPublication: $selectedPublication,
+            library: library,
+            allLibraries: libraryManager.libraries,
+            showImportButton: false,  // Smart search doesn't need import
+            showSortMenu: true,
+            emptyStateMessage: "No Results",
+            emptyStateDescription: "No papers found for \"\(smartSearch.query)\".",
+            onDelete: { ids in
+                await libraryViewModel.delete(ids: ids)
+                refreshPublicationsList()
+            },
+            onToggleRead: { publication in
+                await libraryViewModel.toggleReadStatus(publication)
+            },
+            onCopy: { ids in
+                await libraryViewModel.copyToClipboard(ids)
+            },
+            onCut: { ids in
+                await libraryViewModel.cutToClipboard(ids)
+            },
+            onPaste: {
+                try? await libraryViewModel.pasteFromClipboard()
+            },
+            onMoveToLibrary: { ids, targetLibrary in
+                await libraryViewModel.moveToLibrary(ids, library: targetLibrary)
+                refreshPublicationsList()
+            },
+            onAddToCollection: { ids, collection in
+                await libraryViewModel.addToCollection(ids, collection: collection)
+            },
+            onOpenPDF: { publication in
+                openPDF(for: publication)
+            }
+        )
     }
 
     // MARK: - Toolbar
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .automatic) {
-            Button {
-                showUnreadOnly.toggle()
-            } label: {
-                Label("Filter Unread", systemImage: "line.3.horizontal.decrease")
-            }
-            .foregroundStyle(showUnreadOnly ? .blue : .primary)
-            .help(showUnreadOnly ? "Show all publications" : "Show unread only")
-        }
-
         ToolbarItem(placement: .automatic) {
             if isLoading {
                 ProgressView()
@@ -216,21 +244,8 @@ struct SmartSearchResultsView: View {
         }
 
         ToolbarItem(placement: .automatic) {
-            Text("\(filteredPublications.count) results")
+            Text("\(publications.count) results")
                 .foregroundStyle(.secondary)
-        }
-    }
-
-    // MARK: - Selection Handling
-
-    private func handleSelectionChange(_ newValue: Set<UUID>) {
-        Logger.viewModels.infoCapture("[SmartSearch] selectedPublicationIDs changed: \(newValue.map { $0.uuidString }.joined(separator: ", "))", category: "selection")
-        if let firstID = newValue.first {
-            let found = filteredPublications.first { $0.id == firstID }
-            Logger.viewModels.infoCapture("[SmartSearch] Found publication: \(found?.title ?? "nil")", category: "selection")
-            selectedPublication = found
-        } else {
-            selectedPublication = nil
         }
     }
 
@@ -271,6 +286,20 @@ struct SmartSearchResultsView: View {
 
         isLoading = false
     }
+
+    // MARK: - Helpers
+
+    private func openPDF(for publication: CDPublication) {
+        // Open the first PDF if available
+        if let linkedFiles = publication.linkedFiles,
+           let pdfFile = linkedFiles.first(where: { $0.isPDF }),
+           let libraryURL = library?.folderURL {
+            let pdfURL = libraryURL.appendingPathComponent(pdfFile.relativePath)
+            #if os(macOS)
+            NSWorkspace.shared.open(pdfURL)
+            #endif
+        }
+    }
 }
 
 #Preview {
@@ -298,4 +327,5 @@ struct SmartSearchResultsView: View {
         repository: PublicationRepository()
     ))
     .environment(LibraryViewModel(repository: PublicationRepository()))
+    .environment(LibraryManager())
 }

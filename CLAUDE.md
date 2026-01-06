@@ -318,6 +318,30 @@ Update the changelog below after significant work:
 
 ## Changelog
 
+### 2026-01-05 (Session 10)
+- Unified publication list views for feature parity
+  - Created PublicationListView shared component in SharedViews
+  - All three list views now use identical code: Library, Smart Search, Ad-hoc Search
+- PublicationListView features:
+  - Inline toolbar (search field, unread filter, import button, sort menu)
+  - MailStylePublicationRow for consistent paper display
+  - Full context menu (Open PDF, Copy/Cut, Copy Cite Key, Move To Library, Add To Collection, Delete)
+  - Keyboard delete support
+  - Multi-selection with UUID-based selection binding
+  - Configurable callbacks for all operations
+- LibraryListView simplified (~380 → ~175 lines)
+  - Now wraps PublicationListView with library-specific callbacks
+  - Maintains notification handlers for keyboard shortcuts
+- SmartSearchResultsView gains full library features
+  - Context menu, keyboard shortcuts, sorting, filtering
+  - Keeps refresh toolbar button for re-executing search
+- SearchResultsListView unified
+  - Replaced PublicationSearchRow with MailStylePublicationRow
+  - Keeps search header with source filter chips
+  - Gains all library features (context menu, shortcuts, sorting)
+- Per ADR-016: No material difference between library and search views
+- All 741 tests passing
+
 ### 2026-01-05 (Session 9)
 - Multi-library sidebar with disclosure groups
   - Each library displayed as disclosure group with own publications, smart searches, collections
