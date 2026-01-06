@@ -216,6 +216,10 @@ struct InfoTab: View {
 
     @Environment(LibraryManager.self) private var libraryManager
 
+    // State for attachment deletion
+    @State private var fileToDelete: CDLinkedFile?
+    @State private var showDeleteConfirmation = false
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -259,6 +263,17 @@ struct InfoTab: View {
             .onChange(of: paper.id, initial: true) { _, _ in
                 proxy.scrollTo("top", anchor: .top)
             }
+        }
+        .confirmationDialog(
+            "Delete Attachment?",
+            isPresented: $showDeleteConfirmation,
+            presenting: fileToDelete
+        ) { file in
+            Button("Delete", role: .destructive) {
+                deleteFile(file)
+            }
+        } message: { file in
+            Text("Delete \"\(file.filename)\"? This cannot be undone.")
         }
     }
 
@@ -395,6 +410,17 @@ struct InfoTab: View {
             .foregroundStyle(.secondary)
             .help("Show in Finder")
             #endif
+
+            // Delete button
+            Button {
+                fileToDelete = file
+                showDeleteConfirmation = true
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.red)
+            .help("Delete attachment")
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 8)
@@ -522,6 +548,15 @@ struct InfoTab: View {
         NSWorkspace.shared.activateFileViewerSelecting([url])
     }
     #endif
+
+    private func deleteFile(_ file: CDLinkedFile) {
+        do {
+            try PDFManager.shared.delete(file, in: libraryManager.activeLibrary)
+            Logger.files.infoCapture("Deleted attachment: \(file.filename)", category: "pdf")
+        } catch {
+            Logger.files.errorCapture("Failed to delete attachment: \(error)", category: "pdf")
+        }
+    }
 }
 
 // MARK: - BibTeX Tab
@@ -682,7 +717,12 @@ struct PDFTab: View {
                 PDFViewerWithControls(
                     linkedFile: linked,
                     library: libraryManager.activeLibrary,
-                    publicationID: pub.id
+                    publicationID: pub.id,
+                    onCorruptPDF: { corruptFile in
+                        Task {
+                            await handleCorruptPDF(corruptFile)
+                        }
+                    }
                 )
                 .id(pub.id)  // Force view recreation when paper changes to reset @State
             } else if isDownloading {
@@ -905,6 +945,28 @@ struct PDFTab: View {
         case .failure(let error):
             logger.error("[PDFTab] File import failed: \(error.localizedDescription)")
             downloadError = error
+        }
+    }
+
+    private func handleCorruptPDF(_ corruptFile: CDLinkedFile) async {
+        logger.warning("[PDFTab] Corrupt PDF detected, attempting recovery: \(corruptFile.filename)")
+
+        do {
+            // 1. Delete corrupt file from disk and Core Data
+            try PDFManager.shared.delete(corruptFile, in: libraryManager.activeLibrary)
+
+            // 2. Reset state and trigger re-download
+            await MainActor.run {
+                linkedFile = nil
+                resetAndCheckPDF()  // Will see no local PDF and try to download
+            }
+
+            logger.info("[PDFTab] Corrupt PDF cleanup complete, re-downloading...")
+        } catch {
+            logger.error("[PDFTab] Failed to clean up corrupt PDF: \(error)")
+            await MainActor.run {
+                downloadError = error
+            }
         }
     }
 }

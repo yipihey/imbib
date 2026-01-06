@@ -173,6 +173,7 @@ private enum PDFSource {
 public enum PDFViewerError: LocalizedError {
     case fileNotFound(URL)
     case invalidPDF(URL)
+    case corruptPDF(URL)  // HTML or other non-PDF content saved as .pdf
     case invalidData
     case documentNotLoaded
     case loadFailed(Error)
@@ -183,6 +184,8 @@ public enum PDFViewerError: LocalizedError {
             return "PDF file not found: \(url.lastPathComponent)"
         case .invalidPDF(let url):
             return "Invalid or corrupted PDF: \(url.lastPathComponent)"
+        case .corruptPDF(let url):
+            return "PDF file is corrupt (not a valid PDF): \(url.lastPathComponent)"
         case .invalidData:
             return "Invalid PDF data"
         case .documentNotLoaded:
@@ -466,6 +469,11 @@ public struct PDFViewerWithControls: View {
 
     private let source: PDFSource
     private let publicationID: UUID?
+    private let linkedFile: CDLinkedFile?
+
+    /// Called when a corrupt PDF is detected (HTML content saved as .pdf)
+    /// Parent can use this to delete and re-download
+    public var onCorruptPDF: ((CDLinkedFile) -> Void)?
 
     @State private var pdfDocument: PDFDocument?
     @State private var error: PDFViewerError?
@@ -483,17 +491,21 @@ public struct PDFViewerWithControls: View {
 
     // MARK: - Initialization
 
-    public init(url: URL, publicationID: UUID? = nil) {
+    public init(url: URL, publicationID: UUID? = nil, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
         self.source = .url(url)
         self.publicationID = publicationID
+        self.linkedFile = nil
+        self.onCorruptPDF = onCorruptPDF
     }
 
     public init(data: Data, publicationID: UUID? = nil) {
         self.source = .data(data)
         self.publicationID = publicationID
+        self.linkedFile = nil
+        self.onCorruptPDF = nil
     }
 
-    public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil, publicationID: UUID? = nil) {
+    public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil, publicationID: UUID? = nil, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
         // Normalize unicode to match how PDFManager saved the file
         let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
 
@@ -510,6 +522,8 @@ public struct PDFViewerWithControls: View {
             self.source = .url(fileURL)
         }
         self.publicationID = publicationID
+        self.linkedFile = linkedFile
+        self.onCorruptPDF = onCorruptPDF
     }
 
     // MARK: - Body
@@ -807,6 +821,18 @@ public struct PDFViewerWithControls: View {
             }
             // Load saved reading position after document is ready
             await loadSavedPosition()
+        } catch PDFViewerError.corruptPDF(let url) {
+            // Corrupt PDF (HTML content) - trigger callback for auto-cleanup/re-download
+            await MainActor.run {
+                self.error = .corruptPDF(url)
+                self.isLoading = false
+            }
+            // Trigger callback so parent can delete and re-download
+            if let file = linkedFile {
+                await MainActor.run {
+                    onCorruptPDF?(file)
+                }
+            }
         } catch let err as PDFViewerError {
             await MainActor.run {
                 self.error = err
@@ -847,6 +873,14 @@ public struct PDFViewerWithControls: View {
                    data.count >= 4 {
                     let headerBytes = data.prefix(4).map { String(format: "%02X", $0) }.joined(separator: " ")
                     Logger.files.errorCapture("Invalid PDF - file header bytes: \(headerBytes) (expected: 25 50 44 46 = %PDF)", category: "pdf")
+
+                    // Check if it's HTML content (common when publisher returns error page)
+                    // Look for '<' (0x3C) in first 20 bytes
+                    let isHTML = data.prefix(20).contains(0x3C)
+                    if isHTML {
+                        Logger.files.warningCapture("Corrupt PDF appears to be HTML content - will trigger re-download", category: "pdf")
+                        throw PDFViewerError.corruptPDF(url)
+                    }
                 }
                 throw PDFViewerError.invalidPDF(url)
             }
