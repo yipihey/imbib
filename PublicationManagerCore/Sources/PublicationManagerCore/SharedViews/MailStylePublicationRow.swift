@@ -65,7 +65,17 @@ public struct MailStylePublicationRow: View {
 
     // MARK: - Body
 
+    @ViewBuilder
     public var body: some View {
+        // Guard against deleted Core Data objects during List re-render after bulk deletion
+        if publication.managedObjectContext == nil {
+            EmptyView()
+        } else {
+            rowContent
+        }
+    }
+
+    private var rowContent: some View {
         HStack(alignment: .top, spacing: MailStyleTokens.dotContentSpacing) {
             // Blue dot for unread
             if showUnreadIndicator {

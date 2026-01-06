@@ -192,7 +192,13 @@ public struct PublicationListView: View {
         }
         .onChange(of: selection) { _, newValue in
             if let firstID = newValue.first {
-                selectedPublication = filteredPublications.first { $0.id == firstID }
+                // Check if publication exists and is not deleted before binding
+                if let pub = filteredPublications.first(where: { $0.id == firstID }),
+                   pub.managedObjectContext != nil {
+                    selectedPublication = pub
+                } else {
+                    selectedPublication = nil
+                }
             } else {
                 selectedPublication = nil
             }
@@ -228,9 +234,10 @@ public struct PublicationListView: View {
             }
             showUnreadOnly = state.showUnreadOnly
 
-            // Restore selection if publication still exists
+            // Restore selection if publication still exists and is valid
             if let selectedID = state.selectedPublicationID,
-               let publication = publications.first(where: { $0.id == selectedID }) {
+               let publication = publications.first(where: { $0.id == selectedID }),
+               publication.managedObjectContext != nil {
                 selection = [selectedID]
                 // Also update selectedPublication directly - onChange may not fire during initial load
                 selectedPublication = publication

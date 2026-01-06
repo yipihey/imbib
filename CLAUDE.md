@@ -368,6 +368,11 @@ Update the changelog below after significant work:
   - Fix: Context-aware commands check `isTextFieldFocused()` via NSApp.keyWindow.firstResponder
   - Text fields: Forward to system (NSText.copy/cut/paste/selectAll)
   - List views: Use publication clipboard (BibTeX copy/paste)
+- Fixed bulk deletion crash when deleting many papers
+  - Root cause: `@ObservedObject` on deleted Core Data objects causes faults during List re-render
+  - Fix 1: MailStylePublicationRow guards against nil managedObjectContext, returns EmptyView
+  - Fix 2: LibraryViewModel.delete(ids:) removes from publications array BEFORE Core Data deletion
+  - Fix 3: PublicationListView selection handler checks validity before binding
 - All 743 tests passing
 
 ### 2026-01-05 (Session 9)

@@ -216,13 +216,19 @@ public final class LibraryViewModel {
 
         Logger.viewModels.infoCapture("Deleting \(toDelete.count) publications", category: "library")
 
-        // Remove from selection first
+        // 1. Remove from selection first
         for id in ids {
             selectedPublications.remove(id)
         }
 
-        // Batch delete all at once (doesn't call loadPublications between deletions)
+        // 2. Remove from publications array BEFORE Core Data deletion
+        // This prevents SwiftUI from trying to render deleted objects during re-render
+        publications.removeAll { ids.contains($0.id) }
+
+        // 3. Now delete from Core Data (UI already updated)
         await repository.delete(toDelete)
+
+        // 4. Reload to sync with database
         await loadPublications()
     }
 
