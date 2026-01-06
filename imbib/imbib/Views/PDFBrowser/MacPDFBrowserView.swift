@@ -182,15 +182,13 @@ struct MacWebViewRepresentable: NSViewRepresentable {
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            // Make webView first responder for text selection/copy (must be outside Task to avoid priority inversion)
+            // These calls must be outside Task to avoid priority inversion warnings
             webView.window?.makeFirstResponder(webView)
+            Logger.pdfBrowser.browserNavigation("Finished", url: webView.url ?? viewModel.initialURL)
 
             Task { @MainActor in
                 viewModel.isLoading = false
                 viewModel.updateFromWebView(webView)
-                Logger.pdfBrowser.browserNavigation("Finished", url: webView.url ?? viewModel.initialURL)
-
-                // Check if current page is a PDF
                 checkForPDFContent(webView)
             }
         }
