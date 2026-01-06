@@ -117,11 +117,12 @@ struct ContentView: View {
     @ViewBuilder
     private var detailView: some View {
         // Guard against deleted Core Data objects - check managedObjectContext
+        // DetailView.init is failable and returns nil for deleted publications
         if let publication = selectedPublication,
-           publication.managedObjectContext != nil {
-            // Get library ID from the selected section
-            let libraryID = selectedLibraryID ?? UUID()
-            DetailView(publication: publication, libraryID: libraryID)
+           publication.managedObjectContext != nil,
+           let libraryID = selectedLibraryID,
+           let detail = DetailView(publication: publication, libraryID: libraryID) {
+            detail
         } else {
             ContentUnavailableView(
                 "No Selection",

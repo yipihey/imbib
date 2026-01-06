@@ -59,8 +59,12 @@ struct DetailView: View {
     }
 
     /// Primary initializer for CDPublication (ADR-016: all papers are CDPublication)
-    init(publication: CDPublication, libraryID: UUID) {
-        let localPaper = LocalPaper(publication: publication, libraryID: libraryID)
+    /// Returns nil if the publication has been deleted
+    init?(publication: CDPublication, libraryID: UUID) {
+        // Guard against deleted Core Data objects
+        guard let localPaper = LocalPaper(publication: publication, libraryID: libraryID) else {
+            return nil
+        }
         self.paper = localPaper
         self.publication = publication
     }

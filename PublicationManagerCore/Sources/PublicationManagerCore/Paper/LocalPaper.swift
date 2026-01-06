@@ -73,7 +73,13 @@ public struct LocalPaper: PaperRepresentable, Hashable {
     ///
     /// Call this on the managed object context's queue to safely
     /// extract all data from the Core Data object.
-    public init(publication: CDPublication, libraryID: UUID) {
+    /// Returns nil if the publication has been deleted.
+    public init?(publication: CDPublication, libraryID: UUID) {
+        // Guard against deleted Core Data objects
+        guard publication.managedObjectContext != nil else {
+            return nil
+        }
+
         self.id = publication.id.uuidString
         self.uuid = publication.id
         self.libraryID = libraryID
@@ -198,8 +204,9 @@ private extension String {
 
 public extension LocalPaper {
     /// Create LocalPaper array from CDPublication array on the main context
+    /// Filters out any deleted publications that return nil
     @MainActor
     static func from(publications: [CDPublication], libraryID: UUID) -> [LocalPaper] {
-        publications.map { LocalPaper(publication: $0, libraryID: libraryID) }
+        publications.compactMap { LocalPaper(publication: $0, libraryID: libraryID) }
     }
 }
