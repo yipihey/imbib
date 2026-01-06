@@ -62,9 +62,9 @@ public final class SearchViewModel {
         guard let collection = libraryManager?.activeLibrary?.lastSearchCollection else {
             return []
         }
-        // Filter out deleted publications (managedObjectContext becomes nil)
+        // Filter out deleted publications (isDeleted or managedObjectContext nil)
         return (collection.publications ?? [])
-            .filter { $0.managedObjectContext != nil }
+            .filter { !$0.isDeleted && $0.managedObjectContext != nil }
             .sorted { ($0.dateAdded) > ($1.dateAdded) }
     }
 

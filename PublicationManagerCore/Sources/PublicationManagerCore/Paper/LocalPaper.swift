@@ -76,7 +76,7 @@ public struct LocalPaper: PaperRepresentable, Hashable {
     /// Returns nil if the publication has been deleted.
     public init?(publication: CDPublication, libraryID: UUID) {
         // Guard against deleted Core Data objects
-        guard publication.managedObjectContext != nil else {
+        guard !publication.isDeleted && publication.managedObjectContext != nil else {
             return nil
         }
 

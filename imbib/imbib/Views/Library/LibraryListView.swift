@@ -43,8 +43,8 @@ struct LibraryListView: View {
             return []
         }
 
-        // Filter out deleted publications (managedObjectContext becomes nil)
-        var filtered = publications.filter { $0.managedObjectContext != nil }
+        // Filter out deleted publications (isDeleted or managedObjectContext nil)
+        var filtered = publications.filter { !$0.isDeleted && $0.managedObjectContext != nil }
 
         // Apply filter mode (unread filter is now handled by PublicationListView's toggle)
         switch filterMode {

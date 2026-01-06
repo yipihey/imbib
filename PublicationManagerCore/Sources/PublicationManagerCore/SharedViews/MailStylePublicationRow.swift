@@ -68,7 +68,7 @@ public struct MailStylePublicationRow: View {
     @ViewBuilder
     public var body: some View {
         // Guard against deleted Core Data objects during List re-render after bulk deletion
-        if publication.managedObjectContext == nil {
+        if publication.isDeleted || publication.managedObjectContext == nil {
             EmptyView()
         } else {
             rowContent

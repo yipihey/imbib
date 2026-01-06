@@ -194,6 +194,7 @@ public struct PublicationListView: View {
             if let firstID = newValue.first {
                 // Check if publication exists and is not deleted before binding
                 if let pub = filteredPublications.first(where: { $0.id == firstID }),
+                   !pub.isDeleted,
                    pub.managedObjectContext != nil {
                     selectedPublication = pub
                 } else {
@@ -237,6 +238,7 @@ public struct PublicationListView: View {
             // Restore selection if publication still exists and is valid
             if let selectedID = state.selectedPublicationID,
                let publication = publications.first(where: { $0.id == selectedID }),
+               !publication.isDeleted,
                publication.managedObjectContext != nil {
                 selection = [selectedID]
                 // Also update selectedPublication directly - onChange may not fire during initial load

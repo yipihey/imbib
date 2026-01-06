@@ -76,8 +76,8 @@ struct ContentView: View {
             selectedPublication = nil
         }
         .onChange(of: selectedPublication) { _, newValue in
-            // Clear selection if publication was deleted (managedObjectContext becomes nil)
-            if let pub = newValue, pub.managedObjectContext == nil {
+            // Clear selection if publication was deleted
+            if let pub = newValue, (pub.isDeleted || pub.managedObjectContext == nil) {
                 selectedPublication = nil
             }
         }
@@ -116,9 +116,10 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        // Guard against deleted Core Data objects - check managedObjectContext
+        // Guard against deleted Core Data objects - check isDeleted and managedObjectContext
         // DetailView.init is failable and returns nil for deleted publications
         if let publication = selectedPublication,
+           !publication.isDeleted,
            publication.managedObjectContext != nil,
            let libraryID = selectedLibraryID,
            let detail = DetailView(publication: publication, libraryID: libraryID) {
