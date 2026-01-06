@@ -488,6 +488,7 @@ struct PDFTab: View {
                     library: libraryManager.activeLibrary,
                     publicationID: pub.id
                 )
+                .id(pub.id)  // Force view recreation when paper changes to reset @State
             } else if isDownloading {
                 downloadingView
             } else if let error = downloadError {
