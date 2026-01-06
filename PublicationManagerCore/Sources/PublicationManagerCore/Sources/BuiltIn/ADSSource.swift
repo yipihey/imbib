@@ -350,12 +350,12 @@ extension ADSSource: BrowserURLProvider {
     ///
     /// Priority order for browser access (targeting published version):
     /// 1. DOI resolver - redirects to publisher where user can authenticate
-    /// 2. ADS link gateway PUB_HTML - publisher article page (more reliable than PUB_PDF)
+    /// 2. ADS abstract page - shows all available full text sources
     ///
-    /// Note: We use PUB_HTML instead of PUB_PDF because:
-    /// - PUB_PDF often returns 404 even when the paper has publisher access
-    /// - PUB_HTML goes to the article landing page where user can find the PDF
-    /// - The browser is for interactive access where users navigate themselves
+    /// Note: We go to the ADS abstract page instead of link_gateway because:
+    /// - link_gateway URLs (PUB_PDF, PUB_HTML) often return 404
+    /// - The abstract page always works and shows all available sources
+    /// - User can choose the appropriate link from "Full Text Sources"
     ///
     /// - Parameter publication: The publication to find a PDF URL for
     /// - Returns: A URL to open in the browser, or nil if this source can't help
@@ -367,12 +367,11 @@ extension ADSSource: BrowserURLProvider {
             return URL(string: "https://doi.org/\(doi)")
         }
 
-        // Priority 2: ADS link gateway with PUB_HTML (not PUB_PDF)
-        // PUB_HTML is more reliable - it goes to the article page where user can find PDF
-        // PUB_PDF often returns 404 even when publisher access exists
+        // Priority 2: ADS abstract page - shows all available full text sources
+        // This always works and lets user choose from available links
         if let bibcode = publication.bibcode {
-            Logger.pdfBrowser.debug("ADS: Using link gateway PUB_HTML for bibcode: \(bibcode)")
-            return URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_HTML")
+            Logger.pdfBrowser.debug("ADS: Using abstract page for bibcode: \(bibcode)")
+            return URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)/abstract")
         }
 
         return nil
