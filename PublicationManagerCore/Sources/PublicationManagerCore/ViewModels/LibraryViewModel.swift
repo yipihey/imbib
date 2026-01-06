@@ -210,23 +210,21 @@ public final class LibraryViewModel {
     public func delete(ids: Set<UUID>) async {
         guard !ids.isEmpty else { return }
 
-        // Find publications to delete - capture them in a single pass
-        let toDelete = publications.filter { ids.contains($0.id) }
-        guard !toDelete.isEmpty else { return }
-
-        Logger.viewModels.infoCapture("Deleting \(toDelete.count) publications", category: "library")
+        Logger.viewModels.infoCapture("Deleting \(ids.count) publications by ID", category: "library")
 
         // 1. Remove from selection first
         for id in ids {
             selectedPublications.remove(id)
         }
 
-        // 2. Remove from publications array BEFORE Core Data deletion
+        // 2. Remove from local publications array (if present)
         // This prevents SwiftUI from trying to render deleted objects during re-render
         publications.removeAll { ids.contains($0.id) }
 
-        // 3. Now delete from Core Data (UI already updated)
-        await repository.delete(toDelete)
+        // 3. Delete from Core Data by fetching fresh objects by ID
+        // This ensures deletion works even if publications came from a different source
+        // (e.g., library.publications vs viewModel.publications)
+        await repository.deleteByIDs(ids)
 
         // 4. Reload to sync with database
         await loadPublications()

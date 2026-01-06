@@ -233,6 +233,31 @@ public actor PublicationRepository {
         }
     }
 
+    /// Delete publications by their UUIDs
+    /// This fetches fresh objects from Core Data and deletes them safely.
+    public func deleteByIDs(_ ids: Set<UUID>) async {
+        guard !ids.isEmpty else { return }
+        Logger.persistence.info("Deleting \(ids.count) publications by ID")
+
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            let request = NSFetchRequest<CDPublication>(entityName: "CDPublication")
+            request.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
+
+            do {
+                let publications = try context.fetch(request)
+                for publication in publications {
+                    context.delete(publication)
+                }
+                self.persistenceController.save()
+                Logger.persistence.info("Successfully deleted \(publications.count) publications")
+            } catch {
+                Logger.persistence.error("Failed to fetch publications for deletion: \(error)")
+            }
+        }
+    }
+
     // MARK: - Read Status (Apple Mail Styling)
 
     /// Mark a publication as read
