@@ -505,7 +505,7 @@ struct SidebarView: View {
 
     // MARK: - Drop Handlers
 
-    /// Add publications to a static collection
+    /// Add publications to a static collection (also adds to the collection's owning library)
     private func addPublications(_ uuids: [UUID], to collection: CDCollection) async {
         guard !collection.isSmartCollection else { return }
         let context = PersistenceController.shared.viewContext
@@ -517,9 +517,15 @@ struct SidebarView: View {
                 request.fetchLimit = 1
 
                 if let publication = try? context.fetch(request).first {
+                    // Add to collection
                     var current = collection.publications ?? []
                     current.insert(publication)
                     collection.publications = current
+
+                    // Also add to the collection's owning library
+                    if let owningLibrary = collection.owningLibrary {
+                        publication.addToLibrary(owningLibrary)
+                    }
                 }
             }
             try? context.save()
