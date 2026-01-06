@@ -61,6 +61,10 @@ struct imbibApp: App {
             await sourceManager.registerBuiltInSources()
             appLogger.info("Built-in sources registered")
 
+            // Register browser URL providers for interactive PDF downloads
+            await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
+            appLogger.info("BrowserURLProviders registered")
+
             // Start background enrichment coordinator
             await EnrichmentCoordinator.shared.start()
             appLogger.info("EnrichmentCoordinator started")

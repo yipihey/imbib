@@ -779,6 +779,20 @@ struct PDFTab: View {
             Button("Retry") {
                 Task { await downloadPDF() }
             }
+            .buttonStyle(.borderedProminent)
+
+            #if os(macOS)
+            Button("Open in Browser") {
+                Task { await openPDFBrowser() }
+            }
+            .buttonStyle(.bordered)
+            .help("Open publisher page to download PDF interactively")
+            #endif
+
+            Button("Add PDF...") {
+                showFileImporter = true
+            }
+            .buttonStyle(.bordered)
         }
     }
 
@@ -792,6 +806,14 @@ struct PDFTab: View {
                 Task { await downloadPDF() }
             }
             .buttonStyle(.borderedProminent)
+
+            #if os(macOS)
+            Button("Open in Browser") {
+                Task { await openPDFBrowser() }
+            }
+            .buttonStyle(.bordered)
+            .help("Open publisher page to download PDF interactively")
+            #endif
 
             Button("Add PDF...") {
                 showFileImporter = true
@@ -947,6 +969,27 @@ struct PDFTab: View {
             downloadError = error
         }
     }
+
+    #if os(macOS)
+    private func openPDFBrowser() async {
+        guard let pub = publication else { return }
+        guard let library = libraryManager.activeLibrary else { return }
+
+        await PDFBrowserWindowController.shared.openBrowser(
+            for: pub,
+            libraryID: library.id
+        ) { [weak libraryManager] data in
+            // This is called when user saves the detected PDF
+            guard let library = libraryManager?.activeLibrary else { return }
+            do {
+                try PDFManager.shared.importPDF(data: data, for: pub, in: library)
+                logger.info("[PDFTab] PDF imported from browser successfully")
+            } catch {
+                logger.error("[PDFTab] Failed to import PDF from browser: \(error)")
+            }
+        }
+    }
+    #endif
 
     private func handleCorruptPDF(_ corruptFile: CDLinkedFile) async {
         logger.warning("[PDFTab] Corrupt PDF detected, attempting recovery: \(corruptFile.filename)")

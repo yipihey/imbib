@@ -339,3 +339,44 @@ public actor ADSSource: SourcePlugin {
         return nil
     }
 }
+
+// MARK: - BrowserURLProvider Conformance
+
+extension ADSSource: BrowserURLProvider {
+
+    public static var sourceID: String { "ads" }
+
+    /// Build the best URL to open in browser for interactive PDF fetch.
+    ///
+    /// This uses ADS-specific URL patterns:
+    /// 1. Link gateway for bibcode (most reliable for publisher PDFs)
+    /// 2. DOI resolver as fallback
+    ///
+    /// - Parameter publication: The publication to find a PDF URL for
+    /// - Returns: A URL to open in the browser, or nil if this source can't help
+    public static func browserPDFURL(for publication: CDPublication) -> URL? {
+        // Priority 1: Use ADS link gateway for bibcode
+        // This handles all ADS esource types and redirects to the publisher
+        if let bibcode = publication.bibcode {
+            Logger.pdfBrowser.debug("ADS: Using link gateway for bibcode: \(bibcode)")
+            return URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_PDF")
+        }
+
+        // Priority 2: If no bibcode but has DOI, let the default provider handle it
+        // (This avoids duplicating DOI logic)
+        if publication.doi != nil {
+            Logger.pdfBrowser.debug("ADS: No bibcode, falling back to DOI")
+            return nil
+        }
+
+        // Priority 3: Try publisher PDF from pdfLinks if bibcode came from ADS
+        if let adsPublisherLink = publication.pdfLinks.first(where: {
+            $0.sourceID == "ads" && $0.type == .publisher
+        }) {
+            Logger.pdfBrowser.debug("ADS: Using cached publisher PDF link")
+            return adsPublisherLink.url
+        }
+
+        return nil
+    }
+}

@@ -48,6 +48,10 @@ public extension Logger {
 
     static let files = Logger(subsystem: subsystem, category: "files")
 
+    // MARK: - PDF Browser
+
+    static let pdfBrowser = Logger(subsystem: subsystem, category: "pdfbrowser")
+
     // MARK: - Sync
 
     static let sync = Logger(subsystem: subsystem, category: "sync")
@@ -136,4 +140,26 @@ public func logWarning(_ message: String, category: String = "app") {
 
 public func logError(_ message: String, category: String = "app") {
     Logger.viewModels.errorCapture(message, category: category)
+}
+
+// MARK: - PDF Browser Logging
+
+public extension Logger {
+
+    /// Log browser navigation events
+    func browserNavigation(_ action: String, url: URL) {
+        infoCapture("\(action): \(url.absoluteString)", category: "pdfbrowser")
+    }
+
+    /// Log download events
+    func browserDownload(_ event: String, filename: String? = nil, bytes: Int? = nil) {
+        var message = event
+        if let filename = filename {
+            message += " - \(filename)"
+        }
+        if let bytes = bytes {
+            message += " (\(bytes) bytes)"
+        }
+        infoCapture(message, category: "pdfbrowser")
+    }
 }
