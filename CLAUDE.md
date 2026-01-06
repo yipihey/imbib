@@ -319,6 +319,27 @@ Update the changelog below after significant work:
 
 ## Changelog
 
+### 2026-01-06 (Session 12)
+- Multi-library and multi-collection support
+  - Publications can now belong to multiple libraries AND multiple collections
+  - Schema: Changed publication-to-library from many-to-one to many-to-many
+  - CDPublication: `owningLibrary: CDLibrary?` → `libraries: Set<CDLibrary>?`
+- New helper methods on CDPublication:
+  - `addToLibrary()`, `removeFromLibrary()`, `belongsToLibrary()`
+  - `addToCollection()`, `removeFromCollection()`, `removeFromAllCollections()`
+- API renames:
+  - `PublicationRepository.moveToLibrary()` → `addToLibrary()`
+  - `LibraryViewModel.moveToLibrary()` → `addToLibrary()`
+  - Added `removeFromLibrary()` and `removeFromAllCollections()` methods
+- Context menu updates:
+  - "Move To Library" → "Add to Library" (adds without removing from current)
+  - "Add to Collection" menu now includes "All Publications" as first option
+  - "All Publications" removes paper from all collections (like unfiling in email)
+- Drag-and-drop to library sidebar now adds to library (doesn't move)
+- Files: `PersistenceController.swift`, `ManagedObjects.swift`, `PublicationRepository.swift`,
+  `LibraryViewModel.swift`, `PublicationListView.swift`, `SidebarView.swift`
+- All 743 tests passing
+
 ### 2026-01-05 (Session 11)
 - Rebranded "Metadata" tab to "Info" tab (email mental model)
   - Renamed DetailTab.metadata → .info
