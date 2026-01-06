@@ -9,23 +9,31 @@ import Foundation
 import CoreData
 import CryptoKit
 import OSLog
+import UniformTypeIdentifiers
 
-// MARK: - PDF Manager
+// MARK: - Backward Compatibility
 
-/// Manages PDF files associated with publications.
+/// Type alias for backward compatibility with existing code.
+public typealias PDFManager = AttachmentManager
+
+// MARK: - Attachment Manager
+
+/// Manages attached files (PDFs, images, code, data files, etc.) for publications.
 ///
 /// Handles:
-/// - Importing PDFs with human-readable filenames (ADR-004)
-/// - Filename generation from publication metadata
+/// - Importing any file type with human-readable filenames (ADR-004)
+/// - Auto-generation of filenames for PDFs based on publication metadata
+/// - Preserving original filenames for non-PDF attachments
 /// - Collision handling with numeric suffixes
 /// - SHA256 integrity verification
-/// - Temporary PDF caching for online papers
+/// - MIME type detection for accurate file type icons
+/// - File size tracking for UI display
 @MainActor
-public final class PDFManager: ObservableObject {
+public final class AttachmentManager: ObservableObject {
 
     // MARK: - Singleton
 
-    public static let shared = PDFManager()
+    public static let shared = AttachmentManager()
 
     // MARK: - Properties
 
@@ -122,7 +130,141 @@ public final class PDFManager: ObservableObject {
         }
     }
 
-    // MARK: - Import PDF (Copy)
+    // MARK: - Import Attachment (General)
+
+    /// Import any file as an attachment for a publication.
+    ///
+    /// The file is copied to the library's Papers folder. For PDFs, a human-readable
+    /// name is generated based on publication metadata. For other file types, the
+    /// original filename is preserved by default.
+    ///
+    /// - Parameters:
+    ///   - sourceURL: URL of the source file
+    ///   - publication: The publication to link the file to
+    ///   - library: The library containing the publication (determines Papers folder location)
+    ///   - preserveFilename: If true, keeps the original filename. Default: true for non-PDFs, false for PDFs
+    ///   - displayName: Optional user-friendly display name (if nil, uses filename)
+    /// - Returns: The created CDLinkedFile entity
+    @discardableResult
+    public func importAttachment(
+        from sourceURL: URL,
+        for publication: CDPublication,
+        in library: CDLibrary? = nil,
+        preserveFilename: Bool? = nil,
+        displayName: String? = nil
+    ) throws -> CDLinkedFile {
+        let fileExtension = sourceURL.pathExtension.lowercased()
+        let isPDF = fileExtension == "pdf"
+
+        // Default: preserve filename for non-PDFs, auto-generate for PDFs
+        let shouldPreserveFilename = preserveFilename ?? !isPDF
+
+        Logger.files.infoCapture("Importing attachment: \(sourceURL.lastPathComponent) (preserve: \(shouldPreserveFilename))", category: "files")
+
+        // Determine papers directory
+        let papersDirectory = try resolvePapersDirectory(for: library)
+
+        // Generate filename
+        let filename: String
+        if shouldPreserveFilename {
+            filename = sourceURL.lastPathComponent
+        } else if isPDF {
+            filename = generateFilename(for: publication)
+        } else {
+            filename = generateFilename(for: publication, extension: fileExtension)
+        }
+        let resolvedFilename = resolveCollision(filename, in: papersDirectory)
+
+        // Destination path
+        let destinationURL = papersDirectory.appendingPathComponent(resolvedFilename)
+
+        // Get file size before copying
+        var fileSize: Int64 = 0
+        if let attributes = try? fileManager.attributesOfItem(atPath: sourceURL.path),
+           let size = attributes[.size] as? Int64 {
+            fileSize = size
+        }
+
+        // Copy the file
+        do {
+            // Start accessing security-scoped resource if needed
+            let accessing = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if accessing { sourceURL.stopAccessingSecurityScopedResource() }
+            }
+
+            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+            Logger.files.infoCapture("Copied file to: \(resolvedFilename)", category: "files")
+        } catch {
+            Logger.files.errorCapture("Failed to copy file: \(error.localizedDescription)", category: "files")
+            throw AttachmentError.copyFailed(sourceURL, error)
+        }
+
+        // Compute SHA256
+        let sha256 = computeSHA256(for: destinationURL)
+
+        // Detect MIME type
+        let mimeType = detectMIMEType(for: sourceURL)
+
+        // Create linked file record
+        let context = persistenceController.viewContext
+        let linkedFile = CDLinkedFile(context: context)
+        linkedFile.id = UUID()
+        linkedFile.relativePath = "\(papersFolderName)/\(resolvedFilename)"
+        linkedFile.filename = resolvedFilename
+        linkedFile.fileType = fileExtension
+        linkedFile.sha256 = sha256
+        linkedFile.dateAdded = Date()
+        linkedFile.publication = publication
+        linkedFile.displayName = displayName
+        linkedFile.fileSize = fileSize
+        linkedFile.mimeType = mimeType
+
+        persistenceController.save()
+
+        Logger.files.infoCapture("Created linked file: \(linkedFile.id) (\(linkedFile.formattedFileSize))", category: "files")
+        return linkedFile
+    }
+
+    /// Import multiple files as attachments in batch.
+    ///
+    /// - Parameters:
+    ///   - urls: Array of source file URLs
+    ///   - publication: The publication to link the files to
+    ///   - library: The library containing the publication
+    ///   - progress: Optional progress callback (current, total)
+    /// - Returns: Array of created CDLinkedFile entities
+    public func importAttachments(
+        from urls: [URL],
+        for publication: CDPublication,
+        in library: CDLibrary? = nil,
+        progress: ((Int, Int) -> Void)? = nil
+    ) throws -> [CDLinkedFile] {
+        Logger.files.infoCapture("Batch importing \(urls.count) attachments", category: "files")
+
+        var linkedFiles: [CDLinkedFile] = []
+        var errors: [Error] = []
+
+        for (index, url) in urls.enumerated() {
+            progress?(index + 1, urls.count)
+
+            do {
+                let linkedFile = try importAttachment(from: url, for: publication, in: library)
+                linkedFiles.append(linkedFile)
+            } catch {
+                Logger.files.errorCapture("Failed to import \(url.lastPathComponent): \(error.localizedDescription)", category: "files")
+                errors.append(error)
+            }
+        }
+
+        if !errors.isEmpty {
+            Logger.files.warningCapture("Batch import completed with \(errors.count) errors", category: "files")
+        }
+
+        return linkedFiles
+    }
+
+    // MARK: - Import PDF (Copy) - Backward Compatible
 
     /// Import a PDF file for a publication.
     ///
@@ -142,56 +284,13 @@ public final class PDFManager: ObservableObject {
         in library: CDLibrary? = nil,
         preserveFilename: Bool = false
     ) throws -> CDLinkedFile {
-        Logger.files.infoCapture("Importing PDF: \(sourceURL.lastPathComponent)", category: "files")
-
-        // Determine papers directory
-        let papersDirectory = try resolvePapersDirectory(for: library)
-
-        // Generate filename - either auto-generated or preserve original
-        let filename: String
-        if preserveFilename {
-            filename = sourceURL.lastPathComponent
-        } else {
-            filename = generateFilename(for: publication)
-        }
-        let resolvedFilename = resolveCollision(filename, in: papersDirectory)
-
-        // Destination path
-        let destinationURL = papersDirectory.appendingPathComponent(resolvedFilename)
-
-        // Copy the file
-        do {
-            // Start accessing security-scoped resource if needed
-            let accessing = sourceURL.startAccessingSecurityScopedResource()
-            defer {
-                if accessing { sourceURL.stopAccessingSecurityScopedResource() }
-            }
-
-            try fileManager.copyItem(at: sourceURL, to: destinationURL)
-            Logger.files.infoCapture("Copied PDF to: \(resolvedFilename)", category: "files")
-        } catch {
-            Logger.files.errorCapture("Failed to copy PDF: \(error.localizedDescription)", category: "files")
-            throw PDFError.copyFailed(sourceURL, error)
-        }
-
-        // Compute SHA256
-        let sha256 = computeSHA256(for: destinationURL)
-
-        // Create linked file record
-        let context = persistenceController.viewContext
-        let linkedFile = CDLinkedFile(context: context)
-        linkedFile.id = UUID()
-        linkedFile.relativePath = "\(papersFolderName)/\(resolvedFilename)"
-        linkedFile.filename = resolvedFilename
-        linkedFile.fileType = "pdf"
-        linkedFile.sha256 = sha256
-        linkedFile.dateAdded = Date()
-        linkedFile.publication = publication
-
-        persistenceController.save()
-
-        Logger.files.infoCapture("Created linked file: \(linkedFile.id)", category: "files")
-        return linkedFile
+        // Delegate to importAttachment with explicit preserveFilename
+        return try importAttachment(
+            from: sourceURL,
+            for: publication,
+            in: library,
+            preserveFilename: preserveFilename
+        )
     }
 
     /// Import PDF data directly (e.g., from downloaded content).
@@ -201,13 +300,34 @@ public final class PDFManager: ObservableObject {
         for publication: CDPublication,
         in library: CDLibrary? = nil
     ) throws -> CDLinkedFile {
-        Logger.files.infoCapture("Importing PDF data (\(data.count) bytes)", category: "files")
+        return try importAttachment(data: data, for: publication, in: library, fileExtension: "pdf")
+    }
+
+    /// Import attachment data directly (e.g., from downloaded content or clipboard).
+    ///
+    /// - Parameters:
+    ///   - data: The file data
+    ///   - publication: The publication to link the file to
+    ///   - library: The library containing the publication
+    ///   - fileExtension: File extension (e.g., "pdf", "png", "tar.gz")
+    ///   - displayName: Optional user-friendly display name
+    /// - Returns: The created CDLinkedFile entity
+    @discardableResult
+    public func importAttachment(
+        data: Data,
+        for publication: CDPublication,
+        in library: CDLibrary? = nil,
+        fileExtension: String = "pdf",
+        displayName: String? = nil
+    ) throws -> CDLinkedFile {
+        let isPDF = fileExtension.lowercased() == "pdf"
+        Logger.files.infoCapture("Importing attachment data (\(data.count) bytes, .\(fileExtension))", category: "files")
 
         // Determine papers directory
         let papersDirectory = try resolvePapersDirectory(for: library)
 
         // Generate human-readable filename
-        let filename = generateFilename(for: publication)
+        let filename = generateFilename(for: publication, extension: fileExtension)
         let resolvedFilename = resolveCollision(filename, in: papersDirectory)
 
         // Destination path
@@ -216,14 +336,17 @@ public final class PDFManager: ObservableObject {
         // Write the data
         do {
             try data.write(to: destinationURL)
-            Logger.files.infoCapture("Wrote PDF to: \(resolvedFilename)", category: "files")
+            Logger.files.infoCapture("Wrote file to: \(resolvedFilename)", category: "files")
         } catch {
-            Logger.files.errorCapture("Failed to write PDF: \(error.localizedDescription)", category: "files")
-            throw PDFError.writeFailed(destinationURL, error)
+            Logger.files.errorCapture("Failed to write file: \(error.localizedDescription)", category: "files")
+            throw AttachmentError.writeFailed(destinationURL, error)
         }
 
         // Compute SHA256
         let sha256 = SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+
+        // Detect MIME type from data
+        let mimeType = detectMIMEType(fromData: data, fileExtension: fileExtension)
 
         // Create linked file record
         let context = persistenceController.viewContext
@@ -231,14 +354,17 @@ public final class PDFManager: ObservableObject {
         linkedFile.id = UUID()
         linkedFile.relativePath = "\(papersFolderName)/\(resolvedFilename)"
         linkedFile.filename = resolvedFilename
-        linkedFile.fileType = "pdf"
+        linkedFile.fileType = fileExtension.lowercased()
         linkedFile.sha256 = sha256
         linkedFile.dateAdded = Date()
         linkedFile.publication = publication
+        linkedFile.displayName = displayName
+        linkedFile.fileSize = Int64(data.count)
+        linkedFile.mimeType = mimeType
 
         persistenceController.save()
 
-        Logger.files.infoCapture("Created linked file: \(linkedFile.id)", category: "files")
+        Logger.files.infoCapture("Created linked file: \(linkedFile.id) (\(linkedFile.formattedFileSize))", category: "files")
         return linkedFile
     }
 
@@ -282,9 +408,13 @@ public final class PDFManager: ObservableObject {
 
     /// Generate a human-readable filename for a publication.
     ///
-    /// Format: `{FirstAuthorLastName}_{Year}_{TruncatedTitle}.pdf`
+    /// Format: `{FirstAuthorLastName}_{Year}_{TruncatedTitle}.{ext}`
     /// Example: `Einstein_1905_OnTheElectrodynamics.pdf`
-    public func generateFilename(for publication: CDPublication) -> String {
+    ///
+    /// - Parameters:
+    ///   - publication: The publication for metadata
+    ///   - extension: File extension (default: "pdf")
+    public func generateFilename(for publication: CDPublication, extension ext: String = "pdf") -> String {
         // Get first author's last name
         let author: String
         if let firstAuthor = publication.sortedAuthors.first {
@@ -308,11 +438,15 @@ public final class PDFManager: ObservableObject {
         let base = "\(author)_\(year)_\(title)"
         let sanitized = sanitizeFilename(base)
 
-        return sanitized + ".pdf"
+        return sanitized + ".\(ext)"
     }
 
     /// Generate filename from a BibTeX entry (for imports before CDPublication exists).
-    public func generateFilename(from entry: BibTeXEntry) -> String {
+    ///
+    /// - Parameters:
+    ///   - entry: The BibTeX entry for metadata
+    ///   - extension: File extension (default: "pdf")
+    public func generateFilename(from entry: BibTeXEntry, extension ext: String = "pdf") -> String {
         // Get first author
         let author: String
         if let authorField = entry.fields["author"] {
@@ -333,7 +467,7 @@ public final class PDFManager: ObservableObject {
         let base = "\(author)_\(year)_\(title)"
         let sanitized = sanitizeFilename(base)
 
-        return sanitized + ".pdf"
+        return sanitized + ".\(ext)"
     }
 
     // MARK: - File Operations
@@ -488,35 +622,126 @@ public final class PDFManager: ObservableObject {
         }
         return SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
     }
+
+    // MARK: - MIME Type Detection
+
+    /// Detect MIME type for a file URL using UTType.
+    private func detectMIMEType(for url: URL) -> String? {
+        // Try to get UTType from file extension
+        guard let utType = UTType(filenameExtension: url.pathExtension) else {
+            return nil
+        }
+        return utType.preferredMIMEType
+    }
+
+    /// Detect MIME type from file data and extension.
+    private func detectMIMEType(fromData data: Data, fileExtension: String) -> String? {
+        // Check magic bytes for common formats
+        if let magic = detectFromMagicBytes(data) {
+            return magic
+        }
+
+        // Fall back to UTType from extension
+        guard let utType = UTType(filenameExtension: fileExtension) else {
+            return nil
+        }
+        return utType.preferredMIMEType
+    }
+
+    /// Detect MIME type from file magic bytes (file signature).
+    private func detectFromMagicBytes(_ data: Data) -> String? {
+        guard data.count >= 8 else { return nil }
+
+        let bytes = Array(data.prefix(8))
+
+        // PDF: %PDF
+        if bytes.starts(with: [0x25, 0x50, 0x44, 0x46]) {
+            return "application/pdf"
+        }
+
+        // PNG: 89 50 4E 47 0D 0A 1A 0A
+        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
+            return "image/png"
+        }
+
+        // JPEG: FF D8 FF
+        if bytes.starts(with: [0xFF, 0xD8, 0xFF]) {
+            return "image/jpeg"
+        }
+
+        // GIF: GIF87a or GIF89a
+        if bytes.starts(with: [0x47, 0x49, 0x46, 0x38]) {
+            return "image/gif"
+        }
+
+        // ZIP (also includes .docx, .xlsx, .epub, etc.): 50 4B 03 04
+        if bytes.starts(with: [0x50, 0x4B, 0x03, 0x04]) {
+            return "application/zip"
+        }
+
+        // GZIP: 1F 8B
+        if bytes.starts(with: [0x1F, 0x8B]) {
+            return "application/gzip"
+        }
+
+        // TAR: "ustar" at offset 257 (check if we have enough data)
+        if data.count >= 262 {
+            let tarMagic = Array(data[257..<262])
+            if tarMagic == [0x75, 0x73, 0x74, 0x61, 0x72] { // "ustar"
+                return "application/x-tar"
+            }
+        }
+
+        // BZ2: BZ
+        if bytes.starts(with: [0x42, 0x5A]) {
+            return "application/x-bzip2"
+        }
+
+        // TIFF: II or MM
+        if bytes.starts(with: [0x49, 0x49, 0x2A, 0x00]) || bytes.starts(with: [0x4D, 0x4D, 0x00, 0x2A]) {
+            return "image/tiff"
+        }
+
+        return nil
+    }
 }
 
-// MARK: - PDF Error
+// MARK: - Attachment Error
 
-public enum PDFError: LocalizedError {
+/// Errors that can occur during attachment operations.
+public enum AttachmentError: LocalizedError {
     case copyFailed(URL, Error)
     case writeFailed(URL, Error)
     case downloadFailed(URL, Error?)
     case emptyDownload(URL)
     case noPapersDirectory
     case fileNotFound(String)
+    case unsupportedFileType(String)
 
     public var errorDescription: String? {
         switch self {
         case .copyFailed(let url, let error):
-            return "Failed to copy PDF from \(url.lastPathComponent): \(error.localizedDescription)"
+            return "Failed to copy file from \(url.lastPathComponent): \(error.localizedDescription)"
         case .writeFailed(let url, let error):
-            return "Failed to write PDF to \(url.lastPathComponent): \(error.localizedDescription)"
+            return "Failed to write file to \(url.lastPathComponent): \(error.localizedDescription)"
         case .downloadFailed(let url, let error):
             if let error {
-                return "Failed to download PDF from \(url.host ?? url.absoluteString): \(error.localizedDescription)"
+                return "Failed to download file from \(url.host ?? url.absoluteString): \(error.localizedDescription)"
             }
-            return "Failed to download PDF from \(url.host ?? url.absoluteString)"
+            return "Failed to download file from \(url.host ?? url.absoluteString)"
         case .emptyDownload(let url):
             return "Downloaded empty file from \(url.host ?? url.absoluteString)"
         case .noPapersDirectory:
             return "No Papers directory configured"
         case .fileNotFound(let path):
-            return "PDF not found: \(path)"
+            return "File not found: \(path)"
+        case .unsupportedFileType(let ext):
+            return "Unsupported file type: \(ext)"
         }
     }
 }
+
+// MARK: - PDF Error (Backward Compatible)
+
+/// Type alias for backward compatibility.
+public typealias PDFError = AttachmentError

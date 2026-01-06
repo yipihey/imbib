@@ -81,6 +81,7 @@ public final class PersistenceController: @unchecked Sendable {
         let publicationAuthorEntity = createPublicationAuthorEntity()
         let linkedFileEntity = createLinkedFileEntity()
         let tagEntity = createTagEntity()
+        let attachmentTagEntity = createAttachmentTagEntity()
         let collectionEntity = createCollectionEntity()
         let libraryEntity = createLibraryEntity()
         let smartSearchEntity = createSmartSearchEntity()
@@ -125,12 +126,19 @@ public final class PersistenceController: @unchecked Sendable {
             collection: collectionEntity
         )
 
+        // Set up linkedFile <-> attachmentTag relationship (many-to-many)
+        setupLinkedFileAttachmentTagRelationship(
+            linkedFile: linkedFileEntity,
+            attachmentTag: attachmentTagEntity
+        )
+
         model.entities = [
             publicationEntity,
             authorEntity,
             publicationAuthorEntity,
             linkedFileEntity,
             tagEntity,
+            attachmentTagEntity,
             collectionEntity,
             libraryEntity,
             smartSearchEntity,
@@ -417,6 +425,28 @@ public final class PersistenceController: @unchecked Sendable {
         dateAdded.defaultValue = Date()
         properties.append(dateAdded)
 
+        // General attachment support: user-editable display name
+        let displayName = NSAttributeDescription()
+        displayName.name = "displayName"
+        displayName.attributeType = .stringAttributeType
+        displayName.isOptional = true
+        properties.append(displayName)
+
+        // General attachment support: cached file size for UI display
+        let fileSize = NSAttributeDescription()
+        fileSize.name = "fileSize"
+        fileSize.attributeType = .integer64AttributeType
+        fileSize.isOptional = false
+        fileSize.defaultValue = Int64(0)
+        properties.append(fileSize)
+
+        // General attachment support: MIME type for accurate type detection
+        let mimeType = NSAttributeDescription()
+        mimeType.name = "mimeType"
+        mimeType.attributeType = .stringAttributeType
+        mimeType.isOptional = true
+        properties.append(mimeType)
+
         entity.properties = properties
         return entity
     }
@@ -445,6 +475,42 @@ public final class PersistenceController: @unchecked Sendable {
         color.attributeType = .stringAttributeType
         color.isOptional = true
         properties.append(color)
+
+        entity.properties = properties
+        return entity
+    }
+
+    private static func createAttachmentTagEntity() -> NSEntityDescription {
+        let entity = NSEntityDescription()
+        entity.name = "AttachmentTag"
+        entity.managedObjectClassName = "PublicationManagerCore.CDAttachmentTag"
+
+        var properties: [NSPropertyDescription] = []
+
+        let id = NSAttributeDescription()
+        id.name = "id"
+        id.attributeType = .UUIDAttributeType
+        id.isOptional = false
+        properties.append(id)
+
+        let name = NSAttributeDescription()
+        name.name = "name"
+        name.attributeType = .stringAttributeType
+        name.isOptional = false
+        properties.append(name)
+
+        let color = NSAttributeDescription()
+        color.name = "color"
+        color.attributeType = .stringAttributeType
+        color.isOptional = true
+        properties.append(color)
+
+        let order = NSAttributeDescription()
+        order.name = "order"
+        order.attributeType = .integer16AttributeType
+        order.isOptional = false
+        order.defaultValue = Int16(0)
+        properties.append(order)
 
         entity.properties = properties
         return entity
@@ -872,6 +938,34 @@ public final class PersistenceController: @unchecked Sendable {
         linkedFile.properties.append(fileToPub)
         tag.properties.append(tagToPubs)
         collection.properties.append(collectionToPubs)
+    }
+
+    // LinkedFile <-> AttachmentTag relationship (many-to-many for file grouping)
+    private static func setupLinkedFileAttachmentTagRelationship(
+        linkedFile: NSEntityDescription,
+        attachmentTag: NSEntityDescription
+    ) {
+        // LinkedFile -> attachmentTags (to-many)
+        let fileToTags = NSRelationshipDescription()
+        fileToTags.name = "attachmentTags"
+        fileToTags.destinationEntity = attachmentTag
+        fileToTags.isOptional = true
+        fileToTags.deleteRule = .nullifyDeleteRule
+
+        // AttachmentTag -> linkedFiles (to-many)
+        let tagToFiles = NSRelationshipDescription()
+        tagToFiles.name = "linkedFiles"
+        tagToFiles.destinationEntity = linkedFile
+        tagToFiles.isOptional = true
+        tagToFiles.deleteRule = .nullifyDeleteRule
+
+        // Set inverse relationships
+        fileToTags.inverseRelationship = tagToFiles
+        tagToFiles.inverseRelationship = fileToTags
+
+        // Add to entities
+        linkedFile.properties.append(fileToTags)
+        attachmentTag.properties.append(tagToFiles)
     }
 
     // MARK: - Save

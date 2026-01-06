@@ -349,6 +349,42 @@ Update the changelog below after significant work:
   `LibraryViewModel.swift`, `PublicationListView.swift`, `SidebarView.swift`
 - All 743 tests passing
 
+### 2026-01-06 (Session 15)
+- General File Attachment System
+  - Extends imbib to accept any file type via drag-and-drop (code, .tar.gz, images, data files)
+  - Files stored in Papers/ directory alongside PDFs
+  - Virtual tag-based grouping (CDAttachmentTag entity)
+  - All attachments exported as Bdsk-File-* fields (BibDesk compatible)
+- Data Model Extensions
+  - CDLinkedFile: Added displayName, fileSize, mimeType attributes
+  - CDAttachmentTag: New entity with id, name, color, order
+  - Many-to-many relationship between CDLinkedFile and CDAttachmentTag
+- AttachmentManager (generalized PDFManager)
+  - importAttachment(): Single file import with MIME type detection
+  - importAttachments(): Batch import with progress callback
+  - PDFs auto-generate Author_Year_Title.pdf names
+  - Non-PDF files preserve original filenames
+  - MIME type detection via magic bytes and UTType
+  - PDFManager kept as typealias for backward compatibility
+- FileDropHandler
+  - SwiftUI drop handling with NSItemProvider extraction
+  - FileDropDelegate for .onDrop() integration
+  - .fileDropTarget() View modifier
+  - Import progress tracking
+- FileTypeIcon component
+  - Maps 60+ file extensions to SF Symbols
+  - Color-coded by category (PDF=red, images=purple, code=orange)
+  - Uses MIME type and UTType fallbacks
+- Enhanced Info Tab attachments section
+  - Drop zone with visual feedback (border highlight)
+  - "Add Files..." button for file picker
+  - Enhanced attachment rows with FileTypeIcon
+  - Context menus (Open, Show in Finder, Delete)
+  - Import progress indicator
+- Files: PDFManager.swift, FileDropHandler.swift, FileTypeIcon.swift,
+  ManagedObjects.swift, PersistenceController.swift, DetailView.swift
+- All 774 tests passing
+
 ### 2026-01-06 (Session 14)
 - PDF Browser improvements for reliable publisher access
   - Removed library proxy from browser URLs (proxy prefix breaks ADS gateway)

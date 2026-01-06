@@ -427,8 +427,14 @@ public class CDLinkedFile: NSManagedObject {
     @NSManaged public var sha256: String?
     @NSManaged public var dateAdded: Date
 
+    // General attachment support
+    @NSManaged public var displayName: String?       // User-editable name (falls back to filename)
+    @NSManaged public var fileSize: Int64            // Cached file size for UI display
+    @NSManaged public var mimeType: String?          // MIME type for accurate type detection
+
     // Relationships
     @NSManaged public var publication: CDPublication?
+    @NSManaged public var attachmentTags: Set<CDAttachmentTag>?  // Tags for file grouping
 }
 
 // MARK: - Linked File Helpers
@@ -444,6 +450,29 @@ public extension CDLinkedFile {
     var isPDF: Bool {
         fileExtension == "pdf" || fileType == "pdf"
     }
+
+    /// The name to display (user-set displayName or falls back to filename)
+    var effectiveDisplayName: String {
+        if let name = displayName, !name.isEmpty {
+            return name
+        }
+        return filename
+    }
+
+    /// Formatted file size for display (e.g., "1.2 MB")
+    var formattedFileSize: String {
+        ByteCountFormatter.string(fromByteCount: fileSize, countStyle: .file)
+    }
+
+    /// Whether this file has any attachment tags
+    var hasTags: Bool {
+        !(attachmentTags?.isEmpty ?? true)
+    }
+
+    /// Sorted tags by order
+    var sortedTags: [CDAttachmentTag] {
+        (attachmentTags ?? []).sorted { $0.order < $1.order }
+    }
 }
 
 // MARK: - Tag
@@ -456,6 +485,45 @@ public class CDTag: NSManagedObject {
 
     // Relationships
     @NSManaged public var publications: Set<CDPublication>?
+}
+
+// MARK: - Attachment Tag
+
+/// Tags for grouping attachments (files) within a publication.
+/// Separate from CDTag which is for publications themselves.
+@objc(CDAttachmentTag)
+public class CDAttachmentTag: NSManagedObject, Identifiable {
+    @NSManaged public var id: UUID
+    @NSManaged public var name: String
+    @NSManaged public var color: String?
+    @NSManaged public var order: Int16
+
+    // Relationships
+    @NSManaged public var linkedFiles: Set<CDLinkedFile>?
+}
+
+// MARK: - Attachment Tag Helpers
+
+public extension CDAttachmentTag {
+
+    /// Number of files with this tag
+    var fileCount: Int {
+        linkedFiles?.count ?? 0
+    }
+
+    /// Add a file to this tag
+    func addFile(_ file: CDLinkedFile) {
+        var files = linkedFiles ?? []
+        files.insert(file)
+        linkedFiles = files
+    }
+
+    /// Remove a file from this tag
+    func removeFile(_ file: CDLinkedFile) {
+        var files = linkedFiles ?? []
+        files.remove(file)
+        linkedFiles = files
+    }
 }
 
 // MARK: - Collection

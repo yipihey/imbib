@@ -227,6 +227,11 @@ struct InfoTab: View {
     @State private var fileToDelete: CDLinkedFile?
     @State private var showDeleteConfirmation = false
 
+    // State for file drop
+    @StateObject private var dropHandler = FileDropHandler()
+    @State private var isDropTargeted = false
+    @State private var showFileImporter = false
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -252,9 +257,9 @@ struct InfoTab: View {
                         Divider()
                     }
 
-                    // MARK: - Attachments (PDF files)
-                    if let pub = publication, let linkedFiles = pub.linkedFiles, !linkedFiles.isEmpty {
-                        attachmentsSection(Array(linkedFiles))
+                    // MARK: - Attachments Section with Drop Target
+                    if let pub = publication {
+                        attachmentsSectionWithDrop(pub)
                         Divider()
                     }
 
@@ -281,6 +286,13 @@ struct InfoTab: View {
             }
         } message: { file in
             Text("Delete \"\(file.filename)\"? This cannot be undone.")
+        }
+        .fileImporter(
+            isPresented: $showFileImporter,
+            allowedContentTypes: [.item],  // Accept any file type
+            allowsMultipleSelection: true
+        ) { result in
+            handleFileImport(result)
         }
     }
 
@@ -367,7 +379,161 @@ struct InfoTab: View {
         }
     }
 
-    // MARK: - Attachments Section
+    // MARK: - Attachments Section with Drop Target
+
+    @ViewBuilder
+    private func attachmentsSectionWithDrop(_ pub: CDPublication) -> some View {
+        let linkedFiles = Array(pub.linkedFiles ?? []).sorted { $0.dateAdded < $1.dateAdded }
+
+        VStack(alignment: .leading, spacing: 8) {
+            // Header with count and Add button
+            HStack {
+                Text("Attachments (\(linkedFiles.count))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+
+                Spacer()
+
+                Button {
+                    showFileImporter = true
+                } label: {
+                    Label("Add Files...", systemImage: "plus")
+                        .font(.caption)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.blue)
+            }
+
+            // Drop zone / file list
+            VStack(spacing: 4) {
+                if linkedFiles.isEmpty {
+                    // Empty state with drop hint
+                    dropZoneEmptyState
+                } else {
+                    // File list
+                    ForEach(linkedFiles, id: \.id) { file in
+                        enhancedAttachmentRow(file)
+                    }
+                }
+            }
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(isDropTargeted ? Color.accentColor.opacity(0.1) : Color.secondary.opacity(0.05))
+                    .strokeBorder(
+                        isDropTargeted ? Color.accentColor : Color.clear,
+                        style: StrokeStyle(lineWidth: 2, dash: isDropTargeted ? [] : [5])
+                    )
+            )
+            .fileDropTarget(
+                for: pub,
+                in: libraryManager.activeLibrary,
+                handler: dropHandler,
+                isTargeted: $isDropTargeted
+            )
+
+            // Import progress indicator
+            if dropHandler.isImporting, let progress = dropHandler.importProgress {
+                HStack {
+                    ProgressView(value: Double(progress.current), total: Double(progress.total))
+                    Text("Importing \(progress.current)/\(progress.total)...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var dropZoneEmptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "arrow.down.doc")
+                .font(.title)
+                .foregroundStyle(.secondary)
+            Text("Drop files here or click Add Files...")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 20)
+    }
+
+    @ViewBuilder
+    private func enhancedAttachmentRow(_ file: CDLinkedFile) -> some View {
+        HStack(spacing: 8) {
+            // File type icon
+            FileTypeIcon(linkedFile: file, size: 20)
+
+            // Display name with edit support (future: inline rename)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(file.effectiveDisplayName)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                // Show actual filename if display name differs
+                if file.displayName != nil && file.displayName != file.filename {
+                    Text(file.filename)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            // File size (use cached or compute)
+            Text(file.fileSize > 0 ? file.formattedFileSize : getFileSizeString(for: file))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            // Action buttons
+            Button("Open") {
+                openFile(file)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.blue)
+
+            #if os(macOS)
+            Button {
+                showInFinder(file)
+            } label: {
+                Image(systemName: "folder")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Show in Finder")
+            #endif
+
+            // Delete button
+            Button {
+                fileToDelete = file
+                showDeleteConfirmation = true
+            } label: {
+                Image(systemName: "trash")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.red)
+            .help("Delete attachment")
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 8)
+        .background(Color.secondary.opacity(0.1))
+        .cornerRadius(6)
+        .contextMenu {
+            Button("Open") { openFile(file) }
+            #if os(macOS)
+            Button("Show in Finder") { showInFinder(file) }
+            #endif
+            Divider()
+            Button("Delete", role: .destructive) {
+                fileToDelete = file
+                showDeleteConfirmation = true
+            }
+        }
+    }
+
+    // MARK: - Legacy Attachments Section (for backward compatibility)
 
     @ViewBuilder
     private func attachmentsSection(_ linkedFiles: [CDLinkedFile]) -> some View {
@@ -386,20 +552,17 @@ struct InfoTab: View {
     @ViewBuilder
     private func attachmentRow(_ file: CDLinkedFile) -> some View {
         HStack {
-            Image(systemName: file.isPDF ? "doc.fill" : "paperclip")
-                .foregroundStyle(.secondary)
+            FileTypeIcon(linkedFile: file, size: 18)
 
-            Text(file.filename)
+            Text(file.effectiveDisplayName)
                 .lineLimit(1)
                 .truncationMode(.middle)
 
             Spacer()
 
-            if let size = getFileSize(for: file) {
-                Text(formatFileSize(size))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text(file.fileSize > 0 ? file.formattedFileSize : getFileSizeString(for: file))
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             Button("Open") {
                 openFile(file)
@@ -532,10 +695,40 @@ struct InfoTab: View {
         return attrs[.size] as? Int64
     }
 
+    private func getFileSizeString(for file: CDLinkedFile) -> String {
+        if let size = getFileSize(for: file) {
+            return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
+        }
+        return ""
+    }
+
     private func formatFileSize(_ bytes: Int64) -> String {
         let formatter = ByteCountFormatter()
         formatter.countStyle = .file
         return formatter.string(fromByteCount: bytes)
+    }
+
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        guard let pub = publication else { return }
+
+        switch result {
+        case .success(let urls):
+            Task {
+                do {
+                    let _ = try AttachmentManager.shared.importAttachments(
+                        from: urls,
+                        for: pub,
+                        in: libraryManager.activeLibrary
+                    )
+                    Logger.files.infoCapture("Imported \(urls.count) files via file picker", category: "files")
+                } catch {
+                    Logger.files.errorCapture("File import failed: \(error.localizedDescription)", category: "files")
+                }
+            }
+
+        case .failure(let error):
+            Logger.files.errorCapture("File picker failed: \(error.localizedDescription)", category: "files")
+        }
     }
 
     private func openFile(_ file: CDLinkedFile) {
