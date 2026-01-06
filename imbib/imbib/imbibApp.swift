@@ -166,27 +166,44 @@ struct AppCommands: Commands {
             .keyboardShortcut("c", modifiers: [.command, .shift])
         }
 
-        // Edit menu - pasteboard commands for publications
+        // Edit menu - context-aware pasteboard commands
+        // When a text field has focus, use system clipboard; otherwise, use publication clipboard
         CommandGroup(replacing: .pasteboard) {
             Button("Copy") {
-                NotificationCenter.default.post(name: .copyPublications, object: nil)
+                if isTextFieldFocused() {
+                    NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil)
+                } else {
+                    NotificationCenter.default.post(name: .copyPublications, object: nil)
+                }
             }
             .keyboardShortcut("c", modifiers: .command)
 
             Button("Cut") {
-                NotificationCenter.default.post(name: .cutPublications, object: nil)
+                if isTextFieldFocused() {
+                    NSApp.sendAction(#selector(NSText.cut(_:)), to: nil, from: nil)
+                } else {
+                    NotificationCenter.default.post(name: .cutPublications, object: nil)
+                }
             }
             .keyboardShortcut("x", modifiers: .command)
 
             Button("Paste") {
-                NotificationCenter.default.post(name: .pastePublications, object: nil)
+                if isTextFieldFocused() {
+                    NSApp.sendAction(#selector(NSText.paste(_:)), to: nil, from: nil)
+                } else {
+                    NotificationCenter.default.post(name: .pastePublications, object: nil)
+                }
             }
             .keyboardShortcut("v", modifiers: .command)
 
             Divider()
 
             Button("Select All") {
-                NotificationCenter.default.post(name: .selectAllPublications, object: nil)
+                if isTextFieldFocused() {
+                    NSApp.sendAction(#selector(NSText.selectAll(_:)), to: nil, from: nil)
+                } else {
+                    NotificationCenter.default.post(name: .selectAllPublications, object: nil)
+                }
             }
             .keyboardShortcut("a", modifiers: .command)
 
@@ -197,6 +214,16 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut("u", modifiers: [.command, .shift])
         }
+    }
+
+    /// Check if a text field or text view currently has keyboard focus
+    private func isTextFieldFocused() -> Bool {
+        guard let window = NSApp.keyWindow,
+              let firstResponder = window.firstResponder else {
+            return false
+        }
+        // NSTextView is used by TextEditor, TextField, and other text controls
+        return firstResponder is NSTextView
     }
 }
 
