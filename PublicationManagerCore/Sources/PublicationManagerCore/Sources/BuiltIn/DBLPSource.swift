@@ -37,7 +37,7 @@ public actor DBLPSource: SourcePlugin {
 
     // MARK: - SourcePlugin
 
-    public func search(query: String) async throws -> [SearchResult] {
+    public func search(query: String, maxResults: Int = 50) async throws -> [SearchResult] {
         Logger.sources.entering()
         defer { Logger.sources.exiting() }
 
@@ -45,7 +45,7 @@ public actor DBLPSource: SourcePlugin {
         components.queryItems = [
             URLQueryItem(name: "q", value: query),
             URLQueryItem(name: "format", value: "json"),
-            URLQueryItem(name: "h", value: "50"),  // max results
+            URLQueryItem(name: "h", value: "\(maxResults)"),  // max results
         ]
 
         guard let url = components.url else {

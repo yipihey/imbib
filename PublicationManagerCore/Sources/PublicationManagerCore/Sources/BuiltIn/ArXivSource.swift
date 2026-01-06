@@ -40,7 +40,7 @@ public actor ArXivSource: SourcePlugin {
 
     // MARK: - SourcePlugin
 
-    public func search(query: String) async throws -> [SearchResult] {
+    public func search(query: String, maxResults: Int = 50) async throws -> [SearchResult] {
         Logger.sources.entering()
         defer { Logger.sources.exiting() }
 
@@ -51,7 +51,7 @@ public actor ArXivSource: SourcePlugin {
         components.queryItems = [
             URLQueryItem(name: "search_query", value: "all:\(query)"),
             URLQueryItem(name: "start", value: "0"),
-            URLQueryItem(name: "max_results", value: "50"),
+            URLQueryItem(name: "max_results", value: "\(maxResults)"),
             URLQueryItem(name: "sortBy", value: "relevance"),
             URLQueryItem(name: "sortOrder", value: "descending"),
         ]

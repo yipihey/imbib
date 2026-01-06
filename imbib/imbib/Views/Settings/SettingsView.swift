@@ -72,21 +72,42 @@ struct GeneralSettingsTab: View {
             }
 
             Section("Smart Search") {
-                Stepper(
-                    "Default result limit: \(viewModel.smartSearchSettings.defaultMaxResults)",
-                    value: Binding(
-                        get: { Int(viewModel.smartSearchSettings.defaultMaxResults) },
-                        set: { newValue in
-                            Task {
-                                await viewModel.updateDefaultMaxResults(Int16(newValue))
-                            }
-                        }
-                    ),
-                    in: 10...500,
-                    step: 10
-                )
+                HStack {
+                    Text("Default result limit:")
 
-                Text("Maximum records to retrieve per smart search query")
+                    TextField(
+                        "Limit",
+                        value: Binding(
+                            get: { Int(viewModel.smartSearchSettings.defaultMaxResults) },
+                            set: { newValue in
+                                let clamped = max(10, min(1000, newValue))
+                                Task {
+                                    await viewModel.updateDefaultMaxResults(Int16(clamped))
+                                }
+                            }
+                        ),
+                        format: .number
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .frame(width: 80)
+
+                    Stepper(
+                        "",
+                        value: Binding(
+                            get: { Int(viewModel.smartSearchSettings.defaultMaxResults) },
+                            set: { newValue in
+                                Task {
+                                    await viewModel.updateDefaultMaxResults(Int16(newValue))
+                                }
+                            }
+                        ),
+                        in: 10...1000,
+                        step: 10
+                    )
+                    .labelsHidden()
+                }
+
+                Text("Maximum records to retrieve per smart search query (10–1000)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -42,7 +42,7 @@ public actor CrossrefSource: SourcePlugin {
 
     // MARK: - SourcePlugin
 
-    public func search(query: String) async throws -> [SearchResult] {
+    public func search(query: String, maxResults: Int = 50) async throws -> [SearchResult] {
         Logger.sources.entering()
         defer { Logger.sources.exiting() }
 
@@ -51,7 +51,7 @@ public actor CrossrefSource: SourcePlugin {
         var components = URLComponents(string: baseURL)!
         var queryItems = [
             URLQueryItem(name: "query", value: query),
-            URLQueryItem(name: "rows", value: "50"),
+            URLQueryItem(name: "rows", value: "\(maxResults)"),
             URLQueryItem(name: "select", value: "DOI,title,author,published-print,published-online,container-title,abstract,link,type"),
         ]
 

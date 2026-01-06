@@ -76,7 +76,7 @@ public actor SourceManager {
 
                 group.addTask {
                     do {
-                        let results = try await plugin.search(query: query)
+                        let results = try await plugin.search(query: query, maxResults: options.maxResults)
                         Logger.sources.debug("\(sourceID): found \(results.count) results")
                         return results
                     } catch {
@@ -104,7 +104,8 @@ public actor SourceManager {
     /// Search a specific source
     public func search(
         query: String,
-        sourceID: String
+        sourceID: String,
+        maxResults: Int = 50
     ) async throws -> [SearchResult] {
         guard let plugin = plugins[sourceID] else {
             throw SourceError.unknownSource(sourceID)
@@ -116,7 +117,7 @@ public actor SourceManager {
             throw SourceError.authenticationRequired(sourceID)
         }
 
-        return try await plugin.search(query: query)
+        return try await plugin.search(query: query, maxResults: maxResults)
     }
 
     // MARK: - BibTeX Fetching

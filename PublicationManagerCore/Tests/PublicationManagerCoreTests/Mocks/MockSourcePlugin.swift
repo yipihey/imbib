@@ -60,7 +60,7 @@ public actor MockSourcePlugin: SourcePlugin {
 
     // MARK: - SourcePlugin Methods
 
-    public func search(query: String) async throws -> [SearchResult] {
+    public func search(query: String, maxResults: Int = 50) async throws -> [SearchResult] {
         searchCallCount += 1
         lastSearchQuery = query
 
@@ -72,7 +72,7 @@ public actor MockSourcePlugin: SourcePlugin {
             throw error
         }
 
-        return searchResults
+        return Array(searchResults.prefix(maxResults))
     }
 
     public func fetchBibTeX(for result: SearchResult) async throws -> BibTeXEntry {

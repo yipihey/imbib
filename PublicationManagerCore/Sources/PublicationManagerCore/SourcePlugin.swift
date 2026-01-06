@@ -17,9 +17,11 @@ public protocol SourcePlugin: Sendable {
     var metadata: SourceMetadata { get }
 
     /// Search for publications matching the query
-    /// - Parameter query: Search query string
+    /// - Parameters:
+    ///   - query: Search query string
+    ///   - maxResults: Maximum number of results to return (default: 50)
     /// - Returns: Array of search results
-    func search(query: String) async throws -> [SearchResult]
+    func search(query: String, maxResults: Int) async throws -> [SearchResult]
 
     /// Fetch BibTeX entry for a specific search result
     /// - Parameter result: The search result to fetch BibTeX for

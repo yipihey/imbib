@@ -47,7 +47,7 @@ public actor ADSSource: SourcePlugin {
 
     // MARK: - SourcePlugin
 
-    public func search(query: String) async throws -> [SearchResult] {
+    public func search(query: String, maxResults: Int = 50) async throws -> [SearchResult] {
         Logger.sources.entering()
         defer { Logger.sources.exiting() }
 
@@ -61,7 +61,7 @@ public actor ADSSource: SourcePlugin {
         components.queryItems = [
             URLQueryItem(name: "q", value: query),
             URLQueryItem(name: "fl", value: "bibcode,title,author,year,pub,abstract,doi,identifier,doctype,esources"),
-            URLQueryItem(name: "rows", value: "50"),
+            URLQueryItem(name: "rows", value: "\(maxResults)"),
             URLQueryItem(name: "sort", value: "score desc"),
         ]
 

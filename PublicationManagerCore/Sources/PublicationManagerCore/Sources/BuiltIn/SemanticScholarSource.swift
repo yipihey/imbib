@@ -46,7 +46,7 @@ public actor SemanticScholarSource: SourcePlugin {
 
     // MARK: - SourcePlugin
 
-    public func search(query: String) async throws -> [SearchResult] {
+    public func search(query: String, maxResults: Int = 50) async throws -> [SearchResult] {
         Logger.sources.entering()
         defer { Logger.sources.exiting() }
 
@@ -56,7 +56,7 @@ public actor SemanticScholarSource: SourcePlugin {
         components.queryItems = [
             URLQueryItem(name: "query", value: query),
             URLQueryItem(name: "fields", value: "paperId,title,authors,year,venue,abstract,externalIds,openAccessPdf,url"),
-            URLQueryItem(name: "limit", value: "50"),
+            URLQueryItem(name: "limit", value: "\(maxResults)"),
         ]
 
         guard let url = components.url else {

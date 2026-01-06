@@ -46,7 +46,7 @@ public actor OpenAlexSource: SourcePlugin {
 
     // MARK: - SourcePlugin
 
-    public func search(query: String) async throws -> [SearchResult] {
+    public func search(query: String, maxResults: Int = 50) async throws -> [SearchResult] {
         Logger.sources.entering()
         defer { Logger.sources.exiting() }
 
@@ -55,7 +55,7 @@ public actor OpenAlexSource: SourcePlugin {
         var components = URLComponents(string: "\(baseURL)/works")!
         var queryItems = [
             URLQueryItem(name: "search", value: query),
-            URLQueryItem(name: "per-page", value: "50"),
+            URLQueryItem(name: "per-page", value: "\(maxResults)"),
             URLQueryItem(name: "select", value: "id,doi,title,authorships,publication_year,host_venue,abstract_inverted_index,open_access,ids"),
         ]
 

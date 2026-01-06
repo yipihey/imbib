@@ -103,8 +103,10 @@ public actor SmartSearchProvider {
             return
         }
 
-        // Build search options
+        // Build search options with current max results from settings
+        let currentMaxResults = await loadCurrentMaxResults()
         let options = SearchOptions(
+            maxResults: Int(currentMaxResults),
             sourceIDs: sourceIDs.isEmpty ? nil : sourceIDs
         )
 
@@ -118,10 +120,10 @@ public actor SmartSearchProvider {
                 options: options
             )
 
-            // Limit results
-            let limitedResults = Array(results.prefix(Int(maxResults)))
+            // Limit results (SourceManager already limits, but ensure consistency)
+            let limitedResults = Array(results.prefix(Int(currentMaxResults)))
 
-            Logger.smartSearch.infoCapture("Smart search '\(name)' returned \(results.count) results (limited to \(limitedResults.count))", category: "smartsearch")
+            Logger.smartSearch.infoCapture("Smart search '\(name)' returned \(results.count) results (limited to \(currentMaxResults))", category: "smartsearch")
 
             // Auto-import results to collection
             var importedCount = 0
@@ -148,6 +150,13 @@ public actor SmartSearchProvider {
             Logger.smartSearch.errorCapture("Smart search '\(name)' failed: \(error.localizedDescription)", category: "smartsearch")
             throw error
         }
+    }
+
+    // MARK: - Settings
+
+    /// Load current max results from settings (always uses current value, not stored)
+    private func loadCurrentMaxResults() async -> Int16 {
+        await SmartSearchSettingsStore.shared.settings.defaultMaxResults
     }
 
     // MARK: - Cache State
