@@ -69,9 +69,16 @@ struct SearchResultsListView: View {
         .onReceive(NotificationCenter.default.publisher(for: .pastePublications)) { _ in
             Task { try? await libraryViewModel.pasteFromClipboard() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .selectAllPublications)) { _ in
+            selectAllPublications()
+        }
     }
 
     // MARK: - Notification Handlers
+
+    private func selectAllPublications() {
+        viewModel.selectedPublicationIDs = Set(viewModel.publications.map { $0.id })
+    }
 
     private func toggleReadStatusForSelected() {
         guard !viewModel.selectedPublicationIDs.isEmpty else { return }

@@ -185,6 +185,13 @@ struct AppCommands: Commands {
 
             Divider()
 
+            Button("Select All") {
+                NotificationCenter.default.post(name: .selectAllPublications, object: nil)
+            }
+            .keyboardShortcut("a", modifiers: .command)
+
+            Divider()
+
             Button("Toggle Read/Unread") {
                 NotificationCenter.default.post(name: .toggleReadStatus, object: nil)
             }
@@ -205,4 +212,5 @@ extension Notification.Name {
     static let copyPublications = Notification.Name("copyPublications")
     static let cutPublications = Notification.Name("cutPublications")
     static let pastePublications = Notification.Name("pastePublications")
+    static let selectAllPublications = Notification.Name("selectAllPublications")
 }

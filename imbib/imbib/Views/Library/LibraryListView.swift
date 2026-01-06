@@ -119,9 +119,16 @@ struct LibraryListView: View {
         .onReceive(NotificationCenter.default.publisher(for: .pastePublications)) { _ in
             Task { try? await viewModel.pasteFromClipboard() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .selectAllPublications)) { _ in
+            selectAllPublications()
+        }
     }
 
     // MARK: - Notification Handlers
+
+    private func selectAllPublications() {
+        multiSelection = Set(libraryPublications.map { $0.id })
+    }
 
     private func toggleReadStatusForSelected() {
         guard !multiSelection.isEmpty else { return }

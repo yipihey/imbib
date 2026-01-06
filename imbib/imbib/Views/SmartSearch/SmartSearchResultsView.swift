@@ -115,6 +115,15 @@ struct SmartSearchResultsView: View {
             .onReceive(NotificationCenter.default.publisher(for: .pastePublications)) { _ in
                 Task { try? await libraryViewModel.pasteFromClipboard() }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .selectAllPublications)) { _ in
+                selectAllPublications()
+            }
+    }
+
+    // MARK: - Selection
+
+    private func selectAllPublications() {
+        selectedPublicationIDs = Set(publications.map { $0.id })
     }
 
     // MARK: - Toggle Read Status
