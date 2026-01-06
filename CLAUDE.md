@@ -335,7 +335,16 @@ Update the changelog below after significant work:
   - "Move To Library" → "Add to Library" (adds without removing from current)
   - "Add to Collection" menu now includes "All Publications" as first option
   - "All Publications" removes paper from all collections (like unfiling in email)
-- Drag-and-drop to library sidebar now adds to library (doesn't move)
+  - Hierarchical "Add to Library" menu: each library is a submenu showing collections
+- Drag-and-drop improvements:
+  - Dropping to library sidebar adds to library (doesn't move)
+  - Collection drop also adds to owning library (fixes papers not appearing)
+  - Sidebar counts update immediately after drag-and-drop
+- Collection management:
+  - Sidebar refreshes after creating collections (fixes new collection not appearing)
+  - Inline rename: new collections auto-enter edit mode after creation
+  - Added "Rename" option to collection context menu
+  - CollectionRow supports inline TextField editing
 - Files: `PersistenceController.swift`, `ManagedObjects.swift`, `PublicationRepository.swift`,
   `LibraryViewModel.swift`, `PublicationListView.swift`, `SidebarView.swift`
 - All 743 tests passing
