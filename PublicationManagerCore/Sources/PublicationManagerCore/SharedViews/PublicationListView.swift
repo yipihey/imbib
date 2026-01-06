@@ -212,7 +212,7 @@ public struct PublicationListView: View {
         .onAppear {
             rebuildRowData()
         }
-        .onChange(of: publications.map { $0.id }) { _, _ in
+        .onChange(of: publications.count) { _, _ in
             // Rebuild row data when publications change (add/delete)
             rebuildRowData()
         }
