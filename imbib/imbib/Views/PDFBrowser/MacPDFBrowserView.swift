@@ -105,6 +105,14 @@ struct MacWebViewRepresentable: NSViewRepresentable {
         webView.uiDelegate = context.coordinator
         webView.allowsBackForwardNavigationGestures = true
 
+        // Enable text selection and standard Edit menu commands
+        webView.allowsLinkPreview = true
+
+        // Make webView first responder to enable copy/paste
+        DispatchQueue.main.async {
+            webView.window?.makeFirstResponder(webView)
+        }
+
         // Store reference in view model
         viewModel.webView = webView
 
@@ -178,6 +186,9 @@ struct MacWebViewRepresentable: NSViewRepresentable {
                 viewModel.isLoading = false
                 viewModel.updateFromWebView(webView)
                 Logger.pdfBrowser.browserNavigation("Finished", url: webView.url ?? viewModel.initialURL)
+
+                // Make webView first responder for text selection/copy
+                webView.window?.makeFirstResponder(webView)
 
                 // Check if current page is a PDF
                 checkForPDFContent(webView)
