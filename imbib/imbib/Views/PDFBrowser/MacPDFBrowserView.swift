@@ -60,7 +60,8 @@ struct MacPDFBrowserView: View {
                     .font(.headline)
                     .lineLimit(1)
 
-                if let authors = viewModel.publication.author {
+                let authors = viewModel.publication.authorString
+                if !authors.isEmpty {
                     Text(authors)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -303,7 +304,7 @@ struct MacWebViewRepresentable: NSViewRepresentable {
                     viewModel.errorMessage = "Downloaded file is not a PDF"
                     viewModel.downloadProgress = nil
                 }
-                Logger.pdfBrowser.warning("Downloaded file is not a PDF: \(downloadFilename)")
+                Logger.pdfBrowser.warning("Downloaded file is not a PDF: \(self.downloadFilename)")
             }
 
             downloadData = Data()
