@@ -348,33 +348,31 @@ extension ADSSource: BrowserURLProvider {
 
     /// Build the best URL to open in browser for interactive PDF fetch.
     ///
-    /// This uses ADS-specific URL patterns:
-    /// 1. Link gateway for bibcode (most reliable for publisher PDFs)
-    /// 2. DOI resolver as fallback
+    /// Priority order for browser access (targeting published version):
+    /// 1. DOI resolver - redirects to publisher where user can authenticate
+    /// 2. ADS link gateway PUB_HTML - publisher article page (more reliable than PUB_PDF)
+    ///
+    /// Note: We use PUB_HTML instead of PUB_PDF because:
+    /// - PUB_PDF often returns 404 even when the paper has publisher access
+    /// - PUB_HTML goes to the article landing page where user can find the PDF
+    /// - The browser is for interactive access where users navigate themselves
     ///
     /// - Parameter publication: The publication to find a PDF URL for
     /// - Returns: A URL to open in the browser, or nil if this source can't help
     public static func browserPDFURL(for publication: CDPublication) -> URL? {
-        // Priority 1: Use ADS link gateway for bibcode
-        // This handles all ADS esource types and redirects to the publisher
+        // Priority 1: DOI resolver - always redirects to publisher
+        // This is the most reliable way to get to the publisher's article page
+        if let doi = publication.doi, !doi.isEmpty {
+            Logger.pdfBrowser.debug("ADS: Using DOI resolver for: \(doi)")
+            return URL(string: "https://doi.org/\(doi)")
+        }
+
+        // Priority 2: ADS link gateway with PUB_HTML (not PUB_PDF)
+        // PUB_HTML is more reliable - it goes to the article page where user can find PDF
+        // PUB_PDF often returns 404 even when publisher access exists
         if let bibcode = publication.bibcode {
-            Logger.pdfBrowser.debug("ADS: Using link gateway for bibcode: \(bibcode)")
-            return URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_PDF")
-        }
-
-        // Priority 2: If no bibcode but has DOI, let the default provider handle it
-        // (This avoids duplicating DOI logic)
-        if publication.doi != nil {
-            Logger.pdfBrowser.debug("ADS: No bibcode, falling back to DOI")
-            return nil
-        }
-
-        // Priority 3: Try publisher PDF from pdfLinks if bibcode came from ADS
-        if let adsPublisherLink = publication.pdfLinks.first(where: {
-            $0.sourceID == "ads" && $0.type == .publisher
-        }) {
-            Logger.pdfBrowser.debug("ADS: Using cached publisher PDF link")
-            return adsPublisherLink.url
+            Logger.pdfBrowser.debug("ADS: Using link gateway PUB_HTML for bibcode: \(bibcode)")
+            return URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_HTML")
         }
 
         return nil

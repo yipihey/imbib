@@ -174,6 +174,10 @@ public extension PDFBrowserWindowController {
     ///   - publication: The publication to find PDFs for
     ///   - libraryID: The library ID for PDF import
     ///   - onPDFCaptured: Callback when a PDF is captured
+    ///
+    /// Note: The browser does NOT apply library proxy to the initial URL. The proxy
+    /// prefix approach is for programmatic downloads. In the browser, users authenticate
+    /// naturally via institutional login pages, and the WKWebView maintains session cookies.
     func openBrowser(
         for publication: CDPublication,
         libraryID: UUID,
@@ -187,16 +191,19 @@ public extension PDFBrowserWindowController {
             return
         }
 
-        // Apply proxy settings if configured
-        let settings = await PDFSettingsStore.shared.settings
-        let proxiedURL = PDFURLResolver.applyProxy(to: startURL, settings: settings)
+        // Note: We intentionally do NOT apply the library proxy here.
+        // The proxy prefix approach (e.g., "https://proxy.library.edu/login?url=...")
+        // is meant for programmatic downloads. In the browser, users authenticate
+        // via the publisher's login page, and the WKWebView handles cookies/sessions.
+        // The ADS link gateway (ui.adsabs.harvard.edu) redirects to the publisher,
+        // where the user can authenticate with their institutional credentials.
 
-        Logger.pdfBrowser.info("Opening browser with URL: \(proxiedURL.absoluteString)")
+        Logger.pdfBrowser.info("Opening browser with URL: \(startURL.absoluteString)")
 
         // Create view model
         let viewModel = PDFBrowserViewModel(
             publication: publication,
-            initialURL: proxiedURL,
+            initialURL: startURL,
             libraryID: libraryID
         )
 
