@@ -354,6 +354,11 @@ Update the changelog below after significant work:
   - Fix: `(doc["year"] as? Int) ?? (doc["year"] as? String).flatMap { Int($0) }`
   - File: `ADSSource.swift:239`
   - Added 2 new tests: `testParseDoc_yearAsInt_parsesCorrectly`, `testParseDoc_yearAsString_parsesCorrectly`
+- Fixed deletion crash when deleting selected smart search, collection, or library
+  - Root cause: Selection binding retained reference to deleted Core Data object
+  - Fix: Clear `selection` BEFORE deletion in `deleteSmartSearch()`, `deleteCollection()`, `deleteLibrary()`
+  - Also handles cascade: deleting library now clears selection if any nested item is selected
+  - File: `SidebarView.swift` (lines 412-423, 455-464, 468-484)
 - All 743 tests passing
 
 ### 2026-01-05 (Session 9)

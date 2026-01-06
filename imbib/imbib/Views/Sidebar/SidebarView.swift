@@ -410,6 +410,11 @@ struct SidebarView: View {
     // MARK: - Smart Search Management
 
     private func deleteSmartSearch(_ smartSearch: CDSmartSearch) {
+        // Clear selection BEFORE deletion to prevent accessing deleted object
+        if case .smartSearch(let selected) = selection, selected.id == smartSearch.id {
+            selection = nil
+        }
+
         let searchID = smartSearch.id
         SmartSearchRepository.shared.delete(smartSearch)
         Task {
@@ -448,6 +453,11 @@ struct SidebarView: View {
     }
 
     private func deleteCollection(_ collection: CDCollection) {
+        // Clear selection BEFORE deletion to prevent accessing deleted object
+        if case .collection(let selected) = selection, selected.id == collection.id {
+            selection = nil
+        }
+
         guard let context = collection.managedObjectContext else { return }
         context.delete(collection)
         try? context.save()
@@ -456,11 +466,21 @@ struct SidebarView: View {
     // MARK: - Library Management
 
     private func deleteLibrary(_ library: CDLibrary) {
-        try? libraryManager.deleteLibrary(library, deleteFiles: false)
-        // Clear selection if we deleted the selected library
-        if selectedLibrary?.id == library.id {
-            selection = nil
+        // Clear selection BEFORE deletion if ANY item from this library is selected
+        if let currentSelection = selection {
+            switch currentSelection {
+            case .library(let lib), .unread(let lib):
+                if lib.id == library.id { selection = nil }
+            case .smartSearch(let ss):
+                if ss.library?.id == library.id { selection = nil }
+            case .collection(let col):
+                if col.library?.id == library.id { selection = nil }
+            case .search:
+                break  // Not affected by library deletion
+            }
         }
+
+        try? libraryManager.deleteLibrary(library, deleteFiles: false)
     }
 
     // MARK: - Drop Handlers
