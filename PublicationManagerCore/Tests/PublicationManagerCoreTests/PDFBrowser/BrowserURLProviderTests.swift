@@ -51,7 +51,19 @@ final class BrowserURLProviderTests: XCTestCase {
     // MARK: - ADS BrowserURLProvider Tests
 
     @MainActor
-    func testADSProvider_withBibcode_returnsLinkGateway() {
+    func testADSProvider_withDOI_returnsDOIResolver() {
+        // DOI takes priority over bibcode for browser access
+        let pub = createPublication(doi: "10.1234/test", bibcode: "2024ApJ...900..123A")
+
+        let url = ADSSource.browserPDFURL(for: pub)
+
+        XCTAssertNotNil(url)
+        XCTAssertEqual(url?.absoluteString, "https://doi.org/10.1234/test")
+    }
+
+    @MainActor
+    func testADSProvider_withBibcodeOnly_returnsAbstractPage() {
+        // Without DOI, falls back to ADS abstract page
         let pub = createPublication(bibcode: "2024ApJ...900..123A")
 
         let url = ADSSource.browserPDFURL(for: pub)
@@ -59,13 +71,13 @@ final class BrowserURLProviderTests: XCTestCase {
         XCTAssertNotNil(url)
         XCTAssertEqual(
             url?.absoluteString,
-            "https://ui.adsabs.harvard.edu/link_gateway/2024ApJ...900..123A/PUB_PDF"
+            "https://ui.adsabs.harvard.edu/abs/2024ApJ...900..123A/abstract"
         )
     }
 
     @MainActor
-    func testADSProvider_withNoBibcode_returnsNil() {
-        let pub = createPublication(doi: "10.1234/test")
+    func testADSProvider_withNoDOIOrBibcode_returnsNil() {
+        let pub = createPublication()
 
         let url = ADSSource.browserPDFURL(for: pub)
 
@@ -96,7 +108,8 @@ final class BrowserURLProviderTests: XCTestCase {
         let url = await registry.browserURL(for: pub)
 
         XCTAssertNotNil(url)
-        XCTAssertTrue(url?.absoluteString.contains("link_gateway") ?? false)
+        // ADS provider now returns abstract page for bibcode-only papers
+        XCTAssertTrue(url?.absoluteString.contains("adsabs.harvard.edu") ?? false)
     }
 
     @MainActor
@@ -129,7 +142,8 @@ final class BrowserURLProviderTests: XCTestCase {
         let url = await registry.browserURL(from: "ads", for: pub)
 
         XCTAssertNotNil(url)
-        XCTAssertTrue(url?.absoluteString.contains("link_gateway") ?? false)
+        // ADS provider now returns abstract page for bibcode-only papers
+        XCTAssertTrue(url?.absoluteString.contains("adsabs.harvard.edu") ?? false)
     }
 
     @MainActor
