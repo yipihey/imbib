@@ -7,12 +7,19 @@
 
 import SwiftUI
 import PublicationManagerCore
+import CoreData
 import OSLog
 #if os(macOS)
 import AppKit
 #endif
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "unifieddetail")
+
+// MARK: - Notifications
+
+extension Notification.Name {
+    static let pdfImportedFromBrowser = Notification.Name("pdfImportedFromBrowser")
+}
 
 // MARK: - Unified Detail View
 
@@ -756,6 +763,13 @@ struct PDFTab: View {
         ) { result in
             handleFileImport(result)
         }
+        .onReceive(NotificationCenter.default.publisher(for: .pdfImportedFromBrowser)) { notification in
+            // Refresh when PDF is imported from browser for this publication
+            if let objectID = notification.object as? NSManagedObjectID,
+               objectID == publication?.objectID {
+                resetAndCheckPDF()
+            }
+        }
     }
 
     // MARK: - Subviews
@@ -978,16 +992,16 @@ struct PDFTab: View {
         await PDFBrowserWindowController.shared.openBrowser(
             for: pub,
             libraryID: library.id
-        ) { [weak libraryManager, weak self] data in
+        ) { [weak libraryManager] data in
             // This is called when user saves the detected PDF
             guard let library = libraryManager?.activeLibrary else { return }
             do {
                 try PDFManager.shared.importPDF(data: data, for: pub, in: library)
                 logger.info("[PDFTab] PDF imported from browser successfully")
 
-                // Refresh the PDF view to show the newly imported file
+                // Post notification to refresh PDF view
                 await MainActor.run {
-                    self?.resetAndCheckPDF()
+                    NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: pub.objectID)
                 }
             } catch {
                 logger.error("[PDFTab] Failed to import PDF from browser: \(error)")
