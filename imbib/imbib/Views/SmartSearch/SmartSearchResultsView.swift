@@ -78,7 +78,9 @@ struct SmartSearchResultsView: View {
             publications = []
             return
         }
-        publications = Array(collection.publications ?? [])
+        // Filter out deleted publications (managedObjectContext becomes nil)
+        publications = (collection.publications ?? [])
+            .filter { $0.managedObjectContext != nil }
             .sorted { ($0.dateAdded) > ($1.dateAdded) }
     }
 

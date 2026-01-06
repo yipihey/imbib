@@ -57,12 +57,14 @@ public final class SearchViewModel {
 
     // MARK: - Last Search Collection
 
-    /// Publications from the Last Search collection
+    /// Publications from the Last Search collection (excludes deleted objects)
     public var publications: [CDPublication] {
         guard let collection = libraryManager?.activeLibrary?.lastSearchCollection else {
             return []
         }
-        return Array(collection.publications ?? [])
+        // Filter out deleted publications (managedObjectContext becomes nil)
+        return (collection.publications ?? [])
+            .filter { $0.managedObjectContext != nil }
             .sorted { ($0.dateAdded) > ($1.dateAdded) }
     }
 

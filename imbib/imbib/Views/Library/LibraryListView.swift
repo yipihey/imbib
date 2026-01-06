@@ -37,13 +37,14 @@ struct LibraryListView: View {
 
     // MARK: - Computed Properties
 
-    /// Publications from this library
+    /// Publications from this library (excludes deleted objects)
     private var libraryPublications: [CDPublication] {
         guard let publications = library.publications as? Set<CDPublication> else {
             return []
         }
 
-        var filtered = Array(publications)
+        // Filter out deleted publications (managedObjectContext becomes nil)
+        var filtered = publications.filter { $0.managedObjectContext != nil }
 
         // Apply filter mode (unread filter is now handled by PublicationListView's toggle)
         switch filterMode {
@@ -53,7 +54,7 @@ struct LibraryListView: View {
             filtered = filtered.filter { !$0.isRead }
         }
 
-        return filtered
+        return Array(filtered)
     }
 
     /// Title based on filter mode
