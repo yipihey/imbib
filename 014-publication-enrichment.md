@@ -2,11 +2,20 @@
 
 ## Status
 
-Accepted
+Accepted and Implemented
 
 ## Date
 
-2026-01-04
+2026-01-04 (Updated 2026-01-05)
+
+## Implementation Notes
+
+The enrichment system is now fully wired up:
+- **EnrichmentCoordinator** (`EnrichmentCoordinator.swift`) connects EnrichmentService to Core Data persistence
+- Papers are automatically queued for enrichment on BibTeX/RIS import
+- Background sync starts on app launch via `EnrichmentCoordinator.shared.start()`
+- PDF URLs from OpenAlex are saved to `pdfLinks` via `addPDFLink()` helper
+- Enrichment results (citation count, abstract, PDF URLs) persisted via `PublicationRepository.saveEnrichmentResult()`
 
 ## Context
 

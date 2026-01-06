@@ -304,6 +304,7 @@ swift package generate-xcodeproj
 | 011 | Console window for debugging (LogStore + dual logging) |
 | 012 | Unified library/online experience (PaperRepresentable, SessionCache) |
 | 013 | First-class RIS format (RISParser, RISExporter, RISBibTeXConverter) |
+| 014 | Publication enrichment (EnrichmentService, background sync, citation counts, PDF URLs) ✅ |
 | 015 | PDF settings (source priority, library proxy, ADSSource pdfURL fix) |
 | 016 | Unified Paper Model: All papers are CDPublication (auto-import, no OnlinePaper) |
 
