@@ -318,6 +318,21 @@ Update the changelog below after significant work:
 
 ## Changelog
 
+### 2026-01-05 (Session 11)
+- Rebranded "Metadata" tab to "Info" tab (email mental model)
+  - Renamed DetailTab.metadata → .info
+  - Renamed MetadataTab struct → InfoTab
+  - Renamed metadataSection() → infoSection()
+  - Updated tab icon from doc.text to info.circle
+- Email-style Info tab layout:
+  - Header section: From (authors), Year, Subject (title), Venue
+  - Identifiers section: DOI, arXiv, ADS bibcode, PubMed (compact FlowLayout)
+  - Abstract section
+  - Attachments section (NEW): Shows linked PDFs with filename, file size, Open/Show in Finder buttons
+  - Record Info section (NEW): Cite key, entry type, dates, read status, citation count
+- Added FlowLayout for responsive identifier display
+- File: `DetailView.swift`
+
 ### 2026-01-05 (Session 10)
 - Unified publication list views for feature parity
   - Created PublicationListView shared component in SharedViews
@@ -418,7 +433,7 @@ Update the changelog below after significant work:
 - Created UnifiedDetailView.swift with protocol-based approach:
   - Works with any PaperRepresentable (OnlinePaper, LocalPaper)
   - Conditional editing for persistent papers (library items)
-  - Four tabs: Metadata, BibTeX, PDF, Notes
+  - Four tabs: Info, BibTeX, PDF, Notes
   - Notes tab only shown for library papers
 - Implemented full Add PDF functionality:
   - fileImporter for PDF selection

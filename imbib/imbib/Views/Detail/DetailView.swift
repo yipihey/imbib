@@ -37,7 +37,7 @@ struct DetailView: View {
 
     // MARK: - State
 
-    @State private var selectedTab: DetailTab = .metadata
+    @State private var selectedTab: DetailTab = .info
 
     // MARK: - Computed Properties
 
@@ -73,9 +73,9 @@ struct DetailView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            MetadataTab(paper: paper, publication: publication)
-                .tabItem { Label("Metadata", systemImage: "doc.text") }
-                .tag(DetailTab.metadata)
+            InfoTab(paper: paper, publication: publication)
+                .tabItem { Label("Info", systemImage: "info.circle") }
+                .tag(DetailTab.info)
 
             BibTeXTab(paper: paper, publication: publication)
                 .tabItem { Label("BibTeX", systemImage: "chevron.left.forwardslash.chevron.right") }
@@ -202,97 +202,54 @@ struct DetailView: View {
 // MARK: - Unified Detail Tab
 
 enum DetailTab: String, CaseIterable {
-    case metadata
+    case info
     case bibtex
     case pdf
     case notes
 }
 
-// MARK: - Metadata Tab
+// MARK: - Info Tab
 
-struct MetadataTab: View {
+struct InfoTab: View {
     let paper: any PaperRepresentable
     let publication: CDPublication?
+
+    @Environment(LibraryManager.self) private var libraryManager
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    // Title (with scientific text parsing for sub/superscripts)
-                    metadataSection("Title") {
-                        ScientificTextParser.text(paper.title)
-                            .textSelection(.enabled)
-                    }
-                    .id("top")
+                VStack(alignment: .leading, spacing: 20) {
+                    // MARK: - Email-Style Header
+                    headerSection
+                        .id("top")
 
-                    // Authors
-                    metadataSection("Authors") {
-                        Text(paper.authors.isEmpty ? "Unknown" : paper.authors.joined(separator: ", "))
-                            .textSelection(.enabled)
-                    }
+                    Divider()
 
-                    // Year
-                    if let year = paper.year {
-                        metadataSection("Year") {
-                            Text(String(year))
-                        }
+                    // MARK: - Identifiers (compact row)
+                    if hasIdentifiers {
+                        identifiersSection
+                        Divider()
                     }
 
-                    // Venue/Journal (expand macros to full names)
-                    if let venue = paper.venue {
-                        metadataSection("Venue") {
-                            Text(JournalMacros.expand(venue))
-                                .textSelection(.enabled)
-                        }
-                    }
-
-                    // DOI
-                    if let doi = paper.doi {
-                        metadataSection("DOI") {
-                            Link(doi, destination: URL(string: "https://doi.org/\(doi)")!)
-                        }
-                    }
-
-                    // arXiv ID
-                    if let arxivID = paper.arxivID {
-                        metadataSection("arXiv") {
-                            Link(arxivID, destination: URL(string: "https://arxiv.org/abs/\(arxivID)")!)
-                        }
-                    }
-
-                    // Bibcode (ADS)
-                    if let bibcode = paper.bibcode {
-                        metadataSection("Bibcode") {
-                            Link(bibcode, destination: URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)")!)
-                        }
-                    }
-
-                    // PubMed ID
-                    if let pmid = paper.pmid {
-                        metadataSection("PubMed") {
-                            Link(pmid, destination: URL(string: "https://pubmed.ncbi.nlm.nih.gov/\(pmid)")!)
-                        }
-                    }
-
-                    // Web URL (from CDPublication's webURL field)
-                    if let pub = publication, let webURL = pub.webURLObject {
-                        metadataSection("Web Link") {
-                            Link(webURL.host ?? webURL.absoluteString, destination: webURL)
-                        }
-                    }
-
-                    // Abstract (with scientific text parsing for sub/superscripts)
+                    // MARK: - Abstract (Body)
                     if let abstract = paper.abstract, !abstract.isEmpty {
-                        metadataSection("Abstract") {
+                        infoSection("Abstract") {
                             ScientificTextParser.text(abstract)
                                 .textSelection(.enabled)
                         }
+                        Divider()
                     }
 
-                    // Source info
-                    metadataSection("Source") {
-                        Text(sourceDescription)
-                            .foregroundStyle(.secondary)
+                    // MARK: - Attachments (PDF files)
+                    if let pub = publication, let linkedFiles = pub.linkedFiles, !linkedFiles.isEmpty {
+                        attachmentsSection(Array(linkedFiles))
+                        Divider()
+                    }
+
+                    // MARK: - Record Info
+                    if let pub = publication {
+                        recordInfoSection(pub)
                     }
 
                     Spacer()
@@ -305,19 +262,224 @@ struct MetadataTab: View {
         }
     }
 
-    private var sourceDescription: String {
-        switch paper.sourceType {
-        case .local:
-            return "Library"
-        case .smartSearch:
-            return "Smart Search"
-        case .adHocSearch(let sourceID):
-            return sourceID.capitalized
+    // MARK: - Header Section (Email-Style)
+
+    @ViewBuilder
+    private var headerSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // From: Authors
+            infoRow("From") {
+                Text(paper.authors.isEmpty ? "Unknown" : paper.authors.joined(separator: "; "))
+                    .textSelection(.enabled)
+            }
+
+            // Year
+            if let year = paper.year {
+                infoRow("Year") {
+                    Text(String(year))
+                }
+            }
+
+            // Subject: Title
+            infoRow("Subject") {
+                ScientificTextParser.text(paper.title)
+                    .font(.headline)
+                    .textSelection(.enabled)
+            }
+
+            // Venue
+            if let venue = paper.venue {
+                infoRow("Venue") {
+                    Text(JournalMacros.expand(venue))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+    }
+
+    // MARK: - Identifiers Section
+
+    private var hasIdentifiers: Bool {
+        paper.doi != nil || paper.arxivID != nil || paper.bibcode != nil || paper.pmid != nil
+    }
+
+    @ViewBuilder
+    private var identifiersSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Identifiers")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+
+            FlowLayout(spacing: 12) {
+                if let doi = paper.doi {
+                    identifierLink("DOI", value: doi, url: "https://doi.org/\(doi)")
+                }
+                if let arxivID = paper.arxivID {
+                    identifierLink("arXiv", value: arxivID, url: "https://arxiv.org/abs/\(arxivID)")
+                }
+                if let bibcode = paper.bibcode {
+                    identifierLink("ADS", value: bibcode, url: "https://ui.adsabs.harvard.edu/abs/\(bibcode)")
+                }
+                if let pmid = paper.pmid {
+                    identifierLink("PubMed", value: pmid, url: "https://pubmed.ncbi.nlm.nih.gov/\(pmid)")
+                }
+            }
         }
     }
 
     @ViewBuilder
-    private func metadataSection(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+    private func identifierLink(_ label: String, value: String, url: String) -> some View {
+        HStack(spacing: 4) {
+            Text("\(label):")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let linkURL = URL(string: url) {
+                Link(value, destination: linkURL)
+                    .font(.caption)
+            } else {
+                Text(value)
+                    .font(.caption)
+            }
+        }
+    }
+
+    // MARK: - Attachments Section
+
+    @ViewBuilder
+    private func attachmentsSection(_ linkedFiles: [CDLinkedFile]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Attachments (\(linkedFiles.count))")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+
+            ForEach(linkedFiles, id: \.id) { file in
+                attachmentRow(file)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func attachmentRow(_ file: CDLinkedFile) -> some View {
+        HStack {
+            Image(systemName: file.isPDF ? "doc.fill" : "paperclip")
+                .foregroundStyle(.secondary)
+
+            Text(file.filename)
+                .lineLimit(1)
+                .truncationMode(.middle)
+
+            Spacer()
+
+            if let size = getFileSize(for: file) {
+                Text(formatFileSize(size))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button("Open") {
+                openFile(file)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.blue)
+
+            #if os(macOS)
+            Button {
+                showInFinder(file)
+            } label: {
+                Image(systemName: "folder")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .help("Show in Finder")
+            #endif
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 8)
+        .background(Color.secondary.opacity(0.1))
+        .cornerRadius(6)
+    }
+
+    // MARK: - Record Info Section
+
+    @ViewBuilder
+    private func recordInfoSection(_ pub: CDPublication) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Record Info")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+
+            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                GridRow {
+                    Text("Cite Key")
+                        .foregroundStyle(.secondary)
+                    Text(pub.citeKey)
+                        .textSelection(.enabled)
+                }
+
+                GridRow {
+                    Text("Entry Type")
+                        .foregroundStyle(.secondary)
+                    Text(pub.entryType.capitalized)
+                }
+
+                GridRow {
+                    Text("Added")
+                        .foregroundStyle(.secondary)
+                    Text(pub.dateAdded.formatted(date: .abbreviated, time: .omitted))
+                }
+
+                GridRow {
+                    Text("Modified")
+                        .foregroundStyle(.secondary)
+                    Text(pub.dateModified.formatted(date: .abbreviated, time: .omitted))
+                }
+
+                GridRow {
+                    Text("Read Status")
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Text(pub.isRead ? "Read" : "Unread")
+                        if pub.isRead {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                        } else {
+                            Image(systemName: "circle.fill")
+                                .foregroundStyle(.blue)
+                        }
+                    }
+                }
+
+                if pub.citationCount > 0 {
+                    GridRow {
+                        Text("Citations")
+                            .foregroundStyle(.secondary)
+                        Text(pub.citationCount.formatted())
+                    }
+                }
+            }
+            .font(.callout)
+        }
+    }
+
+    // MARK: - Helpers
+
+    @ViewBuilder
+    private func infoRow(_ label: String, @ViewBuilder content: () -> some View) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text("\(label):")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .frame(width: 60, alignment: .trailing)
+            content()
+        }
+    }
+
+    @ViewBuilder
+    private func infoSection(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title)
                 .font(.caption)
@@ -326,6 +488,40 @@ struct MetadataTab: View {
             content()
         }
     }
+
+    private func getFileSize(for file: CDLinkedFile) -> Int64? {
+        guard let url = PDFManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) else {
+            return nil
+        }
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: url.path) else {
+            return nil
+        }
+        return attrs[.size] as? Int64
+    }
+
+    private func formatFileSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
+    }
+
+    private func openFile(_ file: CDLinkedFile) {
+        guard let url = PDFManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) else {
+            return
+        }
+        #if os(macOS)
+        NSWorkspace.shared.open(url)
+        #endif
+    }
+
+    #if os(macOS)
+    private func showInFinder(_ file: CDLinkedFile) {
+        guard let url = PDFManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) else {
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+    #endif
 }
 
 // MARK: - BibTeX Tab
@@ -757,6 +953,50 @@ enum PDFDownloadError: LocalizedError {
         case .downloadFailed(let reason):
             return "Download failed: \(reason)"
         }
+    }
+}
+
+// MARK: - Flow Layout
+
+/// A layout that arranges views horizontally and wraps to new lines as needed.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        return layout(sizes: sizes, containerWidth: proposal.width ?? .infinity).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let sizes = subviews.map { $0.sizeThatFits(.unspecified) }
+        let offsets = layout(sizes: sizes, containerWidth: bounds.width).offsets
+
+        for (subview, offset) in zip(subviews, offsets) {
+            subview.place(at: CGPoint(x: bounds.minX + offset.x, y: bounds.minY + offset.y), proposal: .unspecified)
+        }
+    }
+
+    private func layout(sizes: [CGSize], containerWidth: CGFloat) -> (offsets: [CGPoint], size: CGSize) {
+        var offsets: [CGPoint] = []
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        var maxWidth: CGFloat = 0
+
+        for size in sizes {
+            if currentX + size.width > containerWidth && currentX > 0 {
+                currentX = 0
+                currentY += lineHeight + spacing
+                lineHeight = 0
+            }
+
+            offsets.append(CGPoint(x: currentX, y: currentY))
+            lineHeight = max(lineHeight, size.height)
+            currentX += size.width + spacing
+            maxWidth = max(maxWidth, currentX - spacing)
+        }
+
+        return (offsets, CGSize(width: maxWidth, height: currentY + lineHeight))
     }
 }
 
