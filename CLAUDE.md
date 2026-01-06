@@ -349,6 +349,26 @@ Update the changelog below after significant work:
   `LibraryViewModel.swift`, `PublicationListView.swift`, `SidebarView.swift`
 - All 743 tests passing
 
+### 2026-01-06 (Session 14)
+- PDF Browser improvements for reliable publisher access
+  - Removed library proxy from browser URLs (proxy prefix breaks ADS gateway)
+  - Browser uses natural web authentication via WKWebView cookie persistence
+  - Improved ADS browser URL priority:
+    1. DOI resolver (most reliable, always redirects to publisher)
+    2. ADS abstract page fallback (shows all available "Full Text Sources")
+  - Removed PUB_PDF/PUB_HTML link_gateway (often returns 404)
+- App Transport Security fix
+  - Added NSAllowsArbitraryLoadsInWebContent for WKWebView
+  - Allows loading HTTP content from publisher redirects
+- Text selection and copy/paste in browser
+  - Make WKWebView first responder after navigation
+  - Fixed priority inversion warning (call outside Task block)
+- Auto-close browser after PDF save
+  - Browser window closes automatically after saving PDF
+  - PDF tab refreshes to show newly imported file
+- Files: ADSSource.swift, PDFBrowserWindowController.swift, PDFBrowserViewModel.swift,
+  MacPDFBrowserView.swift, DetailView.swift, Info.plist
+
 ### 2026-01-06 (Session 13)
 - Interactive PDF Browser for publisher authentication
   - Web browser window for PDFs requiring auth, CAPTCHAs, or multi-step access
