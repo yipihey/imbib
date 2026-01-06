@@ -250,6 +250,8 @@ public actor PublicationRepository {
                 for publication in publications {
                     context.delete(publication)
                 }
+                // Process pending changes to ensure isDeleted is set before UI updates
+                context.processPendingChanges()
                 self.persistenceController.save()
                 Logger.persistence.info("Successfully deleted \(publications.count) publications")
             } catch {
