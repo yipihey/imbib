@@ -242,7 +242,7 @@ public actor PublicationRepository {
         let context = persistenceController.viewContext
 
         await context.perform {
-            let request = NSFetchRequest<CDPublication>(entityName: "CDPublication")
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
             request.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
 
             do {
