@@ -349,7 +349,12 @@ Update the changelog below after significant work:
   - Gains all library features (context menu, shortcuts, sorting)
   - Passes listID: .lastSearch(collection.id) for state persistence
 - Per ADR-016: No material difference between library and search views
-- All 741 tests passing
+- Fixed ADS year extraction bug causing "Author_NoYear_Title.pdf" filenames
+  - Bug: `doc["year"] as? Int` failed when ADS returned year as String
+  - Fix: `(doc["year"] as? Int) ?? (doc["year"] as? String).flatMap { Int($0) }`
+  - File: `ADSSource.swift:239`
+  - Added 2 new tests: `testParseDoc_yearAsInt_parsesCorrectly`, `testParseDoc_yearAsString_parsesCorrectly`
+- All 743 tests passing
 
 ### 2026-01-05 (Session 9)
 - Multi-library sidebar with disclosure groups

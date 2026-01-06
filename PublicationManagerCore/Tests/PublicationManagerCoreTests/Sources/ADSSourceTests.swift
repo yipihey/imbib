@@ -180,6 +180,76 @@ final class ADSSourceTests: XCTestCase {
         }
     }
 
+    // MARK: - Year Parsing Tests
+
+    func testParseDoc_yearAsInt_parsesCorrectly() async throws {
+        // Given - year as Int
+        let responseJSON: [String: Any] = [
+            "response": [
+                "docs": [
+                    [
+                        "bibcode": "2024ApJ...123..456A",
+                        "title": ["Test Paper"],
+                        "author": ["Author, Test"],
+                        "year": 2024  // Int format
+                    ]
+                ]
+            ]
+        ]
+
+        MockURLProtocol.requestHandler = { request in
+            let data = try JSONSerialization.data(withJSONObject: responseJSON)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, data)
+        }
+
+        // When
+        let results = try await source.search(query: "test")
+
+        // Then
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results.first?.year, 2024)
+    }
+
+    func testParseDoc_yearAsString_parsesCorrectly() async throws {
+        // Given - year as String (ADS sometimes returns this format)
+        let responseJSON: [String: Any] = [
+            "response": [
+                "docs": [
+                    [
+                        "bibcode": "2024ApJ...123..456A",
+                        "title": ["Test Paper"],
+                        "author": ["Author, Test"],
+                        "year": "2024"  // String format
+                    ]
+                ]
+            ]
+        ]
+
+        MockURLProtocol.requestHandler = { request in
+            let data = try JSONSerialization.data(withJSONObject: responseJSON)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, data)
+        }
+
+        // When
+        let results = try await source.search(query: "test")
+
+        // Then
+        XCTAssertEqual(results.count, 1)
+        XCTAssertEqual(results.first?.year, 2024)
+    }
+
     // MARK: - arXiv ID Extraction Tests
 
     func testExtractArXivID_withArXivPrefix() async throws {

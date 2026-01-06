@@ -236,7 +236,7 @@ public actor ADSSource: SourcePlugin {
 
         let title = (doc["title"] as? [String])?.first ?? "Untitled"
         let authors = doc["author"] as? [String] ?? []
-        let year = doc["year"] as? Int
+        let year = (doc["year"] as? Int) ?? (doc["year"] as? String).flatMap { Int($0) }
         let venue = doc["pub"] as? String
         let abstract = doc["abstract"] as? String
         let doi = extractDOI(from: doc)
