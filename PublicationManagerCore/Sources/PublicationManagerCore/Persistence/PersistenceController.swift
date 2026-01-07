@@ -85,6 +85,7 @@ public final class PersistenceController: @unchecked Sendable {
         let collectionEntity = createCollectionEntity()
         let libraryEntity = createLibraryEntity()
         let smartSearchEntity = createSmartSearchEntity()
+        let mutedItemEntity = createMutedItemEntity()
 
         // Set up relationships
         setupRelationships(
@@ -142,6 +143,7 @@ public final class PersistenceController: @unchecked Sendable {
             collectionEntity,
             libraryEntity,
             smartSearchEntity,
+            mutedItemEntity,
         ]
 
         return model
@@ -329,6 +331,14 @@ public final class PersistenceController: @unchecked Sendable {
         dateRead.attributeType = .dateAttributeType
         dateRead.isOptional = true
         properties.append(dateRead)
+
+        // Star/flag status (Inbox triage)
+        let isStarred = NSAttributeDescription()
+        isStarred.name = "isStarred"
+        isStarred.attributeType = .booleanAttributeType
+        isStarred.isOptional = false
+        isStarred.defaultValue = false
+        properties.append(isStarred)
 
         entity.properties = properties
         return entity
@@ -639,6 +649,13 @@ public final class PersistenceController: @unchecked Sendable {
         sortOrder.defaultValue = Int16(0)
         properties.append(sortOrder)
 
+        let isInbox = NSAttributeDescription()
+        isInbox.name = "isInbox"
+        isInbox.attributeType = .booleanAttributeType
+        isInbox.isOptional = false
+        isInbox.defaultValue = false
+        properties.append(isInbox)
+
         entity.properties = properties
         return entity
     }
@@ -701,6 +718,71 @@ public final class PersistenceController: @unchecked Sendable {
         maxResults.isOptional = false
         maxResults.defaultValue = Int16(50)  // Default limit of 50 results
         properties.append(maxResults)
+
+        // Inbox feature: Smart searches can feed papers to the Inbox
+        let feedsToInbox = NSAttributeDescription()
+        feedsToInbox.name = "feedsToInbox"
+        feedsToInbox.attributeType = .booleanAttributeType
+        feedsToInbox.isOptional = false
+        feedsToInbox.defaultValue = false
+        properties.append(feedsToInbox)
+
+        let autoRefreshEnabled = NSAttributeDescription()
+        autoRefreshEnabled.name = "autoRefreshEnabled"
+        autoRefreshEnabled.attributeType = .booleanAttributeType
+        autoRefreshEnabled.isOptional = false
+        autoRefreshEnabled.defaultValue = false
+        properties.append(autoRefreshEnabled)
+
+        let refreshIntervalSeconds = NSAttributeDescription()
+        refreshIntervalSeconds.name = "refreshIntervalSeconds"
+        refreshIntervalSeconds.attributeType = .integer32AttributeType
+        refreshIntervalSeconds.isOptional = false
+        refreshIntervalSeconds.defaultValue = Int32(6 * 60 * 60)  // Default: 6 hours
+        properties.append(refreshIntervalSeconds)
+
+        let lastFetchCount = NSAttributeDescription()
+        lastFetchCount.name = "lastFetchCount"
+        lastFetchCount.attributeType = .integer16AttributeType
+        lastFetchCount.isOptional = false
+        lastFetchCount.defaultValue = Int16(0)
+        properties.append(lastFetchCount)
+
+        entity.properties = properties
+        return entity
+    }
+
+    private static func createMutedItemEntity() -> NSEntityDescription {
+        let entity = NSEntityDescription()
+        entity.name = "MutedItem"
+        entity.managedObjectClassName = "PublicationManagerCore.CDMutedItem"
+
+        var properties: [NSPropertyDescription] = []
+
+        let id = NSAttributeDescription()
+        id.name = "id"
+        id.attributeType = .UUIDAttributeType
+        id.isOptional = false
+        properties.append(id)
+
+        let type = NSAttributeDescription()
+        type.name = "type"
+        type.attributeType = .stringAttributeType
+        type.isOptional = false
+        properties.append(type)
+
+        let value = NSAttributeDescription()
+        value.name = "value"
+        value.attributeType = .stringAttributeType
+        value.isOptional = false
+        properties.append(value)
+
+        let dateAdded = NSAttributeDescription()
+        dateAdded.name = "dateAdded"
+        dateAdded.attributeType = .dateAttributeType
+        dateAdded.isOptional = false
+        dateAdded.defaultValue = Date()
+        properties.append(dateAdded)
 
         entity.properties = properties
         return entity

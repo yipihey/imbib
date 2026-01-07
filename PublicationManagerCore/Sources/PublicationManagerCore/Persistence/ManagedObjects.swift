@@ -52,6 +52,9 @@ public class CDPublication: NSManagedObject {
     @NSManaged public var isRead: Bool
     @NSManaged public var dateRead: Date?
 
+    // Star/flag status (Inbox triage)
+    @NSManaged public var isStarred: Bool
+
     // Relationships
     @NSManaged public var publicationAuthors: Set<CDPublicationAuthor>?
     @NSManaged public var linkedFiles: Set<CDLinkedFile>?
@@ -595,6 +598,7 @@ public class CDLibrary: NSManagedObject, Identifiable {
     @NSManaged public var dateLastOpened: Date?
     @NSManaged public var isDefault: Bool              // Is this the default library?
     @NSManaged public var sortOrder: Int16             // For sidebar ordering (drag-and-drop)
+    @NSManaged public var isInbox: Bool                // Is this the special Inbox library?
 
     // Relationships
     @NSManaged public var smartSearches: Set<CDSmartSearch>?
@@ -663,6 +667,12 @@ public class CDSmartSearch: NSManagedObject, Identifiable {
     // ADR-016: Unified Paper Model
     @NSManaged public var maxResults: Int16            // Limit stored results (default: 50)
 
+    // Inbox feature: Smart searches can feed papers to the Inbox
+    @NSManaged public var feedsToInbox: Bool           // If true, results go to Inbox library
+    @NSManaged public var autoRefreshEnabled: Bool     // If true, auto-refresh at interval
+    @NSManaged public var refreshIntervalSeconds: Int32 // Refresh interval (default: 6 hours)
+    @NSManaged public var lastFetchCount: Int16        // Papers found in last fetch (for badge)
+
     // Relationships
     @NSManaged public var library: CDLibrary?
     @NSManaged public var resultCollection: CDCollection?  // Collection holding imported results
@@ -693,5 +703,36 @@ public extension CDSmartSearch {
     /// Whether this search uses all available sources
     var usesAllSources: Bool {
         sources.isEmpty
+    }
+}
+
+// MARK: - Muted Item
+
+/// Represents a muted item that should be excluded from Inbox results.
+/// Can mute specific papers, authors, venues, or arXiv categories.
+@objc(CDMutedItem)
+public class CDMutedItem: NSManagedObject, Identifiable {
+    @NSManaged public var id: UUID
+    @NSManaged public var type: String                 // "author", "doi", "bibcode", "venue", "arxivCategory"
+    @NSManaged public var value: String                // The muted value (e.g., author name, DOI, etc.)
+    @NSManaged public var dateAdded: Date
+}
+
+// MARK: - Muted Item Types
+
+public extension CDMutedItem {
+
+    /// Types of items that can be muted
+    enum MuteType: String, CaseIterable {
+        case author = "author"           // Mute papers by a specific author
+        case doi = "doi"                 // Mute a specific paper by DOI
+        case bibcode = "bibcode"         // Mute a specific paper by ADS bibcode
+        case venue = "venue"             // Mute papers from a venue/journal
+        case arxivCategory = "arxivCategory"  // Mute papers from an arXiv category
+    }
+
+    /// Get the mute type enum
+    var muteType: MuteType? {
+        MuteType(rawValue: type)
     }
 }

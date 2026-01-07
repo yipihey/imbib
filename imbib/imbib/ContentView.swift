@@ -88,6 +88,28 @@ struct ContentView: View {
     @ViewBuilder
     private var contentList: some View {
         switch selectedSection {
+        case .inbox:
+            // Show all papers in the Inbox library
+            if let inboxLibrary = InboxManager.shared.inboxLibrary {
+                UnifiedPublicationListWrapper(
+                    source: .library(inboxLibrary),
+                    selectedPublication: $selectedPublication
+                )
+            } else {
+                ContentUnavailableView(
+                    "Inbox Empty",
+                    systemImage: "tray",
+                    description: Text("Add feeds to start discovering papers")
+                )
+            }
+
+        case .inboxFeed(let smartSearch):
+            // Show papers from a specific inbox feed (same as smart search)
+            UnifiedPublicationListWrapper(
+                source: .smartSearch(smartSearch),
+                selectedPublication: $selectedPublication
+            )
+
         case .library(let library):
             UnifiedPublicationListWrapper(
                 source: .library(library),
@@ -146,6 +168,11 @@ struct ContentView: View {
     /// Extract library ID from current section selection
     private var selectedLibraryID: UUID? {
         switch selectedSection {
+        case .inbox:
+            return InboxManager.shared.inboxLibrary?.id
+        case .inboxFeed(let smartSearch):
+            // Inbox feeds belong to the Inbox library
+            return InboxManager.shared.inboxLibrary?.id ?? smartSearch.library?.id
         case .library(let library), .unread(let library):
             return library.id
         case .smartSearch(let smartSearch):
@@ -222,6 +249,8 @@ struct ContentView: View {
 // MARK: - Sidebar Section
 
 enum SidebarSection: Hashable {
+    case inbox                         // Inbox - all papers waiting for triage
+    case inboxFeed(CDSmartSearch)      // Inbox feed (smart search with feedsToInbox)
     case library(CDLibrary)           // All publications for specific library
     case unread(CDLibrary)            // Unread publications for specific library
     case search                        // Global search

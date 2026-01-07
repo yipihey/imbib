@@ -133,6 +133,20 @@ struct SearchResultsListView: View {
                 }
                 .buttonStyle(.borderedProminent)
                 .disabled(searchText.isEmpty)
+
+                // Send to Inbox button
+                if !viewModel.publications.isEmpty {
+                    Divider()
+                        .frame(height: 20)
+
+                    Button {
+                        sendSelectedToInbox()
+                    } label: {
+                        Label("Send to Inbox", systemImage: "tray.and.arrow.down")
+                    }
+                    .help("Send selected publications to Inbox")
+                    .disabled(viewModel.selectedPublicationIDs.isEmpty)
+                }
             }
             .padding(8)
             .background(.background.secondary)
@@ -216,6 +230,23 @@ struct SearchResultsListView: View {
             viewModel.query = searchText
             await viewModel.search()
         }
+    }
+
+    private func sendSelectedToInbox() {
+        let selectedIDs = viewModel.selectedPublicationIDs
+        guard !selectedIDs.isEmpty else { return }
+
+        let inboxManager = InboxManager.shared
+
+        // Add selected publications to Inbox
+        for id in selectedIDs {
+            if let publication = viewModel.publications.first(where: { $0.id == id }) {
+                inboxManager.addToInbox(publication)
+            }
+        }
+
+        // Clear selection after sending
+        viewModel.clearSelection()
     }
 
     private func openPDF(for publication: CDPublication) {

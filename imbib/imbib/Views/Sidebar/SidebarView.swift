@@ -42,9 +42,12 @@ struct SidebarView: View {
         VStack(spacing: 0) {
             // Main list
             List(selection: $selection) {
+                // Inbox Section (at top)
+                inboxSection
+
                 // Libraries Section
                 Section("Libraries") {
-                    ForEach(libraryManager.libraries, id: \.id) { library in
+                    ForEach(libraryManager.libraries.filter { !$0.isInbox }, id: \.id) { library in
                         libraryDisclosureGroup(for: library)
                     }
                     .onMove { indices, destination in
@@ -399,6 +402,107 @@ struct SidebarView: View {
         .buttonStyle(.borderless)
     }
 
+    // MARK: - Inbox Section
+
+    @ViewBuilder
+    private var inboxSection: some View {
+        Section("Inbox") {
+            // Inbox header with unread badge
+            HStack {
+                Label("All Papers", systemImage: "tray.full")
+                Spacer()
+                if inboxUnreadCount > 0 {
+                    Text("\(inboxUnreadCount)")
+                        .font(.caption2)
+                        .fontWeight(.medium)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.blue)
+                        .foregroundColor(.white)
+                        .clipShape(Capsule())
+                }
+            }
+            .tag(SidebarSection.inbox)
+
+            // Inbox feeds (smart searches with feedsToInbox)
+            ForEach(inboxFeeds, id: \.id) { feed in
+                HStack {
+                    Label(feed.name, systemImage: "antenna.radiowaves.left.and.right")
+                    Spacer()
+                    if feed.lastFetchCount > 0 {
+                        Text("\(feed.lastFetchCount)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .tag(SidebarSection.inboxFeed(feed))
+                .contextMenu {
+                    Button("Refresh Now") {
+                        Task {
+                            await refreshInboxFeed(feed)
+                        }
+                    }
+                    Button("Edit") {
+                        editingSmartSearch = feed
+                    }
+                    Divider()
+                    Button("Remove from Inbox", role: .destructive) {
+                        removeFromInbox(feed)
+                    }
+                }
+            }
+
+            // Add feed button
+            Button {
+                // TODO: Show feed picker or create new feed
+            } label: {
+                Label("Add Feed...", systemImage: "plus.circle")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// Get all smart searches that feed to the Inbox
+    private var inboxFeeds: [CDSmartSearch] {
+        // Fetch all smart searches with feedsToInbox enabled
+        let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
+        request.predicate = NSPredicate(format: "feedsToInbox == YES")
+        request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+
+        do {
+            return try PersistenceController.shared.viewContext.fetch(request)
+        } catch {
+            return []
+        }
+    }
+
+    /// Get unread count for the Inbox
+    private var inboxUnreadCount: Int {
+        InboxManager.shared.unreadCount
+    }
+
+    /// Refresh a specific inbox feed
+    private func refreshInboxFeed(_ feed: CDSmartSearch) async {
+        guard let scheduler = await InboxCoordinator.shared.scheduler else { return }
+        do {
+            _ = try await scheduler.refreshFeed(feed)
+            await MainActor.run {
+                refreshTrigger = UUID()
+            }
+        } catch {
+            // Handle error silently for now
+        }
+    }
+
+    /// Remove a feed from Inbox (disable feedsToInbox)
+    private func removeFromInbox(_ feed: CDSmartSearch) {
+        feed.feedsToInbox = false
+        feed.autoRefreshEnabled = false
+        try? feed.managedObjectContext?.save()
+        refreshTrigger = UUID()
+    }
+
     // MARK: - Helpers
 
     private func expansionBinding(for libraryID: UUID) -> Binding<Bool> {
@@ -417,6 +521,10 @@ struct SidebarView: View {
     /// Get the currently selected library from the selection
     private var selectedLibrary: CDLibrary? {
         switch selection {
+        case .inbox:
+            return InboxManager.shared.inboxLibrary
+        case .inboxFeed(let feed):
+            return feed.library ?? InboxManager.shared.inboxLibrary
         case .library(let library), .unread(let library):
             return library
         case .smartSearch(let smartSearch):
@@ -528,6 +636,8 @@ struct SidebarView: View {
         // Clear selection BEFORE deletion if ANY item from this library is selected
         if let currentSelection = selection {
             switch currentSelection {
+            case .inbox, .inboxFeed:
+                break  // Inbox is not affected by library deletion
             case .library(let lib), .unread(let lib):
                 if lib.id == library.id { selection = nil }
             case .smartSearch(let ss):

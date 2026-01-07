@@ -28,6 +28,11 @@ struct SmartSearchEditorView: View {
     @State private var selectedSourceIDs: Set<String> = []
     @State private var availableSources: [SourceMetadata] = []
 
+    // Inbox options
+    @State private var feedsToInbox: Bool = false
+    @State private var autoRefreshEnabled: Bool = false
+    @State private var refreshInterval: RefreshIntervalPreset = .sixHours
+
     private var isEditing: Bool {
         smartSearch != nil
     }
@@ -76,6 +81,28 @@ struct SmartSearchEditorView: View {
                         }
                     }
                 }
+
+                Section {
+                    Toggle("Feed to Inbox", isOn: $feedsToInbox)
+
+                    if feedsToInbox {
+                        Toggle("Auto-Refresh", isOn: $autoRefreshEnabled)
+
+                        if autoRefreshEnabled {
+                            Picker("Refresh Interval", selection: $refreshInterval) {
+                                ForEach(RefreshIntervalPreset.allCases, id: \.self) { preset in
+                                    Text(preset.displayName).tag(preset)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Inbox")
+                } footer: {
+                    if feedsToInbox {
+                        Text("Papers from this search will be added to your Inbox for triage.")
+                    }
+                }
             }
             .navigationTitle(isEditing ? "Edit Smart Search" : "New Smart Search")
             #if os(macOS)
@@ -110,6 +137,11 @@ struct SmartSearchEditorView: View {
             name = smartSearch.name
             query = smartSearch.query
             selectedSourceIDs = Set(smartSearch.sources)
+
+            // Load inbox settings
+            feedsToInbox = smartSearch.feedsToInbox
+            autoRefreshEnabled = smartSearch.autoRefreshEnabled
+            refreshInterval = RefreshIntervalPreset(rawValue: smartSearch.refreshIntervalSeconds) ?? .sixHours
         }
     }
 
@@ -125,17 +157,30 @@ struct SmartSearchEditorView: View {
                 query: query,
                 sourceIDs: sourceIDs
             )
+
+            // Update inbox settings
+            smartSearch.feedsToInbox = feedsToInbox
+            smartSearch.autoRefreshEnabled = autoRefreshEnabled
+            smartSearch.refreshIntervalSeconds = refreshInterval.seconds
+            try? smartSearch.managedObjectContext?.save()
+
             // Invalidate cached results so next view loads fresh data
             Task {
                 await SmartSearchProviderCache.shared.invalidate(smartSearch.id)
             }
         } else {
-            SmartSearchRepository.shared.create(
+            let newSearch = SmartSearchRepository.shared.create(
                 name: name,
                 query: query,
                 sourceIDs: sourceIDs,
                 library: library
             )
+
+            // Set inbox settings for new search
+            newSearch.feedsToInbox = feedsToInbox
+            newSearch.autoRefreshEnabled = autoRefreshEnabled
+            newSearch.refreshIntervalSeconds = refreshInterval.seconds
+            try? newSearch.managedObjectContext?.save()
         }
 
         onSave()

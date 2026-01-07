@@ -92,6 +92,23 @@ public struct PublicationListView: View {
     /// Called when files are dropped onto a publication row
     public var onFileDrop: ((CDPublication, [NSItemProvider]) -> Void)?
 
+    // MARK: - Inbox Triage Callbacks
+
+    /// Called when archive to library is requested (Inbox: adds to library AND removes from Inbox)
+    public var onArchiveToLibrary: ((Set<UUID>, CDLibrary) async -> Void)?
+
+    /// Called when dismiss is requested (Inbox: remove from Inbox)
+    public var onDismiss: ((Set<UUID>) async -> Void)?
+
+    /// Called when toggle star is requested
+    public var onToggleStar: ((Set<UUID>) async -> Void)?
+
+    /// Called when mute author is requested
+    public var onMuteAuthor: ((String) -> Void)?
+
+    /// Called when mute paper is requested (by DOI or bibcode)
+    public var onMutePaper: ((CDPublication) -> Void)?
+
     // MARK: - Internal State
 
     @State private var searchQuery: String = ""
@@ -171,7 +188,13 @@ public struct PublicationListView: View {
         onRemoveFromAllCollections: ((Set<UUID>) async -> Void)? = nil,
         onImport: (() -> Void)? = nil,
         onOpenPDF: ((CDPublication) -> Void)? = nil,
-        onFileDrop: ((CDPublication, [NSItemProvider]) -> Void)? = nil
+        onFileDrop: ((CDPublication, [NSItemProvider]) -> Void)? = nil,
+        // Inbox triage callbacks
+        onArchiveToLibrary: ((Set<UUID>, CDLibrary) async -> Void)? = nil,
+        onDismiss: ((Set<UUID>) async -> Void)? = nil,
+        onToggleStar: ((Set<UUID>) async -> Void)? = nil,
+        onMuteAuthor: ((String) -> Void)? = nil,
+        onMutePaper: ((CDPublication) -> Void)? = nil
     ) {
         self.publications = publications
         self._selection = selection
@@ -194,6 +217,12 @@ public struct PublicationListView: View {
         self.onImport = onImport
         self.onOpenPDF = onOpenPDF
         self.onFileDrop = onFileDrop
+        // Inbox triage
+        self.onArchiveToLibrary = onArchiveToLibrary
+        self.onDismiss = onDismiss
+        self.onToggleStar = onToggleStar
+        self.onMuteAuthor = onMuteAuthor
+        self.onMutePaper = onMutePaper
     }
 
     // MARK: - Body
@@ -550,6 +579,64 @@ public struct PublicationListView: View {
                                 }
                             }
                         }
+                    }
+                }
+            }
+        }
+
+        // MARK: Inbox Triage Actions
+
+        // Archive to Library (Inbox only - adds to library and removes from Inbox)
+        if let onArchiveToLibrary = onArchiveToLibrary, !allLibraries.isEmpty {
+            let archiveLibraries = allLibraries.filter { !$0.isInbox }
+            if !archiveLibraries.isEmpty {
+                Menu("Archive to Library") {
+                    ForEach(archiveLibraries, id: \.id) { targetLibrary in
+                        Button(targetLibrary.displayName) {
+                            Task {
+                                await onArchiveToLibrary(ids, targetLibrary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Toggle Star (Inbox triage)
+        if let onToggleStar = onToggleStar {
+            Button("Toggle Star") {
+                Task { await onToggleStar(ids) }
+            }
+        }
+
+        // Dismiss from Inbox
+        if let onDismiss = onDismiss {
+            Button("Dismiss from Inbox") {
+                Task { await onDismiss(ids) }
+            }
+        }
+
+        // Mute options
+        if onMuteAuthor != nil || onMutePaper != nil {
+            Divider()
+
+            if let onMuteAuthor = onMuteAuthor {
+                // Get first author of first selected publication
+                if let first = ids.first,
+                   let publication = publications.first(where: { $0.id == first }),
+                   let firstAuthor = publication.sortedAuthors.first {
+                    let authorName = firstAuthor.displayName
+                    Button("Mute Author: \(authorName)") {
+                        onMuteAuthor(authorName)
+                    }
+                }
+            }
+
+            if let onMutePaper = onMutePaper {
+                if let first = ids.first,
+                   let publication = publications.first(where: { $0.id == first }) {
+                    Button("Mute This Paper") {
+                        onMutePaper(publication)
                     }
                 }
             }

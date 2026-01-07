@@ -770,14 +770,30 @@ public actor PublicationRepository {
     }
 
     /// Add publications to a library (publications can belong to multiple libraries)
+    ///
+    /// When adding to a non-Inbox library, posts `.publicationArchivedToLibrary`
+    /// notification to trigger auto-removal from Inbox.
     public func addToLibrary(_ publications: [CDPublication], library: CDLibrary) async {
         let context = persistenceController.viewContext
+        let isInboxLibrary = library.isInbox
 
         await context.perform {
             for publication in publications {
                 publication.addToLibrary(library)
             }
             self.persistenceController.save()
+        }
+
+        // Post notification for Inbox auto-remove (only for non-Inbox libraries)
+        if !isInboxLibrary {
+            await MainActor.run {
+                for publication in publications {
+                    NotificationCenter.default.post(
+                        name: .publicationArchivedToLibrary,
+                        object: publication
+                    )
+                }
+            }
         }
     }
 

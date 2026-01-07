@@ -167,10 +167,26 @@ struct UnifiedPublicationListWrapper: View {
 
     // MARK: - Body
 
+    /// Check if we're viewing the Inbox library or an Inbox feed
+    private var isInboxView: Bool {
+        switch source {
+        case .library(let library):
+            return library.isInbox
+        case .smartSearch(let smartSearch):
+            // Inbox feeds also support triage shortcuts
+            return smartSearch.feedsToInbox
+        }
+    }
+
     var body: some View {
         contentView
             .navigationTitle(navigationTitle)
             .toolbar { toolbarContent }
+            .focusable()
+            .focusEffectDisabled()
+            .onKeyPress(.init("a")) { handleArchiveKey() }
+            .onKeyPress(.init("d")) { handleDismissKey() }
+            .onKeyPress(.init("s")) { handleStarKey() }
             .task(id: source.id) {
                 filterMode = initialFilterMode
                 refreshPublicationsList()
@@ -199,6 +215,22 @@ struct UnifiedPublicationListWrapper: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .selectAllPublications)) { _ in
                 selectAllPublications()
+            }
+            // Inbox triage notifications (for menu access)
+            .onReceive(NotificationCenter.default.publisher(for: .inboxArchive)) { _ in
+                if isInboxView && !multiSelection.isEmpty {
+                    archiveSelectedToDefaultLibrary()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .inboxDismiss)) { _ in
+                if isInboxView && !multiSelection.isEmpty {
+                    dismissSelectedFromInbox()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .inboxToggleStar)) { _ in
+                if isInboxView && !multiSelection.isEmpty {
+                    toggleStarForSelected()
+                }
             }
             .alert("Duplicate File", isPresented: $showDuplicateAlert) {
                 Button("Skip") {
@@ -299,7 +331,23 @@ struct UnifiedPublicationListWrapper: View {
                     // Refresh to show new attachments (paperclip indicator)
                     refreshPublicationsList()
                 }
-            }
+            },
+            // Inbox triage callbacks (only when viewing Inbox or Inbox feeds)
+            onArchiveToLibrary: isInboxView ? { ids, targetLibrary in
+                await archiveToLibrary(ids: ids, library: targetLibrary)
+            } : nil,
+            onDismiss: isInboxView ? { ids in
+                await dismissFromInbox(ids: ids)
+            } : nil,
+            onToggleStar: isInboxView ? { ids in
+                await toggleStar(ids: ids)
+            } : nil,
+            onMuteAuthor: isInboxView ? { authorName in
+                muteAuthor(authorName)
+            } : nil,
+            onMutePaper: isInboxView ? { publication in
+                mutePaper(publication)
+            } : nil
         )
     }
 
@@ -446,6 +494,150 @@ struct UnifiedPublicationListWrapper: View {
         guard !multiSelection.isEmpty else { return }
         await libraryViewModel.cutToClipboard(multiSelection)
         refreshPublicationsList()
+    }
+
+    // MARK: - Inbox Triage Handlers
+
+    /// Handle 'A' key - archive selected to default library
+    private func handleArchiveKey() -> KeyPress.Result {
+        guard isInboxView, !multiSelection.isEmpty else { return .ignored }
+        archiveSelectedToDefaultLibrary()
+        return .handled
+    }
+
+    /// Handle 'D' key - dismiss selected from inbox
+    private func handleDismissKey() -> KeyPress.Result {
+        guard isInboxView, !multiSelection.isEmpty else { return .ignored }
+        dismissSelectedFromInbox()
+        return .handled
+    }
+
+    /// Handle 'S' key - toggle star on selected
+    private func handleStarKey() -> KeyPress.Result {
+        guard isInboxView, !multiSelection.isEmpty else { return .ignored }
+        toggleStarForSelected()
+        return .handled
+    }
+
+    /// Archive selected publications to the default library
+    private func archiveSelectedToDefaultLibrary() {
+        guard let defaultLibrary = libraryManager.libraries.first(where: { $0.isDefault && !$0.isInbox }) else {
+            logger.warning("No default library available for archiving")
+            return
+        }
+
+        let inboxManager = InboxManager.shared
+
+        for uuid in multiSelection {
+            if let publication = publications.first(where: { $0.id == uuid }) {
+                inboxManager.archiveToLibrary(publication, library: defaultLibrary)
+            }
+        }
+
+        multiSelection.removeAll()
+        refreshPublicationsList()
+        logger.info("Archived \(multiSelection.count) papers to \(defaultLibrary.displayName)")
+    }
+
+    /// Dismiss selected publications from inbox
+    private func dismissSelectedFromInbox() {
+        let inboxManager = InboxManager.shared
+
+        for uuid in multiSelection {
+            if let publication = publications.first(where: { $0.id == uuid }) {
+                inboxManager.dismissFromInbox(publication)
+            }
+        }
+
+        multiSelection.removeAll()
+        refreshPublicationsList()
+        logger.info("Dismissed \(multiSelection.count) papers from Inbox")
+    }
+
+    /// Toggle star status for selected publications
+    private func toggleStarForSelected() {
+        let context = PersistenceController.shared.viewContext
+
+        for uuid in multiSelection {
+            if let publication = publications.first(where: { $0.id == uuid }) {
+                publication.isStarred.toggle()
+            }
+        }
+
+        try? context.save()
+        refreshPublicationsList()
+        logger.info("Toggled star for \(multiSelection.count) papers")
+    }
+
+    // MARK: - Inbox Triage Callback Implementations
+
+    /// Archive publications to a specific library (for context menu)
+    private func archiveToLibrary(ids: Set<UUID>, library: CDLibrary) async {
+        let inboxManager = InboxManager.shared
+
+        for uuid in ids {
+            if let publication = publications.first(where: { $0.id == uuid }) {
+                inboxManager.archiveToLibrary(publication, library: library)
+            }
+        }
+
+        multiSelection.removeAll()
+        refreshPublicationsList()
+        logger.info("Archived \(ids.count) papers to \(library.displayName)")
+    }
+
+    /// Dismiss publications from inbox (for context menu)
+    private func dismissFromInbox(ids: Set<UUID>) async {
+        let inboxManager = InboxManager.shared
+
+        for uuid in ids {
+            if let publication = publications.first(where: { $0.id == uuid }) {
+                inboxManager.dismissFromInbox(publication)
+            }
+        }
+
+        multiSelection.removeAll()
+        refreshPublicationsList()
+        logger.info("Dismissed \(ids.count) papers from Inbox")
+    }
+
+    /// Toggle star for publications (for context menu)
+    private func toggleStar(ids: Set<UUID>) async {
+        let context = PersistenceController.shared.viewContext
+
+        for uuid in ids {
+            if let publication = publications.first(where: { $0.id == uuid }) {
+                publication.isStarred.toggle()
+            }
+        }
+
+        try? context.save()
+        refreshPublicationsList()
+        logger.info("Toggled star for \(ids.count) papers")
+    }
+
+    /// Mute an author
+    private func muteAuthor(_ authorName: String) {
+        let inboxManager = InboxManager.shared
+        inboxManager.mute(type: .author, value: authorName)
+        logger.info("Muted author: \(authorName)")
+    }
+
+    /// Mute a paper (by DOI or bibcode)
+    private func mutePaper(_ publication: CDPublication) {
+        let inboxManager = InboxManager.shared
+
+        // Prefer DOI, then bibcode (from original source ID for ADS papers)
+        if let doi = publication.doi, !doi.isEmpty {
+            inboxManager.mute(type: .doi, value: doi)
+            logger.info("Muted paper by DOI: \(doi)")
+        } else if let bibcode = publication.originalSourceID {
+            // For ADS papers, originalSourceID contains the bibcode
+            inboxManager.mute(type: .bibcode, value: bibcode)
+            logger.info("Muted paper by bibcode: \(bibcode)")
+        } else {
+            logger.warning("Cannot mute paper - no DOI or bibcode available")
+        }
     }
 
     // MARK: - Helpers

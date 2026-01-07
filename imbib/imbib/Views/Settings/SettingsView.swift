@@ -34,11 +34,15 @@ struct SettingsView: View {
                 .tabItem { Label("PDF", systemImage: "doc.richtext") }
                 .tag(SettingsTab.pdf)
 
+            InboxSettingsTab()
+                .tabItem { Label("Inbox", systemImage: "tray") }
+                .tag(SettingsTab.inbox)
+
             ImportExportSettingsTab()
                 .tabItem { Label("Import/Export", systemImage: "arrow.up.arrow.down") }
                 .tag(SettingsTab.importExport)
         }
-        .frame(width: 500, height: 450)
+        .frame(width: 550, height: 500)
     }
 }
 
@@ -49,6 +53,7 @@ enum SettingsTab: String, CaseIterable {
     case viewing
     case sources
     case pdf
+    case inbox
     case importExport
 }
 
@@ -340,6 +345,183 @@ struct SourceCredentialRow: View {
                 errorMessage = error.localizedDescription
                 showError = true
             }
+        }
+    }
+}
+
+// MARK: - Inbox Settings
+
+struct InboxSettingsTab: View {
+
+    @State private var mutedItems: [CDMutedItem] = []
+    @State private var selectedMuteType: CDMutedItem.MuteType = .author
+    @State private var newMuteValue: String = ""
+
+    var body: some View {
+        Form {
+            Section("Muted Items") {
+                if mutedItems.isEmpty {
+                    Text("No muted items")
+                        .foregroundStyle(.secondary)
+                        .italic()
+                } else {
+                    List {
+                        ForEach(groupedMutedItems.keys.sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { muteType in
+                            Section(muteType.displayName) {
+                                ForEach(groupedMutedItems[muteType] ?? [], id: \.id) { item in
+                                    MutedItemRow(item: item) {
+                                        unmute(item)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    .frame(height: 200)
+                }
+            }
+
+            Section("Add Mute Rule") {
+                Picker("Type", selection: $selectedMuteType) {
+                    ForEach(CDMutedItem.MuteType.allCases, id: \.self) { type in
+                        Text(type.displayName).tag(type)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                HStack {
+                    TextField(placeholderText, text: $newMuteValue)
+                        .textFieldStyle(.roundedBorder)
+
+                    Button("Add") {
+                        addMuteRule()
+                    }
+                    .disabled(newMuteValue.isEmpty)
+                }
+
+                Text(helpText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Actions") {
+                Button("Clear All Muted Items", role: .destructive) {
+                    clearAllMutedItems()
+                }
+                .disabled(mutedItems.isEmpty)
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+        .task {
+            loadMutedItems()
+        }
+    }
+
+    // MARK: - Grouped Items
+
+    private var groupedMutedItems: [CDMutedItem.MuteType: [CDMutedItem]] {
+        Dictionary(grouping: mutedItems) { item in
+            item.muteType ?? .author
+        }
+    }
+
+    // MARK: - Placeholder Text
+
+    private var placeholderText: String {
+        switch selectedMuteType {
+        case .author:
+            return "Author name (e.g., Einstein)"
+        case .doi:
+            return "DOI (e.g., 10.1234/example)"
+        case .bibcode:
+            return "Bibcode (e.g., 2024ApJ...123..456E)"
+        case .venue:
+            return "Venue name (e.g., Nature)"
+        case .arxivCategory:
+            return "arXiv category (e.g., astro-ph.CO)"
+        }
+    }
+
+    private var helpText: String {
+        switch selectedMuteType {
+        case .author:
+            return "Papers by this author will be hidden from Inbox feeds"
+        case .doi:
+            return "This specific paper will be hidden"
+        case .bibcode:
+            return "This specific paper (by ADS bibcode) will be hidden"
+        case .venue:
+            return "Papers from journals/conferences containing this name will be hidden"
+        case .arxivCategory:
+            return "Papers from this arXiv category will be hidden"
+        }
+    }
+
+    // MARK: - Actions
+
+    private func loadMutedItems() {
+        mutedItems = InboxManager.shared.mutedItems
+    }
+
+    private func addMuteRule() {
+        guard !newMuteValue.isEmpty else { return }
+        InboxManager.shared.mute(type: selectedMuteType, value: newMuteValue)
+        newMuteValue = ""
+        loadMutedItems()
+    }
+
+    private func unmute(_ item: CDMutedItem) {
+        InboxManager.shared.unmute(item)
+        loadMutedItems()
+    }
+
+    private func clearAllMutedItems() {
+        InboxManager.shared.clearAllMutedItems()
+        loadMutedItems()
+    }
+}
+
+// MARK: - Muted Item Row
+
+struct MutedItemRow: View {
+    let item: CDMutedItem
+    let onUnmute: () -> Void
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.value)
+                    .font(.body)
+
+                Text("Added \(item.dateAdded.formatted(date: .abbreviated, time: .omitted))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button {
+                onUnmute()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Unmute")
+        }
+    }
+}
+
+// MARK: - MuteType Display Name
+
+extension CDMutedItem.MuteType {
+    var displayName: String {
+        switch self {
+        case .author: return "Authors"
+        case .doi: return "Papers (DOI)"
+        case .bibcode: return "Papers (Bibcode)"
+        case .venue: return "Venues"
+        case .arxivCategory: return "arXiv Categories"
         }
     }
 }

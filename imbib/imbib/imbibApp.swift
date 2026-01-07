@@ -68,6 +68,10 @@ struct imbibApp: App {
             // Start background enrichment coordinator
             await EnrichmentCoordinator.shared.start()
             appLogger.info("EnrichmentCoordinator started")
+
+            // Start Inbox coordinator (scheduling, fetch service)
+            await InboxCoordinator.shared.start()
+            appLogger.info("InboxCoordinator started")
         }
 
         appLogger.info("imbib app initialization complete")
@@ -130,10 +134,41 @@ struct imbibApp: App {
                     }
                 }
             }
+
+            // Set up dock badge observer and initial badge
+            setupDockBadge()
+        }
+    }
+
+    /// Set up dock badge for Inbox unread count
+    private func setupDockBadge() {
+        // Set initial badge
+        updateDockBadge(InboxManager.shared.unreadCount)
+
+        // Observe unread count changes
+        NotificationCenter.default.addObserver(
+            forName: .inboxUnreadCountChanged,
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let count = notification.userInfo?["count"] as? Int {
+                updateDockBadge(count)
+            }
         }
     }
     #endif
 }
+
+#if os(macOS)
+/// Update the dock badge with unread count
+private func updateDockBadge(_ count: Int) {
+    if count > 0 {
+        NSApp.dockTile.badgeLabel = "\(count)"
+    } else {
+        NSApp.dockTile.badgeLabel = nil
+    }
+}
+#endif
 
 // MARK: - App Commands
 
@@ -248,4 +283,9 @@ extension Notification.Name {
     static let cutPublications = Notification.Name("cutPublications")
     static let pastePublications = Notification.Name("pastePublications")
     static let selectAllPublications = Notification.Name("selectAllPublications")
+
+    // Inbox triage actions
+    static let inboxArchive = Notification.Name("inboxArchive")         // A key - archive to default library
+    static let inboxDismiss = Notification.Name("inboxDismiss")         // D key - dismiss from inbox
+    static let inboxToggleStar = Notification.Name("inboxToggleStar")   // S key - toggle star/flag
 }
