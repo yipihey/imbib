@@ -35,6 +35,8 @@ struct SidebarView: View {
     @State private var dropTargetedLibraryHeader: UUID?
     @State private var refreshTrigger = UUID()  // Triggers re-render when read status changes
     @State private var renamingCollection: CDCollection?  // Collection being renamed inline
+    @State private var isDraggingLibrary = false  // Collapse libraries during drag for clearer visual feedback
+    @State private var preDropExpandedLibraries: Set<UUID> = []  // Remember expanded state before drag
 
     // MARK: - Body
 
@@ -42,13 +44,21 @@ struct SidebarView: View {
         VStack(spacing: 0) {
             // Main list
             List(selection: $selection) {
-                // Libraries Section
+                // Libraries Section - flat structure for clean reordering
                 Section("Libraries") {
                     ForEach(libraryManager.libraries, id: \.id) { library in
-                        libraryDisclosureGroup(for: library)
+                        // Library header (reorderable)
+                        libraryRow(for: library)
+
+                        // Library content - hidden during drag for clear visual feedback
+                        if !isDraggingLibrary && expandedLibraries.contains(library.id) {
+                            libraryContent(for: library)
+                        }
                     }
                     .onMove { indices, destination in
                         libraryManager.moveLibraries(from: indices, to: destination)
+                        // Restore expanded state after move completes
+                        isDraggingLibrary = false
                     }
                 }
 
@@ -118,145 +128,62 @@ struct SidebarView: View {
             // Force re-render to update unread counts
             refreshTrigger = UUID()
         }
+        .onChange(of: selection) { _, _ in
+            // Reset drag state when selection changes (drag cancelled)
+            isDraggingLibrary = false
+        }
         .id(refreshTrigger)  // Re-render when refreshTrigger changes
     }
 
-    // MARK: - Library Disclosure Group
+    // MARK: - Library Row (for reordering)
 
+    /// Library header row - this is the draggable/reorderable item
     @ViewBuilder
-    private func libraryDisclosureGroup(for library: CDLibrary) -> some View {
-        DisclosureGroup(
-            isExpanded: expansionBinding(for: library.id)
-        ) {
-            // All Publications - drop target for moving papers to library
-            SidebarDropTarget(
-                isTargeted: dropTargetedLibrary == library.id,
-                showPlusBadge: true
-            ) {
-                Label("All Publications", systemImage: "books.vertical")
-            }
-            .tag(SidebarSection.library(library))
-            .onDrop(of: [.publicationID], isTargeted: makeLibraryTargetBinding(library.id)) { providers in
-                handleDrop(providers: providers) { uuids in
-                    Task {
-                        await addPublicationsToLibrary(uuids, library: library)
-                    }
-                }
-                return true
-            }
-
-            // Unread with badge
-            HStack {
-                Label("Unread", systemImage: "circle.fill")
-                    .foregroundStyle(.blue)
-                Spacer()
-                if let count = unreadCount(for: library), count > 0 {
-                    Text("\(count)")
-                        .font(.caption2)
-                        .fontWeight(.medium)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .clipShape(Capsule())
-                }
-            }
-            .tag(SidebarSection.unread(library))
-
-            // Smart Searches for this library
-            if let smartSearches = library.smartSearches as? Set<CDSmartSearch>, !smartSearches.isEmpty {
-                ForEach(Array(smartSearches).sorted(by: { $0.name < $1.name }), id: \.id) { smartSearch in
-                    SmartSearchRow(smartSearch: smartSearch, count: resultCount(for: smartSearch))
-                        .tag(SidebarSection.smartSearch(smartSearch))
-                        .contextMenu {
-                            Button("Edit") {
-                                editingSmartSearch = smartSearch
-                            }
-                            Button("Delete", role: .destructive) {
-                                deleteSmartSearch(smartSearch)
-                            }
-                        }
-                }
-            }
-
-            // Collections for this library
-            if let collections = library.collections as? Set<CDCollection>, !collections.isEmpty {
-                ForEach(Array(collections).sorted(by: { $0.name < $1.name }), id: \.id) { collection in
-                    collectionDropTarget(for: collection)
-                        .tag(SidebarSection.collection(collection))
-                        .contextMenu {
-                            Button("Rename") {
-                                renamingCollection = collection
-                            }
-                            if collection.isSmartCollection {
-                                Button("Edit") {
-                                    editingCollection = collection
-                                }
-                            }
-                            Divider()
-                            Button("Delete", role: .destructive) {
-                                deleteCollection(collection)
-                            }
-                        }
-                }
-            }
-
-            // Add buttons for smart search and collection
-            Menu {
-                Button {
-                    showingNewSmartSearch = true
-                } label: {
-                    Label("New Smart Search", systemImage: "magnifyingglass.circle")
-                }
-                Button {
-                    showingNewSmartCollection = true
-                } label: {
-                    Label("New Smart Collection", systemImage: "folder.badge.gearshape")
-                }
-                Button {
-                    createStaticCollection(in: library)
-                } label: {
-                    Label("New Collection", systemImage: "folder.badge.plus")
-                }
-            } label: {
-                Label("Add...", systemImage: "plus.circle")
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-        } label: {
-            // Library header - also a drop target
-            libraryHeaderDropTarget(for: library)
-                .contextMenu {
-                    Button("Delete Library", role: .destructive) {
-                        libraryToDelete = library
-                        showDeleteConfirmation = true
-                    }
-                }
-        }
-    }
-
-    // MARK: - Library Header Drop Target
-
-    @ViewBuilder
-    private func libraryHeaderDropTarget(for library: CDLibrary) -> some View {
+    private func libraryRow(for library: CDLibrary) -> some View {
         let count = publicationCount(for: library)
+        let isExpanded = expandedLibraries.contains(library.id)
+
         SidebarDropTarget(
             isTargeted: dropTargetedLibraryHeader == library.id,
             showPlusBadge: true
         ) {
-            HStack {
+            HStack(spacing: 6) {
+                // Disclosure chevron
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 12)
+                    .onTapGesture {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            if isExpanded {
+                                expandedLibraries.remove(library.id)
+                            } else {
+                                expandedLibraries.insert(library.id)
+                            }
+                        }
+                    }
+
                 Label(library.displayName, systemImage: "building.columns")
+
                 Spacer()
+
                 if count > 0 {
                     CountBadge(count: count)
                 }
             }
         }
-        .onDrop(of: [.publicationID], isTargeted: makeLibraryHeaderTargetBinding(library.id)) { providers in
-            // Auto-expand collapsed library when dropping on header
-            if !expandedLibraries.contains(library.id) {
-                expandedLibraries.insert(library.id)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // Tapping the row toggles expansion
+            withAnimation(.easeInOut(duration: 0.2)) {
+                if isExpanded {
+                    expandedLibraries.remove(library.id)
+                } else {
+                    expandedLibraries.insert(library.id)
+                }
             }
+        }
+        .onDrop(of: [.publicationID], isTargeted: makeLibraryHeaderTargetBinding(library.id)) { providers in
             handleDrop(providers: providers) { uuids in
                 Task {
                     await addPublicationsToLibrary(uuids, library: library)
@@ -264,6 +191,124 @@ struct SidebarView: View {
             }
             return true
         }
+        .contextMenu {
+            Button("Delete Library", role: .destructive) {
+                libraryToDelete = library
+                showDeleteConfirmation = true
+            }
+        }
+        // Detect drag start to collapse libraries for clearer visual feedback
+        .onDrag {
+            isDraggingLibrary = true
+            return NSItemProvider(object: library.id.uuidString as NSString)
+        }
+    }
+
+    // MARK: - Library Content (children, not reorderable)
+
+    /// Library content items - shown when expanded, NOT part of reorderable ForEach
+    @ViewBuilder
+    private func libraryContent(for library: CDLibrary) -> some View {
+        // All Publications - drop target for moving papers to library
+        SidebarDropTarget(
+            isTargeted: dropTargetedLibrary == library.id,
+            showPlusBadge: true
+        ) {
+            Label("All Publications", systemImage: "books.vertical")
+        }
+        .tag(SidebarSection.library(library))
+        .padding(.leading, 18)  // Indent to show hierarchy
+        .onDrop(of: [.publicationID], isTargeted: makeLibraryTargetBinding(library.id)) { providers in
+            handleDrop(providers: providers) { uuids in
+                Task {
+                    await addPublicationsToLibrary(uuids, library: library)
+                }
+            }
+            return true
+        }
+
+        // Unread with badge
+        HStack {
+            Label("Unread", systemImage: "circle.fill")
+                .foregroundStyle(.blue)
+            Spacer()
+            if let count = unreadCount(for: library), count > 0 {
+                Text("\(count)")
+                    .font(.caption2)
+                    .fontWeight(.medium)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .clipShape(Capsule())
+            }
+        }
+        .tag(SidebarSection.unread(library))
+        .padding(.leading, 18)
+
+        // Smart Searches for this library
+        if let smartSearches = library.smartSearches as? Set<CDSmartSearch>, !smartSearches.isEmpty {
+            ForEach(Array(smartSearches).sorted(by: { $0.name < $1.name }), id: \.id) { smartSearch in
+                SmartSearchRow(smartSearch: smartSearch, count: resultCount(for: smartSearch))
+                    .tag(SidebarSection.smartSearch(smartSearch))
+                    .padding(.leading, 18)
+                    .contextMenu {
+                        Button("Edit") {
+                            editingSmartSearch = smartSearch
+                        }
+                        Button("Delete", role: .destructive) {
+                            deleteSmartSearch(smartSearch)
+                        }
+                    }
+            }
+        }
+
+        // Collections for this library
+        if let collections = library.collections as? Set<CDCollection>, !collections.isEmpty {
+            ForEach(Array(collections).sorted(by: { $0.name < $1.name }), id: \.id) { collection in
+                collectionDropTarget(for: collection)
+                    .tag(SidebarSection.collection(collection))
+                    .padding(.leading, 18)
+                    .contextMenu {
+                        Button("Rename") {
+                            renamingCollection = collection
+                        }
+                        if collection.isSmartCollection {
+                            Button("Edit") {
+                                editingCollection = collection
+                            }
+                        }
+                        Divider()
+                        Button("Delete", role: .destructive) {
+                            deleteCollection(collection)
+                        }
+                    }
+            }
+        }
+
+        // Add buttons for smart search and collection
+        Menu {
+            Button {
+                showingNewSmartSearch = true
+            } label: {
+                Label("New Smart Search", systemImage: "magnifyingglass.circle")
+            }
+            Button {
+                showingNewSmartCollection = true
+            } label: {
+                Label("New Smart Collection", systemImage: "folder.badge.gearshape")
+            }
+            Button {
+                createStaticCollection(in: library)
+            } label: {
+                Label("New Collection", systemImage: "folder.badge.plus")
+            }
+        } label: {
+            Label("Add...", systemImage: "plus.circle")
+                .foregroundStyle(.secondary)
+        }
+        .buttonStyle(.plain)
+        .padding(.leading, 18)
     }
 
     // MARK: - Collection Drop Target
