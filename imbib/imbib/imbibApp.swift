@@ -217,8 +217,10 @@ struct imbibApp: App {
         if let libraryID = item.libraryID,
            let library = libraryManager.find(id: libraryID) {
             targetLibrary = library
-        } else if let defaultLibrary = libraryManager.defaultLibrary {
-            targetLibrary = defaultLibrary
+        } else if let activeLib = libraryManager.activeLibrary {
+            targetLibrary = activeLib
+        } else if let firstLib = libraryManager.libraries.first(where: { !$0.isInbox }) {
+            targetLibrary = firstLib
         } else {
             throw ShareExtensionError.noLibrary
         }
@@ -244,36 +246,43 @@ struct imbibApp: App {
             throw ShareExtensionError.invalidURL
         }
 
-        // Search for the paper using ADS
+        // Search for the paper using ADS source directly
         let searchQuery = "bibcode:\(bibcode)"
-        let results = try await searchViewModel.search(query: searchQuery, sourceIDs: ["ads"])
+        let options = SearchOptions(maxResults: 1, sortOrder: .relevance, sourceIDs: ["ads"])
+        let results = try await searchViewModel.sourceManager.search(query: searchQuery, options: options)
 
         guard let firstResult = results.first else {
             throw ShareExtensionError.paperNotFound
         }
 
+        // Create publication from search result
+        let repository = PublicationRepository()
+
         // Import to library or Inbox
         if let libraryID = item.libraryID,
            let library = libraryManager.find(id: libraryID) {
             // Import to specific library
-            await libraryViewModel.importSearchResults([firstResult], to: library)
+            let publication = await repository.createFromSearchResult(firstResult, in: library)
+            appLogger.info("Imported paper \(bibcode) to library \(library.displayName)")
+            _ = publication // silence unused variable warning
         } else {
             // Import to Inbox
-            await InboxManager.shared.addPaper(from: firstResult)
+            let publication = await repository.createFromSearchResult(firstResult)
+            InboxManager.shared.addToInbox(publication)
+            appLogger.info("Imported paper \(bibcode) to Inbox")
         }
-
-        appLogger.info("Imported paper \(bibcode) from shared URL")
     }
 
     /// Update the list of available libraries in the share extension
     private func updateShareExtensionLibraries() {
+        let activeLibraryID = libraryManager.activeLibrary?.id
         let libraryInfos = libraryManager.libraries
             .filter { !$0.isInbox }
             .map { library in
                 SharedLibraryInfo(
                     id: library.id,
                     name: library.displayName,
-                    isDefault: library.id == libraryManager.defaultLibrary?.id
+                    isDefault: library.id == activeLibraryID
                 )
             }
 
