@@ -59,6 +59,9 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     /// DOI for context menu "Copy DOI" action
     public let doi: String?
 
+    /// Venue (journal, booktitle, or publisher) for display
+    public let venue: String?
+
     /// Date added to library (for sorting)
     public let dateAdded: Date
 
@@ -88,8 +91,51 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         self.hasPDF = Self.checkHasPDF(publication)
         self.citationCount = Int(publication.citationCount)
         self.doi = publication.doi
+        self.venue = Self.extractVenue(from: publication)
         self.dateAdded = publication.dateAdded
         self.dateModified = publication.dateModified
+    }
+
+    // MARK: - Venue Extraction
+
+    /// Extract venue from publication fields based on entry type.
+    ///
+    /// Priority: journal > booktitle > series > publisher
+    /// For articles: journal
+    /// For conference papers: booktitle
+    /// For books: publisher or series
+    private static func extractVenue(from publication: CDPublication) -> String? {
+        let fields = publication.fields
+
+        // Try journal first (for @article)
+        if let journal = fields["journal"], !journal.isEmpty {
+            return cleanVenue(journal)
+        }
+
+        // Try booktitle (for @inproceedings, @incollection)
+        if let booktitle = fields["booktitle"], !booktitle.isEmpty {
+            return cleanVenue(booktitle)
+        }
+
+        // Try series (for book series)
+        if let series = fields["series"], !series.isEmpty {
+            return cleanVenue(series)
+        }
+
+        // Try publisher as fallback (for @book, @proceedings)
+        if let publisher = fields["publisher"], !publisher.isEmpty {
+            return cleanVenue(publisher)
+        }
+
+        return nil
+    }
+
+    /// Clean venue string (remove braces, trim whitespace)
+    private static func cleanVenue(_ venue: String) -> String {
+        venue
+            .replacingOccurrences(of: "{", with: "")
+            .replacingOccurrences(of: "}", with: "")
+            .trimmingCharacters(in: .whitespaces)
     }
 
     // MARK: - Author Formatting

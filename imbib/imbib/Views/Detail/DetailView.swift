@@ -232,9 +232,18 @@ struct InfoTab: View {
     @State private var isDropTargeted = false
     @State private var showFileImporter = false
 
-    // State for duplicate file alert
+    // State for duplicate file alert (drop handler)
     @State private var showDuplicateAlert = false
     @State private var duplicateFilename = ""
+
+    // State for duplicate PDF from browser
+    @State private var showBrowserDuplicateAlert = false
+    @State private var browserDuplicateFilename = ""
+    @State private var browserDuplicateData: Data?
+    @State private var browserDuplicatePublication: CDPublication?
+
+    // Refresh trigger for attachments section
+    @State private var attachmentsRefreshID = UUID()
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -273,6 +282,7 @@ struct InfoTab: View {
                     // MARK: - Attachments Section with Drop Target
                     if let pub = publication {
                         attachmentsSectionWithDrop(pub)
+                            .id(attachmentsRefreshID)
                         Divider()
                     }
 
@@ -321,6 +331,25 @@ struct InfoTab: View {
             if let pending = newValue {
                 duplicateFilename = pending.existingFilename
                 showDuplicateAlert = true
+            }
+        }
+        .alert("Duplicate PDF", isPresented: $showBrowserDuplicateAlert) {
+            Button("Skip") {
+                browserDuplicateData = nil
+                browserDuplicatePublication = nil
+            }
+            Button("Import Anyway") {
+                importBrowserPDF()
+            }
+        } message: {
+            Text("This PDF is identical to '\(browserDuplicateFilename)' which is already attached. Do you want to import it anyway?")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pdfImportedFromBrowser)) { notification in
+            // Refresh attachments section when a PDF is imported from browser
+            if let objectID = notification.object as? NSManagedObjectID,
+               objectID == publication?.objectID {
+                attachmentsRefreshID = UUID()
+                Logger.files.infoCapture("[InfoTab] Refreshing attachments after PDF import", category: "pdf")
             }
         }
     }
@@ -809,8 +838,12 @@ struct InfoTab: View {
         var sources: [PDFSource] = []
         var seenURLs: Set<URL> = []
 
-        // Add from pdfLinks array
+        // Add from pdfLinks array (but filter out ADS link_gateway URLs which often 404)
         for link in pub.pdfLinks {
+            // Skip unreliable ADS link_gateway URLs
+            if link.url.absoluteString.contains("link_gateway") {
+                continue
+            }
             if !seenURLs.contains(link.url) {
                 sources.append(PDFSource(url: link.url, type: link.type, sourceID: link.sourceID))
                 seenURLs.insert(link.url)
@@ -823,12 +856,25 @@ struct InfoTab: View {
             seenURLs.insert(arxivURL)
         }
 
-        // Add ADS gateway URL if bibcode available and not already present
+        // Add DOI resolver for publisher access (much more reliable than ADS link_gateway)
+        if let doi = pub.doi, !doi.isEmpty,
+           let doiURL = URL(string: "https://doi.org/\(doi)") {
+            // Only add if we don't already have a publisher link
+            let hasPublisherLink = sources.contains { $0.type == .publisher }
+            if !hasPublisherLink {
+                sources.append(PDFSource(url: doiURL, type: .publisher, sourceID: "DOI"))
+                seenURLs.insert(doiURL)
+            }
+        }
+
+        // Fallback: ADS abstract page (shows all full text sources, always works)
         if let bibcode = pub.bibcode,
-           let adsURL = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_PDF"),
-           !seenURLs.contains(adsURL) {
-            sources.append(PDFSource(url: adsURL, type: .publisher, sourceID: "ADS"))
-            seenURLs.insert(adsURL)
+           let adsURL = URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)/abstract") {
+            // Only add if we have no other sources
+            if sources.isEmpty {
+                sources.append(PDFSource(url: adsURL, type: .publisher, sourceID: "ADS"))
+                seenURLs.insert(adsURL)
+            }
         }
 
         return sources
@@ -850,16 +896,37 @@ struct InfoTab: View {
     @ViewBuilder
     private func pdfSourceRow(_ source: PDFSource, publication: CDPublication) -> some View {
         HStack {
-            Text(source.label)
-                .font(.subheadline)
-
-            Spacer()
-
-            // System browser button
+            // Clickable label - opens in imBib browser on macOS, system browser on iOS
+            #if os(macOS)
+            Button {
+                Task {
+                    await openInImBibBrowser(source.url, publication: publication)
+                }
+            } label: {
+                Text(source.label)
+                    .font(.subheadline)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
+            .help("Open in imBib browser")
+            #else
             Button {
                 openInSystemBrowser(source.url)
             } label: {
-                Image(systemName: "globe")
+                Text(source.label)
+                    .font(.subheadline)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
+            #endif
+
+            Spacer()
+
+            // System browser button (Safari)
+            Button {
+                openInSystemBrowser(source.url)
+            } label: {
+                Image(systemName: "safari")
             }
             .buttonStyle(.borderless)
             .help("Open in Safari")
@@ -871,7 +938,7 @@ struct InfoTab: View {
                     await openInImBibBrowser(source.url, publication: publication)
                 }
             } label: {
-                Image(systemName: "book")
+                Image(systemName: "globe")
             }
             .buttonStyle(.borderless)
             .help("Open in imBib browser")
@@ -895,18 +962,57 @@ struct InfoTab: View {
             for: publication,
             startURL: url,
             libraryID: library.id
-        ) { data in
-            do {
-                try PDFManager.shared.importPDF(data: data, for: publication, in: library)
-                Logger.files.infoCapture("[InfoTab] PDF imported from browser successfully", category: "pdf")
+        ) { [self] data in
+            // Check for duplicates first
+            let result = PDFManager.shared.checkForDuplicate(data: data, in: publication)
 
+            switch result {
+            case .duplicate(let existingFile, _):
+                // Show duplicate alert
                 await MainActor.run {
-                    NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: publication.objectID)
+                    browserDuplicateFilename = existingFile.filename
+                    browserDuplicateData = data
+                    browserDuplicatePublication = publication
+                    showBrowserDuplicateAlert = true
                 }
-            } catch {
-                Logger.files.errorCapture("[InfoTab] Failed to import PDF from browser: \(error)", category: "pdf")
+                Logger.files.infoCapture("[InfoTab] Duplicate PDF detected: matches \(existingFile.filename)", category: "pdf")
+
+            case .noDuplicate:
+                // Import directly
+                do {
+                    try PDFManager.shared.importPDF(data: data, for: publication, in: library)
+                    Logger.files.infoCapture("[InfoTab] PDF imported from browser successfully", category: "pdf")
+
+                    await MainActor.run {
+                        NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: publication.objectID)
+                    }
+                } catch {
+                    Logger.files.errorCapture("[InfoTab] Failed to import PDF from browser: \(error)", category: "pdf")
+                }
             }
         }
+    }
+
+    /// Import the pending browser PDF after user chooses "Import Anyway" for duplicate
+    private func importBrowserPDF() {
+        guard let data = browserDuplicateData,
+              let publication = browserDuplicatePublication,
+              let library = libraryManager.activeLibrary else {
+            return
+        }
+
+        do {
+            try PDFManager.shared.importPDF(data: data, for: publication, in: library)
+            Logger.files.infoCapture("[InfoTab] Duplicate PDF imported after user confirmation", category: "pdf")
+
+            NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: publication.objectID)
+        } catch {
+            Logger.files.errorCapture("[InfoTab] Failed to import duplicate PDF: \(error)", category: "pdf")
+        }
+
+        // Clear pending state
+        browserDuplicateData = nil
+        browserDuplicatePublication = nil
     }
     #endif
 }

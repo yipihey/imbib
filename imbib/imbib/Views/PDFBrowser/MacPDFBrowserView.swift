@@ -148,6 +148,7 @@ struct MacWebViewRepresentable: NSViewRepresentable {
         private var downloadData = Data()
         private var downloadFilename: String = ""
         private var downloadExpectedLength: Int64 = 0
+        private var downloadTempFileURL: URL?
 
         init(viewModel: PDFBrowserViewModel) {
             self.viewModel = viewModel
@@ -290,8 +291,11 @@ struct MacWebViewRepresentable: NSViewRepresentable {
                 viewModel.downloadProgress = 0
             }
 
-            // Return nil to handle data in memory
-            return nil
+            // Always use a temp file - returning nil causes sandbox extension errors
+            let tempDir = FileManager.default.temporaryDirectory
+            self.downloadTempFileURL = tempDir.appendingPathComponent(UUID().uuidString + ".download")
+            Logger.pdfBrowser.debug("Using temp file: \(self.downloadTempFileURL?.path ?? "nil")")
+            return self.downloadTempFileURL
         }
 
         func download(_ download: WKDownload, didReceive data: Data) {
@@ -305,18 +309,39 @@ struct MacWebViewRepresentable: NSViewRepresentable {
         }
 
         func downloadDidFinish(_ download: WKDownload) {
-            Logger.pdfBrowser.browserDownload("Finished", filename: downloadFilename, bytes: downloadData.count)
+            // Read data from temp file (WKDownload writes directly to file, not via didReceive)
+            let finalData: Data
+            if let tempURL = downloadTempFileURL {
+                do {
+                    finalData = try Data(contentsOf: tempURL)
+                    // Clean up temp file
+                    try? FileManager.default.removeItem(at: tempURL)
+                    downloadTempFileURL = nil
+                } catch {
+                    Logger.pdfBrowser.error("Failed to read temp file: \(error.localizedDescription)")
+                    Task { @MainActor in
+                        viewModel.errorMessage = "Failed to read downloaded file"
+                        viewModel.downloadProgress = nil
+                    }
+                    return
+                }
+            } else {
+                // Fallback to in-memory data (shouldn't happen with current code)
+                finalData = downloadData
+            }
+
+            Logger.pdfBrowser.browserDownload("Finished", filename: downloadFilename, bytes: finalData.count)
 
             // Check if it's a PDF
-            if isPDF(data: downloadData) {
+            if isPDF(data: finalData) {
                 Task { @MainActor in
                     viewModel.detectedPDFFilename = downloadFilename
-                    viewModel.detectedPDFData = downloadData
+                    viewModel.detectedPDFData = finalData
                     viewModel.downloadProgress = nil
                 }
             } else {
                 // Log diagnostic info to help debug why it's not a PDF
-                logDownloadDiagnostics(data: downloadData, filename: downloadFilename)
+                logDownloadDiagnostics(data: finalData, filename: downloadFilename)
 
                 Task { @MainActor in
                     viewModel.errorMessage = "Downloaded file is not a PDF"
@@ -362,6 +387,13 @@ struct MacWebViewRepresentable: NSViewRepresentable {
 
         func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
             Logger.pdfBrowser.error("Download failed: \(error.localizedDescription)")
+
+            // Clean up temp file if used
+            if let tempURL = downloadTempFileURL {
+                try? FileManager.default.removeItem(at: tempURL)
+                downloadTempFileURL = nil
+            }
+
             Task { @MainActor in
                 viewModel.errorMessage = "Download failed: \(error.localizedDescription)"
                 viewModel.downloadProgress = nil

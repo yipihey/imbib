@@ -561,6 +561,46 @@ public final class AttachmentManager: ObservableObject {
         return .noDuplicate(hash: hash)
     }
 
+    /// Check if data would be a duplicate of an existing attachment.
+    ///
+    /// Uses a two-phase approach for efficiency:
+    /// 1. File size pre-check: Skip hash computation if no existing files match size
+    /// 2. SHA256 comparison: Only compute hash when size matches
+    ///
+    /// The computed hash is returned in both cases so it can be reused during import,
+    /// avoiding redundant hash computation.
+    ///
+    /// - Parameters:
+    ///   - data: The file data to check
+    ///   - publication: The publication to check against
+    /// - Returns: Result indicating duplicate status and computed hash
+    public func checkForDuplicate(
+        data: Data,
+        in publication: CDPublication
+    ) -> DuplicateCheckResult {
+        let dataSize = Int64(data.count)
+
+        // Find existing files with matching size (fast pre-check)
+        let existingFiles = publication.linkedFiles ?? []
+        let sameSizeFiles = existingFiles.filter { $0.fileSize == dataSize && $0.sha256 != nil }
+
+        // Compute hash
+        let hash = SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+
+        // No files with same size = no duplicate possible
+        guard !sameSizeFiles.isEmpty else {
+            return .noDuplicate(hash: hash)
+        }
+
+        // Check if any existing file has matching hash
+        if let existing = sameSizeFiles.first(where: { $0.sha256 == hash }) {
+            Logger.files.infoCapture("Duplicate detected: data matches \(existing.filename)", category: "files")
+            return .duplicate(existingFile: existing, hash: hash)
+        }
+
+        return .noDuplicate(hash: hash)
+    }
+
     // MARK: - Private Helpers
 
     /// Resolve the Papers directory for a library.

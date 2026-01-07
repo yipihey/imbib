@@ -48,8 +48,8 @@ public struct MailStylePublicationRow: View {
     /// Immutable snapshot of publication data for display
     public let data: PublicationRowData
 
-    /// Whether to show the unread indicator dot
-    public var showUnreadIndicator: Bool = true
+    /// List view settings controlling display options
+    public var settings: ListViewSettings = .default
 
     /// Action when toggle read/unread is requested
     public var onToggleRead: (() -> Void)?
@@ -60,21 +60,31 @@ public struct MailStylePublicationRow: View {
 
     /// Author string with year for display
     private var authorYearString: String {
-        if let year = data.year {
+        if settings.showYear, let year = data.year {
             return "\(data.authorString) · \(year)"
         }
         return data.authorString
+    }
+
+    /// Content spacing based on row density
+    private var contentSpacing: CGFloat {
+        settings.rowDensity.contentSpacing
+    }
+
+    /// Row padding based on row density
+    private var rowPadding: CGFloat {
+        settings.rowDensity.rowPadding
     }
 
     // MARK: - Initialization
 
     public init(
         data: PublicationRowData,
-        showUnreadIndicator: Bool = true,
+        settings: ListViewSettings = .default,
         onToggleRead: (() -> Void)? = nil
     ) {
         self.data = data
-        self.showUnreadIndicator = showUnreadIndicator
+        self.settings = settings
         self.onToggleRead = onToggleRead
     }
 
@@ -87,8 +97,8 @@ public struct MailStylePublicationRow: View {
 
     private var rowContent: some View {
         HStack(alignment: .top, spacing: MailStyleTokens.dotContentSpacing) {
-            // Blue dot for unread
-            if showUnreadIndicator {
+            // Blue dot for unread (conditional)
+            if settings.showUnreadIndicator {
                 Circle()
                     .fill(isUnread ? MailStyleTokens.unreadDotColor : .clear)
                     .frame(
@@ -99,8 +109,8 @@ public struct MailStylePublicationRow: View {
             }
 
             // Content
-            VStack(alignment: .leading, spacing: MailStyleTokens.contentSpacing) {
-                // Row 1: Authors · Year + Citation Count
+            VStack(alignment: .leading, spacing: contentSpacing) {
+                // Row 1: Authors [· Year] + [Citation Count]
                 HStack {
                     Text(authorYearString)
                         .font(isUnread ? MailStyleTokens.authorFontUnread : MailStyleTokens.authorFont)
@@ -108,37 +118,49 @@ public struct MailStylePublicationRow: View {
 
                     Spacer()
 
-                    if data.citationCount > 0 {
+                    if settings.showCitationCount && data.citationCount > 0 {
                         Text("\(data.citationCount)")
                             .font(MailStyleTokens.dateFont)
                             .foregroundStyle(MailStyleTokens.secondaryTextColor)
                     }
                 }
 
-                // Row 2: Title
-                Text(data.title)
-                    .font(MailStyleTokens.titleFont)
-                    .fontWeight(isUnread ? .medium : .regular)
-                    .lineLimit(MailStyleTokens.titleLineLimit)
+                // Row 2: Title (conditional)
+                if settings.showTitle {
+                    Text(data.title)
+                        .font(MailStyleTokens.titleFont)
+                        .fontWeight(isUnread ? .medium : .regular)
+                        .lineLimit(MailStyleTokens.titleLineLimit)
+                }
 
-                // Row 3: Attachment indicator + Abstract preview
-                HStack(spacing: 4) {
-                    if data.hasPDF {
-                        Image(systemName: "paperclip")
-                            .font(MailStyleTokens.attachmentFont)
-                            .foregroundStyle(MailStyleTokens.tertiaryTextColor)
-                    }
+                // Row 2.5: Venue (conditional)
+                if settings.showVenue, let venue = data.venue, !venue.isEmpty {
+                    Text(venue)
+                        .font(MailStyleTokens.abstractFont)
+                        .foregroundStyle(MailStyleTokens.secondaryTextColor)
+                        .lineLimit(1)
+                }
 
-                    if let abstract = data.abstract, !abstract.isEmpty {
-                        Text(abstract)
-                            .font(MailStyleTokens.abstractFont)
-                            .foregroundStyle(MailStyleTokens.secondaryTextColor)
-                            .lineLimit(MailStyleTokens.abstractLineLimit)
+                // Row 3: Attachment indicator + Abstract preview (conditional)
+                if (settings.showAttachmentIndicator && data.hasPDF) || settings.abstractLineLimit > 0 {
+                    HStack(spacing: 4) {
+                        if settings.showAttachmentIndicator && data.hasPDF {
+                            Image(systemName: "paperclip")
+                                .font(MailStyleTokens.attachmentFont)
+                                .foregroundStyle(MailStyleTokens.tertiaryTextColor)
+                        }
+
+                        if settings.abstractLineLimit > 0, let abstract = data.abstract, !abstract.isEmpty {
+                            Text(abstract)
+                                .font(MailStyleTokens.abstractFont)
+                                .foregroundStyle(MailStyleTokens.secondaryTextColor)
+                                .lineLimit(settings.abstractLineLimit)
+                        }
                     }
                 }
             }
         }
-        .padding(.vertical, MailStyleTokens.rowVerticalPadding)
+        .padding(.vertical, rowPadding)
         .contentShape(Rectangle())
         .draggable(data.id) {
             // Drag preview
@@ -257,6 +279,7 @@ extension PublicationRowData {
         hasPDF: Bool,
         citationCount: Int,
         doi: String?,
+        venue: String? = nil,
         dateAdded: Date = Date(),
         dateModified: Date = Date()
     ) {
@@ -270,6 +293,7 @@ extension PublicationRowData {
         self.hasPDF = hasPDF
         self.citationCount = citationCount
         self.doi = doi
+        self.venue = venue
         self.dateAdded = dateAdded
         self.dateModified = dateModified
     }

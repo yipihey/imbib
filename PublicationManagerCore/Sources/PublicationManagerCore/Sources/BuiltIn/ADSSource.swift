@@ -264,55 +264,60 @@ public actor ADSSource: SourcePlugin {
     }
 
     /// Build PDF links from ADS esources field
+    ///
+    /// Note: We avoid ADS link_gateway URLs (e.g., /link_gateway/{bibcode}/PUB_PDF)
+    /// because they are unreliable and often return 404. Instead:
+    /// - For preprints: use direct arXiv URLs
+    /// - For publisher PDFs: use DOI resolver (https://doi.org/{doi})
+    /// - For ADS scans: these are hosted directly by ADS and work reliably
     private func buildPDFLinks(from doc: [String: Any], bibcode: String, arxivID: String?) -> [PDFLink] {
         var links: [PDFLink] = []
+        let doi = extractDOI(from: doc)
 
         // Get esources array from response
         let esources = doc["esources"] as? [String] ?? []
 
+        // Track what we have
+        var hasPreprint = false
+        var hasPublisher = false
+
         // Map ADS esource types to our PDFLinkType
-        // ADS uses uppercase like "PUB_PDF", "EPRINT_PDF", etc.
         for esource in esources {
             let upper = esource.uppercased()
 
-            if upper == "PUB_PDF" || upper == "PUB_HTML" {
-                // Publisher PDF - use link gateway
-                if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_PDF") {
-                    links.append(PDFLink(url: url, type: .publisher, sourceID: "ads"))
-                }
-            } else if upper == "EPRINT_PDF" {
-                // Preprint/arXiv PDF - use direct arXiv URL if available
+            if upper == "EPRINT_PDF" {
+                // Preprint/arXiv PDF - use direct arXiv URL
                 if let arxivID = arxivID,
                    let url = URL(string: "https://arxiv.org/pdf/\(arxivID).pdf") {
                     links.append(PDFLink(url: url, type: .preprint, sourceID: "ads"))
-                } else if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/EPRINT_PDF") {
-                    links.append(PDFLink(url: url, type: .preprint, sourceID: "ads"))
+                    hasPreprint = true
                 }
-            } else if upper == "AUTHOR_PDF" {
-                // Author-provided PDF
-                if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/AUTHOR_PDF") {
-                    links.append(PDFLink(url: url, type: .author, sourceID: "ads"))
+            } else if upper == "PUB_PDF" || upper == "PUB_HTML" {
+                // Publisher PDF - use DOI resolver (much more reliable than link_gateway)
+                if let doi = doi, !doi.isEmpty,
+                   let url = URL(string: "https://doi.org/\(doi)") {
+                    links.append(PDFLink(url: url, type: .publisher, sourceID: "ads"))
+                    hasPublisher = true
                 }
             } else if upper == "ADS_PDF" || upper == "ADS_SCAN" {
-                // ADS-hosted scan
+                // ADS-hosted scans are reliable (hosted directly by ADS)
                 if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/ADS_PDF") {
                     links.append(PDFLink(url: url, type: .adsScan, sourceID: "ads"))
                 }
             }
+            // Note: We skip AUTHOR_PDF as link_gateway for it is unreliable
         }
 
         // If no esources but we have arXiv ID, add preprint link
-        if links.isEmpty && arxivID != nil {
-            if let url = URL(string: "https://arxiv.org/pdf/\(arxivID!).pdf") {
-                links.append(PDFLink(url: url, type: .preprint, sourceID: "ads"))
-            }
+        if !hasPreprint, let arxivID = arxivID,
+           let url = URL(string: "https://arxiv.org/pdf/\(arxivID).pdf") {
+            links.append(PDFLink(url: url, type: .preprint, sourceID: "ads"))
         }
 
-        // Fallback: if still no links, try generic PUB_PDF gateway
-        if links.isEmpty {
-            if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_PDF") {
-                links.append(PDFLink(url: url, type: .publisher, sourceID: "ads"))
-            }
+        // If no publisher link but we have DOI, add it
+        if !hasPublisher, let doi = doi, !doi.isEmpty,
+           let url = URL(string: "https://doi.org/\(doi)") {
+            links.append(PDFLink(url: url, type: .publisher, sourceID: "ads"))
         }
 
         return links

@@ -105,6 +105,9 @@ public struct PublicationListView: View {
     /// ID of row currently targeted by file drop
     @State private var dropTargetedRowID: UUID?
 
+    /// List view settings for row customization
+    @State private var listViewSettings: ListViewSettings = .default
+
     // MARK: - Computed Properties
 
     /// Filtered and sorted row data (safe value types)
@@ -211,6 +214,7 @@ public struct PublicationListView: View {
         }
         .task(id: listID) {
             await loadState()
+            listViewSettings = await ListViewSettingsStore.shared.settings
         }
         .onAppear {
             rebuildRowData()
@@ -222,6 +226,12 @@ public struct PublicationListView: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("readStatusDidChange"))) { _ in
             // Rebuild row data when read status changes
             rebuildRowData()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .listViewSettingsDidChange)) { _ in
+            // Reload settings when they change
+            Task {
+                listViewSettings = await ListViewSettingsStore.shared.settings
+            }
         }
         .onChange(of: selection) { _, newValue in
             // Find publication for single-selection binding
@@ -380,7 +390,7 @@ public struct PublicationListView: View {
         List(filteredRowData, id: \.id, selection: $selection) { rowData in
             MailStylePublicationRow(
                 data: rowData,
-                showUnreadIndicator: true,
+                settings: listViewSettings,
                 onToggleRead: onToggleRead != nil ? {
                     // Look up CDPublication for mutation
                     if let pub = publications.first(where: { $0.id == rowData.id }) {

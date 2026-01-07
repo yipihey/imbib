@@ -22,6 +22,10 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gear") }
                 .tag(SettingsTab.general)
 
+            ViewingSettingsTab()
+                .tabItem { Label("Viewing", systemImage: "eye") }
+                .tag(SettingsTab.viewing)
+
             SourcesSettingsTab()
                 .tabItem { Label("Sources", systemImage: "globe") }
                 .tag(SettingsTab.sources)
@@ -34,7 +38,7 @@ struct SettingsView: View {
                 .tabItem { Label("Import/Export", systemImage: "arrow.up.arrow.down") }
                 .tag(SettingsTab.importExport)
         }
-        .frame(width: 500, height: 400)
+        .frame(width: 500, height: 450)
     }
 }
 
@@ -42,6 +46,7 @@ struct SettingsView: View {
 
 enum SettingsTab: String, CaseIterable {
     case general
+    case viewing
     case sources
     case pdf
     case importExport
@@ -112,11 +117,6 @@ struct GeneralSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Display") {
-                // Future: theme, font size, etc.
-                Text("Display settings coming soon")
-                    .foregroundStyle(.secondary)
-            }
         }
         .formStyle(.grouped)
         .padding()

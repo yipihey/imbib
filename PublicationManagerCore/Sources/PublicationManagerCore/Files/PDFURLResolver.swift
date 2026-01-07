@@ -175,15 +175,28 @@ public struct PDFURLResolver {
         return proxiedURL
     }
 
-    // MARK: - ADS Link Gateway
+    // MARK: - ADS Abstract Page
+
+    /// Generate ADS abstract page URL for accessing full text sources
+    ///
+    /// The ADS abstract page shows all available full text sources and is more
+    /// reliable than the link_gateway URLs which often return 404.
+    ///
+    /// - Parameter bibcode: The ADS bibcode
+    /// - Returns: ADS abstract page URL
+    public static func adsAbstractURL(bibcode: String) -> URL? {
+        guard !bibcode.isEmpty else { return nil }
+        return URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)/abstract")
+    }
 
     /// Generate ADS link gateway URL for publisher PDF access
     ///
-    /// The ADS link gateway (`/link_gateway/{bibcode}/PUB_PDF`) redirects to the
-    /// publisher PDF. This may require authentication or institutional access.
+    /// - Warning: This method is deprecated. The link_gateway URLs are unreliable
+    ///   and often return 404. Use `adsAbstractURL(bibcode:)` instead.
     ///
     /// - Parameter bibcode: The ADS bibcode
-    /// - Returns: ADS gateway URL
+    /// - Returns: ADS gateway URL (unreliable)
+    @available(*, deprecated, message: "Use adsAbstractURL(bibcode:) instead - link_gateway URLs are unreliable")
     public static func adsGatewayPDFURL(bibcode: String) -> URL? {
         guard !bibcode.isEmpty else { return nil }
         return URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_PDF")

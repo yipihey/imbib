@@ -94,16 +94,11 @@ public final class PDFDownloadInterceptor: NSObject, WKDownloadDelegate {
 
         onDownloadStarted?(suggestedFilename)
 
-        // For large files, use a temp file to avoid memory issues
-        if self.expectedLength > 50_000_000 { // 50 MB threshold
-            let tempDir = FileManager.default.temporaryDirectory
-            self.tempFileURL = tempDir.appendingPathComponent(UUID().uuidString + ".pdf")
-            Logger.pdfBrowser.info("Large download, using temp file: \(self.tempFileURL?.path ?? "nil")")
-            return self.tempFileURL
-        }
-
-        // Return nil to handle data in memory
-        return nil
+        // Always use a temp file - returning nil causes sandbox extension errors
+        let tempDir = FileManager.default.temporaryDirectory
+        self.tempFileURL = tempDir.appendingPathComponent(UUID().uuidString + ".pdf")
+        Logger.pdfBrowser.debug("Using temp file: \(self.tempFileURL?.path ?? "nil")")
+        return self.tempFileURL
     }
 
     public func download(_ download: WKDownload, didReceive data: Data) {

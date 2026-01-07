@@ -21,6 +21,7 @@ struct ConsoleView: View {
     @State private var showWarning = true
     @State private var showError = true
     @State private var autoScroll = true
+    @State private var selection: Set<LogEntry.ID> = []
 
     // MARK: - Computed
 
@@ -106,6 +107,15 @@ struct ConsoleView: View {
             .help("Auto-scroll to bottom")
 
             Button {
+                copySelectedEntries()
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .disabled(selection.isEmpty)
+            .help("Copy selected (\(selection.count))")
+            .keyboardShortcut("c", modifiers: .command)
+
+            Button {
                 logStore.clear()
             } label: {
                 Image(systemName: "trash")
@@ -125,7 +135,7 @@ struct ConsoleView: View {
 
     private var logList: some View {
         ScrollViewReader { proxy in
-            List(filteredEntries) { entry in
+            List(filteredEntries, selection: $selection) { entry in
                 ConsoleRowView(entry: entry)
                     .id(entry.id)
             }
@@ -136,6 +146,16 @@ struct ConsoleView: View {
                     withAnimation {
                         proxy.scrollTo(last.id, anchor: .bottom)
                     }
+                }
+            }
+            .contextMenu {
+                Button("Copy Selected") {
+                    copySelectedEntries()
+                }
+                .disabled(selection.isEmpty)
+
+                Button("Select All") {
+                    selection = Set(filteredEntries.map { $0.id })
                 }
             }
         }
@@ -170,6 +190,27 @@ struct ConsoleView: View {
         if panel.runModal() == .OK, let url = panel.url {
             try? content.write(to: url, atomically: true, encoding: .utf8)
         }
+    }
+
+    private func copySelectedEntries() {
+        guard !selection.isEmpty else { return }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+
+        // Get selected entries in order
+        let selectedEntries = filteredEntries.filter { selection.contains($0.id) }
+
+        // Format entries
+        let text = selectedEntries.map { entry in
+            let time = formatter.string(from: entry.timestamp)
+            let level = entry.level.rawValue.uppercased()
+            return "\(time) [\(level)] [\(entry.category)] \(entry.message)"
+        }.joined(separator: "\n")
+
+        // Copy to clipboard
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 }
 
