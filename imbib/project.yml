@@ -14,6 +14,14 @@ settings:
     SWIFT_STRICT_CONCURRENCY: complete
     DEVELOPMENT_TEAM: QG3MEYVHMS
     CODE_SIGN_STYLE: Automatic
+    DEAD_CODE_STRIPPING: YES
+  configs:
+    Debug:
+      SWIFT_OPTIMIZATION_LEVEL: -Onone
+    Release:
+      SWIFT_OPTIMIZATION_LEVEL: -Osize
+      STRIP_INSTALLED_PRODUCT: YES
+      COPY_PHASE_STRIP: YES
 
 packages:
   PublicationManagerCore:
