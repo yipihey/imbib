@@ -207,6 +207,11 @@ public extension PDFBrowserWindowController {
             libraryID: libraryID
         )
 
+        // Load proxy settings so user can retry with proxy if needed
+        let settings = await PDFSettingsStore.shared.settings
+        viewModel.libraryProxyURL = settings.libraryProxyURL
+        viewModel.proxyEnabled = settings.proxyEnabled
+
         viewModel.onPDFCaptured = onPDFCaptured
 
         // Open window

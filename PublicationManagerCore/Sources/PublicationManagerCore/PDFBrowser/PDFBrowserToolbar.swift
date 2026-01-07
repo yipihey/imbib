@@ -142,6 +142,20 @@ public struct PDFBrowserToolbar: View {
             .buttonStyle(.borderless)
             #endif
 
+            // Retry with proxy button - only shown when proxy is configured and not already proxied
+            if viewModel.proxyEnabled && !viewModel.libraryProxyURL.isEmpty && !viewModel.isProxied {
+                Button {
+                    viewModel.retryWithProxy()
+                } label: {
+                    Image(systemName: "building.columns")
+                        .font(.body)
+                }
+                .help("Reload page through library proxy")
+                #if os(macOS)
+                .buttonStyle(.borderless)
+                #endif
+            }
+
             // Manual capture button - always visible as fallback
             Button {
                 Task {

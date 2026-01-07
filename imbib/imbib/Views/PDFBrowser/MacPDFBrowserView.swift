@@ -315,14 +315,49 @@ struct MacWebViewRepresentable: NSViewRepresentable {
                     viewModel.downloadProgress = nil
                 }
             } else {
+                // Log diagnostic info to help debug why it's not a PDF
+                logDownloadDiagnostics(data: downloadData, filename: downloadFilename)
+
                 Task { @MainActor in
                     viewModel.errorMessage = "Downloaded file is not a PDF"
                     viewModel.downloadProgress = nil
                 }
-                Logger.pdfBrowser.warning("Downloaded file is not a PDF: \(self.downloadFilename)")
             }
 
             downloadData = Data()
+        }
+
+        /// Log detailed diagnostics when a download is not recognized as PDF
+        private func logDownloadDiagnostics(data: Data, filename: String) {
+            // Magic bytes (first 16 bytes in hex)
+            let magicBytes = data.prefix(16).map { String(format: "%02X", $0) }.joined(separator: " ")
+
+            // Check if it looks like HTML
+            let isHTML = data.prefix(1) == Data([0x3C]) // starts with '<'
+            let isHTMLDoctype = String(data: data.prefix(15), encoding: .utf8)?.uppercased().contains("DOCTYPE") ?? false
+
+            // Try to get text preview if it's text-based
+            var textPreview = ""
+            if let text = String(data: data.prefix(500), encoding: .utf8) {
+                textPreview = text
+                    .replacingOccurrences(of: "\n", with: " ")
+                    .replacingOccurrences(of: "\r", with: " ")
+                    .prefix(200)
+                    .description
+            }
+
+            Logger.pdfBrowser.warning("Download is not a PDF - Diagnostics:")
+            Logger.pdfBrowser.warning("  Filename: \(filename)")
+            Logger.pdfBrowser.warning("  Size: \(data.count) bytes")
+            Logger.pdfBrowser.warning("  Magic bytes: \(magicBytes)")
+            Logger.pdfBrowser.warning("  Looks like HTML: \(isHTML || isHTMLDoctype)")
+
+            if !textPreview.isEmpty {
+                Logger.pdfBrowser.warning("  Content preview: \(textPreview)")
+            }
+
+            // Expected PDF magic: 25 50 44 46 (%PDF)
+            Logger.pdfBrowser.warning("  Expected PDF magic: 25 50 44 46 (%PDF)")
         }
 
         func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
@@ -380,7 +415,9 @@ struct MacWebViewRepresentable: NSViewRepresentable {
 
                     Logger.pdfBrowser.info("Manual capture successful: \(filename), \(pdfData.count) bytes")
                 } else {
-                    Logger.pdfBrowser.warning("Captured data is not a valid PDF")
+                    // Log diagnostics for failed capture
+                    logDownloadDiagnostics(data: pdfData, filename: "manual-capture")
+
                     viewModel.errorMessage = "Could not capture PDF content"
                 }
             } catch {
@@ -416,8 +453,10 @@ struct MacWebViewRepresentable: NSViewRepresentable {
 
                     Logger.pdfBrowser.info("Fallback fetch successful: \(filename), \(data.count) bytes")
                 } else {
+                    // Log diagnostics for failed capture
+                    logDownloadDiagnostics(data: data, filename: response.suggestedFilename ?? "capture")
+
                     viewModel.errorMessage = "Page content is not a PDF"
-                    Logger.pdfBrowser.warning("Fallback fetch: content is not a PDF")
                 }
             } catch {
                 viewModel.errorMessage = "Could not capture PDF: \(error.localizedDescription)"

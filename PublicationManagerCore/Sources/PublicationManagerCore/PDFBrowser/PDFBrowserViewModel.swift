@@ -83,6 +83,17 @@ public final class PDFBrowserViewModel {
     /// Whether a manual capture is in progress
     public var isCapturing: Bool = false
 
+    // MARK: - Proxy Settings
+
+    /// Library proxy URL from settings (empty if not configured)
+    public var libraryProxyURL: String = ""
+
+    /// Whether proxy is enabled in settings
+    public var proxyEnabled: Bool = false
+
+    /// Whether we're currently viewing a proxied URL
+    public var isProxied: Bool = false
+
     // MARK: - WebView Reference
 
     #if canImport(WebKit)
@@ -154,6 +165,34 @@ public final class PDFBrowserViewModel {
         #elseif canImport(UIKit)
         UIPasteboard.general.string = url.absoluteString
         Logger.pdfBrowser.info("URL copied to clipboard (iOS): \(url.absoluteString)")
+        #endif
+    }
+
+    // MARK: - Proxy
+
+    /// Reload the current URL with library proxy applied.
+    ///
+    /// This allows users to retry access through their institutional proxy
+    /// when they encounter paywalls or access denied pages.
+    public func retryWithProxy() {
+        #if canImport(WebKit)
+        guard let currentURL = currentURL,
+              proxyEnabled,
+              !libraryProxyURL.isEmpty,
+              !isProxied else {
+            Logger.pdfBrowser.warning("Cannot retry with proxy: proxy not configured or already proxied")
+            return
+        }
+
+        let proxiedURLString = libraryProxyURL + currentURL.absoluteString
+        guard let proxiedURL = URL(string: proxiedURLString) else {
+            Logger.pdfBrowser.error("Failed to create proxied URL from: \(proxiedURLString)")
+            return
+        }
+
+        isProxied = true
+        webView?.load(URLRequest(url: proxiedURL))
+        Logger.pdfBrowser.info("Retrying with proxy: \(proxiedURLString)")
         #endif
     }
 
