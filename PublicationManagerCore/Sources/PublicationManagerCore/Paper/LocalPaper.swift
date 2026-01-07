@@ -109,11 +109,11 @@ public struct LocalPaper: PaperRepresentable, Hashable {
 
         self.abstract = publication.abstract
 
-        // Identifiers
-        self.doi = publication.doi ?? fields["doi"]
-        self.arxivID = fields["eprint"] ?? fields["arxiv"]
-        self.pmid = fields["pmid"]
-        self.bibcode = fields["adsurl"]?.extractingBibcode() ?? fields["bibcode"]
+        // Identifiers (using centralized IdentifierExtractor)
+        self.doi = publication.doi ?? IdentifierExtractor.doi(from: fields)
+        self.arxivID = IdentifierExtractor.arxivID(from: fields)
+        self.pmid = IdentifierExtractor.pmid(from: fields)
+        self.bibcode = IdentifierExtractor.bibcode(from: fields)
 
         // Files
         let files = publication.linkedFiles ?? []
@@ -180,23 +180,6 @@ public struct LocalPaper: PaperRepresentable, Hashable {
 
     public static func == (lhs: LocalPaper, rhs: LocalPaper) -> Bool {
         lhs.id == rhs.id
-    }
-}
-
-// MARK: - String Extension for Bibcode Extraction
-
-private extension String {
-    /// Extract ADS bibcode from an ADS URL
-    func extractingBibcode() -> String? {
-        // URLs like https://ui.adsabs.harvard.edu/abs/2023ApJ...945..100A
-        guard let url = URL(string: self),
-              url.host?.contains("adsabs") == true,
-              url.pathComponents.contains("abs"),
-              let bibcodeIndex = url.pathComponents.firstIndex(of: "abs"),
-              bibcodeIndex + 1 < url.pathComponents.count else {
-            return nil
-        }
-        return url.pathComponents[bibcodeIndex + 1]
     }
 }
 

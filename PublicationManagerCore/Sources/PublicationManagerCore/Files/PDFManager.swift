@@ -106,6 +106,9 @@ public final class AttachmentManager: ObservableObject {
             linkedFile.sha256 = computeSHA256(for: url)
         }
 
+        // Mark PDF downloaded
+        markPDFDownloaded(publication)
+
         persistenceController.save()
 
         Logger.files.infoCapture("Linked existing PDF: \(filename)", category: "files")
@@ -221,6 +224,11 @@ public final class AttachmentManager: ObservableObject {
         linkedFile.displayName = displayName
         linkedFile.fileSize = fileSize
         linkedFile.mimeType = mimeType
+
+        // Mark PDF downloaded if it's a PDF
+        if isPDF {
+            markPDFDownloaded(publication)
+        }
 
         persistenceController.save()
 
@@ -364,6 +372,11 @@ public final class AttachmentManager: ObservableObject {
         linkedFile.fileSize = Int64(data.count)
         linkedFile.mimeType = mimeType
 
+        // Mark PDF downloaded if it's a PDF
+        if isPDF {
+            markPDFDownloaded(publication)
+        }
+
         persistenceController.save()
 
         Logger.files.infoCapture("Created linked file: \(linkedFile.id) (\(linkedFile.formattedFileSize))", category: "files")
@@ -403,7 +416,21 @@ public final class AttachmentManager: ObservableObject {
 
         Logger.files.infoCapture("Downloaded \(data.count) bytes", category: "files")
 
-        return try importPDF(data: data, for: publication, in: library)
+        let linkedFile = try importPDF(data: data, for: publication, in: library)
+        markPDFDownloaded(publication)
+        return linkedFile
+    }
+
+    // MARK: - PDF Download State
+
+    /// Mark a publication as having a PDF downloaded.
+    ///
+    /// This updates the `hasPDFDownloaded` and `pdfDownloadDate` fields which
+    /// were previously unused but are now set consistently across all import paths.
+    private func markPDFDownloaded(_ publication: CDPublication) {
+        publication.hasPDFDownloaded = true
+        publication.pdfDownloadDate = Date()
+        Logger.files.debugCapture("Marked PDF downloaded for: \(publication.citeKey)", category: "files")
     }
 
     // MARK: - Filename Generation

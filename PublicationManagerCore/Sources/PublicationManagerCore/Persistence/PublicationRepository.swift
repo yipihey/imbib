@@ -427,34 +427,23 @@ public actor PublicationRepository {
     }
 
     /// Find publication by arXiv ID (strips version suffix like "v1", "v2")
+    ///
+    /// Uses indexed `arxivIDNormalized` field for O(1) lookup instead of
+    /// scanning rawFields. This is much faster for large libraries.
     public func findByArXiv(_ arxivID: String) async -> CDPublication? {
-        // Strip version suffix (e.g., "2301.12345v2" -> "2301.12345")
-        let baseID = arxivID.replacingOccurrences(
-            of: #"v\d+$"#,
-            with: "",
-            options: .regularExpression
-        ).trimmingCharacters(in: .whitespaces)
+        // Normalize for O(1) indexed lookup
+        let normalizedID = IdentifierExtractor.normalizeArXivID(arxivID)
 
         let context = persistenceController.viewContext
 
         return await context.perform {
             let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-            // Check fields.eprint or fields.arxiv (both are used)
-            request.predicate = NSPredicate(
-                format: "rawFields CONTAINS[c] %@",
-                baseID
-            )
+            // Use indexed arxivIDNormalized field for O(1) lookup
+            request.predicate = NSPredicate(format: "arxivIDNormalized == %@", normalizedID)
+            request.fetchLimit = 1
 
             do {
-                let results = try context.fetch(request)
-                // Verify the match in the fields
-                return results.first { pub in
-                    let fields = pub.fields
-                    let eprint = fields["eprint"]?.replacingOccurrences(of: #"v\d+$"#, with: "", options: .regularExpression)
-                    let arxiv = fields["arxiv"]?.replacingOccurrences(of: #"v\d+$"#, with: "", options: .regularExpression)
-                    return eprint?.lowercased() == baseID.lowercased() ||
-                           arxiv?.lowercased() == baseID.lowercased()
-                }
+                return try context.fetch(request).first
             } catch {
                 return nil
             }

@@ -303,6 +303,13 @@ public final class PersistenceController: @unchecked Sendable {
         semanticScholarID.isOptional = true
         properties.append(semanticScholarID)
 
+        // Normalized arXiv ID for O(1) lookups (indexed)
+        let arxivIDNormalized = NSAttributeDescription()
+        arxivIDNormalized.name = "arxivIDNormalized"
+        arxivIDNormalized.attributeType = .stringAttributeType
+        arxivIDNormalized.isOptional = true
+        properties.append(arxivIDNormalized)
+
         let openAlexID = NSAttributeDescription()
         openAlexID.name = "openAlexID"
         openAlexID.attributeType = .stringAttributeType

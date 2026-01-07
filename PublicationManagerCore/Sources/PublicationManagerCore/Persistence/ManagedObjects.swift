@@ -44,6 +44,10 @@ public class CDPublication: NSManagedObject {
     @NSManaged public var semanticScholarID: String?
     @NSManaged public var openAlexID: String?
 
+    // Normalized arXiv ID for O(1) indexed lookups
+    // Set automatically when fields change via updateArxivIDNormalized()
+    @NSManaged public var arxivIDNormalized: String?
+
     // Read status (Apple Mail styling)
     @NSManaged public var isRead: Bool
     @NSManaged public var dateRead: Date?
@@ -74,7 +78,20 @@ public extension CDPublication {
             if let data = try? JSONEncoder().encode(newValue),
                let json = String(data: data, encoding: .utf8) {
                 rawFields = json
+                // Update indexed arXiv ID for O(1) lookups
+                updateArxivIDNormalized(from: newValue)
             }
+        }
+    }
+
+    /// Update the normalized arXiv ID from field values.
+    /// Called automatically when `fields` is set.
+    func updateArxivIDNormalized(from fields: [String: String]? = nil) {
+        let fieldsToUse = fields ?? self.fields
+        if let arxivID = IdentifierExtractor.arxivID(from: fieldsToUse) {
+            arxivIDNormalized = IdentifierExtractor.normalizeArXivID(arxivID)
+        } else {
+            arxivIDNormalized = nil
         }
     }
 
@@ -292,20 +309,26 @@ public extension CDPublication {
     }
 
     // MARK: - Identifier Access (from BibTeX fields)
+    //
+    // These use centralized IdentifierExtractor for consistent field extraction
+    // across the codebase. The extractor checks multiple field variants:
+    // - arXiv: eprint → arxivid → arxiv
+    // - bibcode: bibcode (or extracted from adsurl)
+    // - pmid: pmid
 
-    /// arXiv ID from eprint or arxiv field
+    /// arXiv ID from BibTeX fields (checks eprint, arxivid, arxiv)
     var arxivID: String? {
-        fields["eprint"] ?? fields["arxiv"]
+        IdentifierExtractor.arxivID(from: fields)
     }
 
-    /// ADS bibcode from bibcode field
+    /// ADS bibcode from BibTeX fields (checks bibcode or extracts from adsurl)
     var bibcode: String? {
-        fields["bibcode"]
+        IdentifierExtractor.bibcode(from: fields)
     }
 
     /// PubMed ID from pmid field
     var pmid: String? {
-        fields["pmid"]
+        IdentifierExtractor.pmid(from: fields)
     }
 
     /// arXiv PDF URL (computed from arxivID)

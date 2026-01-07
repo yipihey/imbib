@@ -154,6 +154,8 @@ public extension Dictionary where Key == IdentifierType, Value == String {
 public extension CDPublication {
 
     /// Extract identifiers from this publication for enrichment.
+    ///
+    /// Uses `IdentifierExtractor` for consistent field extraction across the codebase.
     var enrichmentIdentifiers: [IdentifierType: String] {
         var result: [IdentifierType: String] = [:]
 
@@ -161,18 +163,19 @@ public extension CDPublication {
             result[.doi] = doi
         }
 
-        // Check rawFields for additional identifiers
+        // Use centralized IdentifierExtractor for consistent field extraction
         let allFields = fields
-        if let arxiv = allFields["eprint"] ?? allFields["arxivid"] ?? allFields["arxiv"] {
+
+        if let arxiv = IdentifierExtractor.arxivID(from: allFields) {
             result[.arxiv] = arxiv
         }
-        if let bibcodeValue = allFields["bibcode"] ?? allFields["adsurl"]?.extractingBibcode() {
+        if let bibcodeValue = IdentifierExtractor.bibcode(from: allFields) {
             result[.bibcode] = bibcodeValue
         }
-        if let pmid = allFields["pmid"] {
+        if let pmid = IdentifierExtractor.pmid(from: allFields) {
             result[.pmid] = pmid
         }
-        if let pmcid = allFields["pmcid"] {
+        if let pmcid = IdentifierExtractor.pmcid(from: allFields) {
             result[.pmcid] = pmcid
         }
 
@@ -190,18 +193,5 @@ public extension CDPublication {
     /// Whether this publication has any identifiers suitable for enrichment
     var hasEnrichmentIdentifiers: Bool {
         !enrichmentIdentifiers.isEmpty
-    }
-}
-
-// MARK: - String Extension for Bibcode Extraction
-
-private extension String {
-    /// Extract bibcode from ADS URL
-    func extractingBibcode() -> String? {
-        // ADS URLs look like: https://ui.adsabs.harvard.edu/abs/2020ApJ...123...45A
-        if let range = range(of: "/abs/") {
-            return String(self[range.upperBound...])
-        }
-        return nil
     }
 }

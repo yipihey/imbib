@@ -97,7 +97,8 @@ final class ADSSourceTests: XCTestCase {
     }
 
     func testParseDoc_withoutArXivID_generateADSGatewayURL() async throws {
-        // Given - mock response without arXiv ID
+        // Given - mock response without arXiv ID but with DOI
+        // ADSSource uses DOI resolver (not link_gateway) for papers without arXiv
         let responseJSON: [String: Any] = [
             "response": [
                 "docs": [
@@ -106,7 +107,59 @@ final class ADSSourceTests: XCTestCase {
                         "title": ["A Journal Paper"],
                         "author": ["Author, Test"],
                         "year": 2024,
-                        "pub": "The Astrophysical Journal"
+                        "pub": "The Astrophysical Journal",
+                        "doi": ["10.1234/example.2024.12345"]
+                    ]
+                ]
+            ]
+        ]
+
+        MockURLProtocol.requestHandler = { request in
+            let data = try JSONSerialization.data(withJSONObject: responseJSON)
+            let response = HTTPURLResponse(
+                url: request.url!,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: nil
+            )!
+            return (response, data)
+        }
+
+        // When
+        let results = try await source.search(query: "test")
+
+        // Then - Uses DOI resolver URL (more reliable than deprecated link_gateway)
+        XCTAssertEqual(results.count, 1)
+        let result = results.first!
+        XCTAssertNil(result.arxivID)
+        XCTAssertNotNil(result.pdfURL)
+        XCTAssertEqual(
+            result.pdfURL?.absoluteString,
+            "https://doi.org/10.1234/example.2024.12345"
+        )
+    }
+
+    func testParseDoc_pdfURL_requiresArXivOrDOI() async throws {
+        // Given - papers with and without identifiers
+        // ADSSource only generates PDF URLs for papers with arXiv ID or DOI
+        // (link_gateway URLs were removed as unreliable)
+        let responseJSON: [String: Any] = [
+            "response": [
+                "docs": [
+                    [
+                        "bibcode": "2024arXiv240112345A",
+                        "title": ["arXiv Paper"],
+                        "identifier": ["arXiv:2401.12345"]
+                    ],
+                    [
+                        "bibcode": "2024ApJ...123..456A",
+                        "title": ["Journal Paper with DOI"],
+                        "doi": ["10.1234/journal.2024"]
+                    ],
+                    [
+                        "bibcode": "2024MNRAS.500.1000B",
+                        "title": ["Journal Paper without identifiers"]
+                        // No arXiv, no DOI - no PDF URL
                     ]
                 ]
             ]
@@ -127,57 +180,21 @@ final class ADSSourceTests: XCTestCase {
         let results = try await source.search(query: "test")
 
         // Then
-        XCTAssertEqual(results.count, 1)
-        let result = results.first!
-        XCTAssertNil(result.arxivID)
-        XCTAssertNotNil(result.pdfURL)
-        XCTAssertEqual(
-            result.pdfURL?.absoluteString,
-            "https://ui.adsabs.harvard.edu/link_gateway/2024ApJ...123..456A/PUB_PDF"
-        )
-    }
-
-    func testParseDoc_alwaysHasPDFURL() async throws {
-        // Given - mix of papers
-        let responseJSON: [String: Any] = [
-            "response": [
-                "docs": [
-                    [
-                        "bibcode": "2024arXiv240112345A",
-                        "title": ["arXiv Paper"],
-                        "identifier": ["arXiv:2401.12345"]
-                    ],
-                    [
-                        "bibcode": "2024ApJ...123..456A",
-                        "title": ["Journal Paper"]
-                    ],
-                    [
-                        "bibcode": "2024MNRAS.500.1000B",
-                        "title": ["Another Journal Paper"]
-                    ]
-                ]
-            ]
-        ]
-
-        MockURLProtocol.requestHandler = { request in
-            let data = try JSONSerialization.data(withJSONObject: responseJSON)
-            let response = HTTPURLResponse(
-                url: request.url!,
-                statusCode: 200,
-                httpVersion: nil,
-                headerFields: nil
-            )!
-            return (response, data)
-        }
-
-        // When
-        let results = try await source.search(query: "test")
-
-        // Then - ALL results should have pdfURL
         XCTAssertEqual(results.count, 3)
-        for result in results {
-            XCTAssertNotNil(result.pdfURL, "Result \(result.id) should have pdfURL")
-        }
+
+        // arXiv paper has arXiv URL
+        let arxivResult = results.first { $0.id == "2024arXiv240112345A" }!
+        XCTAssertNotNil(arxivResult.pdfURL)
+        XCTAssertEqual(arxivResult.pdfURL?.absoluteString, "https://arxiv.org/pdf/2401.12345.pdf")
+
+        // Journal paper with DOI has DOI URL
+        let journalWithDOI = results.first { $0.id == "2024ApJ...123..456A" }!
+        XCTAssertNotNil(journalWithDOI.pdfURL)
+        XCTAssertEqual(journalWithDOI.pdfURL?.absoluteString, "https://doi.org/10.1234/journal.2024")
+
+        // Journal paper without identifiers has no PDF URL
+        let journalWithoutID = results.first { $0.id == "2024MNRAS.500.1000B" }!
+        XCTAssertNil(journalWithoutID.pdfURL, "Paper without arXiv/DOI should not have PDF URL")
     }
 
     // MARK: - Year Parsing Tests
