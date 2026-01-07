@@ -88,6 +88,15 @@ struct imbibApp: App {
                 .environment(settingsViewModel)
                 .onAppear {
                     ensureMainWindowVisible()
+                    // Process any pending shared URLs from share extension
+                    Task {
+                        await handlePendingSharedURLs()
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: ShareExtensionService.sharedURLReceivedNotification)) { _ in
+                    Task {
+                        await handlePendingSharedURLs()
+                    }
                 }
         }
         .commands {
@@ -157,6 +166,138 @@ struct imbibApp: App {
         }
     }
     #endif
+
+    // MARK: - Share Extension Handling
+
+    /// Process pending shared URLs from the share extension
+    @MainActor
+    private func handlePendingSharedURLs() async {
+        let pendingItems = ShareExtensionService.shared.getPendingItems()
+
+        guard !pendingItems.isEmpty else {
+            // Update available libraries for share extension
+            updateShareExtensionLibraries()
+            return
+        }
+
+        appLogger.info("Processing \(pendingItems.count) pending shared items")
+
+        for item in pendingItems {
+            do {
+                switch item.type {
+                case .smartSearch:
+                    try await createSmartSearchFromSharedItem(item)
+                case .paper:
+                    try await importPaperFromSharedItem(item)
+                }
+                ShareExtensionService.shared.removeItem(item)
+                appLogger.info("Successfully processed shared item: \(item.type.rawValue)")
+            } catch {
+                appLogger.error("Failed to process shared item: \(error.localizedDescription)")
+                // Keep item in queue for retry? Or remove it?
+                // For now, remove to avoid infinite retry loops
+                ShareExtensionService.shared.removeItem(item)
+            }
+        }
+
+        // Update available libraries for share extension
+        updateShareExtensionLibraries()
+    }
+
+    /// Create a smart search from a shared item
+    @MainActor
+    private func createSmartSearchFromSharedItem(_ item: ShareExtensionService.SharedItem) async throws {
+        // Parse the URL to get the query
+        guard case .search(let query, _) = ADSURLParser.parse(item.url) else {
+            throw ShareExtensionError.invalidURL
+        }
+
+        // Find the target library
+        let targetLibrary: CDLibrary
+        if let libraryID = item.libraryID,
+           let library = libraryManager.find(id: libraryID) {
+            targetLibrary = library
+        } else if let defaultLibrary = libraryManager.defaultLibrary {
+            targetLibrary = defaultLibrary
+        } else {
+            throw ShareExtensionError.noLibrary
+        }
+
+        // Create the smart search
+        let name = item.name ?? "Shared Search"
+        _ = SmartSearchRepository.shared.create(
+            name: name,
+            query: query,
+            sourceIDs: ["ads"],
+            library: targetLibrary,
+            maxResults: 100
+        )
+
+        appLogger.info("Created smart search '\(name)' from shared URL")
+    }
+
+    /// Import a paper from a shared item
+    @MainActor
+    private func importPaperFromSharedItem(_ item: ShareExtensionService.SharedItem) async throws {
+        // Parse the URL to get the bibcode
+        guard case .paper(let bibcode) = ADSURLParser.parse(item.url) else {
+            throw ShareExtensionError.invalidURL
+        }
+
+        // Search for the paper using ADS
+        let searchQuery = "bibcode:\(bibcode)"
+        let results = try await searchViewModel.search(query: searchQuery, sourceIDs: ["ads"])
+
+        guard let firstResult = results.first else {
+            throw ShareExtensionError.paperNotFound
+        }
+
+        // Import to library or Inbox
+        if let libraryID = item.libraryID,
+           let library = libraryManager.find(id: libraryID) {
+            // Import to specific library
+            await libraryViewModel.importSearchResults([firstResult], to: library)
+        } else {
+            // Import to Inbox
+            await InboxManager.shared.addPaper(from: firstResult)
+        }
+
+        appLogger.info("Imported paper \(bibcode) from shared URL")
+    }
+
+    /// Update the list of available libraries in the share extension
+    private func updateShareExtensionLibraries() {
+        let libraryInfos = libraryManager.libraries
+            .filter { !$0.isInbox }
+            .map { library in
+                SharedLibraryInfo(
+                    id: library.id,
+                    name: library.displayName,
+                    isDefault: library.id == libraryManager.defaultLibrary?.id
+                )
+            }
+
+        ShareExtensionService.shared.updateAvailableLibraries(libraryInfos)
+        appLogger.debug("Updated share extension with \(libraryInfos.count) libraries")
+    }
+}
+
+/// Errors for share extension handling
+enum ShareExtensionError: LocalizedError {
+    case invalidURL
+    case noLibrary
+    case paperNotFound
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL:
+            return "Invalid ADS URL"
+        case .noLibrary:
+            return "No library available"
+        case .paperNotFound:
+            return "Paper not found in ADS"
+        }
+    }
 }
 
 #if os(macOS)

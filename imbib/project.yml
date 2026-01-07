@@ -29,8 +29,11 @@ targets:
       - path: imbib
         excludes:
           - "**/*.entitlements"
+          - "**/ShareExtension/**"
     dependencies:
       - package: PublicationManagerCore
+      - target: imbib-ShareExtension
+        embed: true
     settings:
       base:
         MACOSX_DEPLOYMENT_TARGET: "14.0"
@@ -51,6 +54,8 @@ targets:
         com.apple.security.files.user-selected.read-write: true
         com.apple.security.files.bookmarks.app-scope: true
         com.apple.security.network.client: true
+        com.apple.security.application-groups:
+          - group.com.imbib.app
 
   # iOS App
   imbib-iOS:
@@ -58,9 +63,13 @@ targets:
     platform: iOS
     sources:
       - path: imbib-iOS
+        excludes:
+          - "**/ShareExtension/**"
       - path: imbib/Resources/Assets.xcassets
     dependencies:
       - package: PublicationManagerCore
+      - target: imbib-iOS-ShareExtension
+        embed: true
     settings:
       base:
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
@@ -71,6 +80,64 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: YES
+        CODE_SIGN_ENTITLEMENTS: imbib-iOS/Resources/imbib-iOS.entitlements
+    entitlements:
+      path: imbib-iOS/Resources/imbib-iOS.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.imbib.app
+
+  # macOS Share Extension
+  imbib-ShareExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: ShareExtension
+        excludes:
+          - "**/*.entitlements"
+    dependencies:
+      - package: PublicationManagerCore
+    settings:
+      base:
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ShareExtension
+        PRODUCT_NAME: imbib-ShareExtension
+        INFOPLIST_FILE: ShareExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: ShareExtension/ShareExtension.entitlements
+        SKIP_INSTALL: YES
+    entitlements:
+      path: ShareExtension/ShareExtension.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - group.com.imbib.app
+
+  # iOS Share Extension
+  imbib-iOS-ShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: imbib-iOS/ShareExtension
+        excludes:
+          - "**/*.entitlements"
+    dependencies:
+      - package: PublicationManagerCore
+    settings:
+      base:
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.ShareExtension
+        PRODUCT_NAME: imbib-iOS-ShareExtension
+        INFOPLIST_FILE: imbib-iOS/ShareExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: imbib-iOS/ShareExtension/ShareExtension.entitlements
+        SKIP_INSTALL: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+    entitlements:
+      path: imbib-iOS/ShareExtension/ShareExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.imbib.app
 
   # macOS Tests
   imbibTests:
