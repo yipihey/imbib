@@ -58,15 +58,15 @@ public final class InboxCoordinator {
     /// This should be called on app launch after other services are initialized.
     public func start() async {
         guard !isStarted else {
-            Logger.library.debug("InboxCoordinator already started")
+            Logger.inbox.debug("InboxCoordinator already started")
             return
         }
 
-        Logger.library.infoCapture("Starting InboxCoordinator...", category: "inbox")
+        Logger.inbox.infoCapture("Starting InboxCoordinator...", category: "coordinator")
 
         // Initialize Inbox library if needed
         _ = inboxManager.getOrCreateInbox()
-        Logger.library.debugCapture("Inbox library initialized", category: "inbox")
+        Logger.inbox.debugCapture("Inbox library initialized", category: "coordinator")
 
         // Create fetch service with shared dependencies
         let sourceManager = SourceManager(credentialManager: CredentialManager.shared)
@@ -80,7 +80,7 @@ public final class InboxCoordinator {
             repository: repository
         )
         self.paperFetchService = fetchService
-        Logger.library.debugCapture("PaperFetchService created", category: "inbox")
+        Logger.inbox.debugCapture("PaperFetchService created", category: "coordinator")
 
         // Create and start scheduler
         let inboxScheduler = InboxScheduler(
@@ -89,24 +89,24 @@ public final class InboxCoordinator {
         self.scheduler = inboxScheduler
 
         await inboxScheduler.start()
-        Logger.library.infoCapture("InboxScheduler started", category: "inbox")
+        Logger.inbox.infoCapture("InboxScheduler started", category: "coordinator")
 
         isStarted = true
-        Logger.library.infoCapture("InboxCoordinator started successfully", category: "inbox")
+        Logger.inbox.infoCapture("InboxCoordinator started successfully", category: "coordinator")
     }
 
     /// Stop Inbox services.
     public func stop() async {
         guard isStarted else { return }
 
-        Logger.library.infoCapture("Stopping InboxCoordinator...", category: "inbox")
+        Logger.inbox.infoCapture("Stopping InboxCoordinator...", category: "coordinator")
 
         await scheduler?.stop()
         scheduler = nil
         paperFetchService = nil
 
         isStarted = false
-        Logger.library.infoCapture("InboxCoordinator stopped", category: "inbox")
+        Logger.inbox.infoCapture("InboxCoordinator stopped", category: "coordinator")
     }
 
     // MARK: - Convenience Methods
@@ -115,7 +115,7 @@ public final class InboxCoordinator {
     @discardableResult
     public func refreshAllFeeds() async -> Int {
         guard let scheduler = scheduler else {
-            Logger.library.warning("InboxCoordinator: scheduler not started")
+            Logger.inbox.warning("InboxCoordinator: scheduler not started")
             return 0
         }
         return await scheduler.triggerImmediateCheck()
@@ -125,7 +125,7 @@ public final class InboxCoordinator {
     @discardableResult
     public func sendToInbox(results: [SearchResult]) async -> Int {
         guard let fetchService = paperFetchService else {
-            Logger.library.warning("InboxCoordinator: fetch service not started")
+            Logger.inbox.warning("InboxCoordinator: fetch service not started")
             return 0
         }
         return await fetchService.sendToInbox(results: results)

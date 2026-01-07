@@ -70,17 +70,17 @@ public final class InboxManager {
 
         do {
             if let existing = try persistenceController.viewContext.fetch(request).first {
-                Logger.library.infoCapture("Found existing Inbox library", category: "inbox")
+                Logger.inbox.infoCapture("Found existing Inbox library", category: "manager")
                 inboxLibrary = existing
                 updateUnreadCount()
                 return existing
             }
         } catch {
-            Logger.library.errorCapture("Failed to fetch Inbox: \(error.localizedDescription)", category: "inbox")
+            Logger.inbox.errorCapture("Failed to fetch Inbox: \(error.localizedDescription)", category: "manager")
         }
 
         // Create new Inbox
-        Logger.library.infoCapture("Creating Inbox library", category: "inbox")
+        Logger.inbox.infoCapture("Creating Inbox library", category: "manager")
 
         let context = persistenceController.viewContext
         let inbox = CDLibrary(context: context)
@@ -94,7 +94,7 @@ public final class InboxManager {
         persistenceController.save()
         inboxLibrary = inbox
 
-        Logger.library.infoCapture("Created Inbox library with ID: \(inbox.id)", category: "inbox")
+        Logger.inbox.infoCapture("Created Inbox library with ID: \(inbox.id)", category: "manager")
         return inbox
     }
 
@@ -107,11 +107,11 @@ public final class InboxManager {
         do {
             inboxLibrary = try persistenceController.viewContext.fetch(request).first
             if inboxLibrary != nil {
-                Logger.library.debugCapture("Loaded Inbox library", category: "inbox")
+                Logger.inbox.debugCapture("Loaded Inbox library", category: "manager")
                 updateUnreadCount()
             }
         } catch {
-            Logger.library.errorCapture("Failed to load Inbox: \(error.localizedDescription)", category: "inbox")
+            Logger.inbox.errorCapture("Failed to load Inbox: \(error.localizedDescription)", category: "manager")
         }
     }
 
@@ -140,9 +140,9 @@ public final class InboxManager {
                 unreadCount = newCount
                 postUnreadCountChanged()
             }
-            Logger.library.debugCapture("Inbox unread count: \(unreadCount)", category: "inbox")
+            Logger.inbox.debugCapture("Inbox unread count: \(unreadCount)", category: "unread")
         } catch {
-            Logger.library.errorCapture("Failed to count unread: \(error.localizedDescription)", category: "inbox")
+            Logger.inbox.errorCapture("Failed to count unread: \(error.localizedDescription)", category: "unread")
             if unreadCount != 0 {
                 unreadCount = 0
                 postUnreadCountChanged()
@@ -170,7 +170,7 @@ public final class InboxManager {
     public func markAllAsRead() {
         guard let inbox = inboxLibrary else { return }
 
-        Logger.library.infoCapture("Marking all Inbox papers as read", category: "inbox")
+        Logger.inbox.infoCapture("Marking all Inbox papers as read", category: "unread")
 
         let request = NSFetchRequest<CDPublication>(entityName: "Publication")
         request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: [
@@ -186,7 +186,7 @@ public final class InboxManager {
             persistenceController.save()
             unreadCount = 0
         } catch {
-            Logger.library.errorCapture("Failed to mark all as read: \(error.localizedDescription)", category: "inbox")
+            Logger.inbox.errorCapture("Failed to mark all as read: \(error.localizedDescription)", category: "unread")
         }
     }
 
@@ -222,7 +222,7 @@ public final class InboxManager {
         let otherLibraries = libraries.filter { !$0.isInbox }
         if !otherLibraries.isEmpty {
             // Remove from Inbox
-            Logger.library.infoCapture("Auto-removing paper from Inbox: \(publication.citeKey)", category: "inbox")
+            Logger.inbox.infoCapture("Auto-removing paper from Inbox: \(publication.citeKey)", category: "papers")
             publication.removeFromLibrary(inbox)
             persistenceController.save()
             updateUnreadCount()
@@ -238,9 +238,9 @@ public final class InboxManager {
 
         do {
             mutedItems = try persistenceController.viewContext.fetch(request)
-            Logger.library.debugCapture("Loaded \(mutedItems.count) muted items", category: "inbox")
+            Logger.inbox.debugCapture("Loaded \(mutedItems.count) muted items", category: "mute")
         } catch {
-            Logger.library.errorCapture("Failed to load muted items: \(error.localizedDescription)", category: "inbox")
+            Logger.inbox.errorCapture("Failed to load muted items: \(error.localizedDescription)", category: "mute")
             mutedItems = []
         }
     }
@@ -248,7 +248,7 @@ public final class InboxManager {
     /// Mute an item (author, paper, venue, category)
     @discardableResult
     public func mute(type: CDMutedItem.MuteType, value: String) -> CDMutedItem {
-        Logger.library.infoCapture("Muting \(type.rawValue): \(value)", category: "inbox")
+        Logger.inbox.infoCapture("Muting \(type.rawValue): \(value)", category: "mute")
 
         let context = persistenceController.viewContext
 
@@ -271,7 +271,7 @@ public final class InboxManager {
 
     /// Unmute an item
     public func unmute(_ item: CDMutedItem) {
-        Logger.library.infoCapture("Unmuting \(item.type): \(item.value)", category: "inbox")
+        Logger.inbox.infoCapture("Unmuting \(item.type): \(item.value)", category: "mute")
 
         persistenceController.viewContext.delete(item)
         persistenceController.save()
@@ -350,7 +350,7 @@ public final class InboxManager {
 
     /// Clear all muted items
     public func clearAllMutedItems() {
-        Logger.library.warningCapture("Clearing all \(mutedItems.count) muted items", category: "inbox")
+        Logger.inbox.warningCapture("Clearing all \(mutedItems.count) muted items", category: "mute")
 
         for item in mutedItems {
             persistenceController.viewContext.delete(item)
@@ -367,11 +367,11 @@ public final class InboxManager {
         let inbox = getOrCreateInbox()
 
         guard !(publication.libraries?.contains(inbox) ?? false) else {
-            Logger.library.debugCapture("Paper already in Inbox: \(publication.citeKey)", category: "inbox")
+            Logger.inbox.debugCapture("Paper already in Inbox: \(publication.citeKey)", category: "papers")
             return
         }
 
-        Logger.library.infoCapture("Adding paper to Inbox: \(publication.citeKey)", category: "inbox")
+        Logger.inbox.infoCapture("Adding paper to Inbox: \(publication.citeKey)", category: "papers")
         publication.addToLibrary(inbox)
         publication.isRead = false  // Mark as unread in Inbox
         persistenceController.save()
@@ -382,7 +382,7 @@ public final class InboxManager {
     public func dismissFromInbox(_ publication: CDPublication) {
         guard let inbox = inboxLibrary else { return }
 
-        Logger.library.infoCapture("Dismissing paper from Inbox: \(publication.citeKey)", category: "inbox")
+        Logger.inbox.infoCapture("Dismissing paper from Inbox: \(publication.citeKey)", category: "papers")
         publication.removeFromLibrary(inbox)
 
         // If paper is not in any other library, delete it
@@ -396,7 +396,7 @@ public final class InboxManager {
 
     /// Archive a paper from Inbox to a target library
     public func archiveToLibrary(_ publication: CDPublication, library: CDLibrary) {
-        Logger.library.infoCapture("Archiving paper '\(publication.citeKey)' to library '\(library.displayName)'", category: "inbox")
+        Logger.inbox.infoCapture("Archiving paper '\(publication.citeKey)' to library '\(library.displayName)'", category: "papers")
 
         // Add to target library
         publication.addToLibrary(library)
@@ -417,7 +417,7 @@ public final class InboxManager {
         do {
             return try persistenceController.viewContext.fetch(request)
         } catch {
-            Logger.library.errorCapture("Failed to fetch Inbox papers: \(error.localizedDescription)", category: "inbox")
+            Logger.inbox.errorCapture("Failed to fetch Inbox papers: \(error.localizedDescription)", category: "papers")
             return []
         }
     }

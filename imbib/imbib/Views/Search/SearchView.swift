@@ -84,11 +84,9 @@ struct SearchResultsListView: View {
         guard !viewModel.selectedPublicationIDs.isEmpty else { return }
 
         Task {
-            for uuid in viewModel.selectedPublicationIDs {
-                if let publication = viewModel.publications.first(where: { $0.id == uuid }) {
-                    await libraryViewModel.toggleReadStatus(publication)
-                }
-            }
+            // Apple Mail behavior: if ANY are unread, mark ALL as read
+            // If ALL are read, mark ALL as unread
+            await libraryViewModel.smartToggleReadStatus(viewModel.selectedPublicationIDs)
         }
     }
 

@@ -90,7 +90,7 @@ struct GeneralSettingsTab: View {
                         value: Binding(
                             get: { Int(viewModel.smartSearchSettings.defaultMaxResults) },
                             set: { newValue in
-                                let clamped = max(10, min(1000, newValue))
+                                let clamped = max(10, min(30000, newValue))
                                 Task {
                                     await viewModel.updateDefaultMaxResults(Int16(clamped))
                                 }
@@ -99,7 +99,7 @@ struct GeneralSettingsTab: View {
                         format: .number
                     )
                     .textFieldStyle(.roundedBorder)
-                    .frame(width: 80)
+                    .frame(width: 100)
 
                     Stepper(
                         "",

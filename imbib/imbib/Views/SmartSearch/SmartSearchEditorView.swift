@@ -19,6 +19,7 @@ struct SmartSearchEditorView: View {
 
     let smartSearch: CDSmartSearch?
     let library: CDLibrary?
+    let defaultFeedsToInbox: Bool
     let onSave: () -> Void
 
     // MARK: - State
@@ -32,6 +33,20 @@ struct SmartSearchEditorView: View {
     @State private var feedsToInbox: Bool = false
     @State private var autoRefreshEnabled: Bool = false
     @State private var refreshInterval: RefreshIntervalPreset = .sixHours
+
+    // MARK: - Initialization
+
+    init(
+        smartSearch: CDSmartSearch?,
+        library: CDLibrary?,
+        defaultFeedsToInbox: Bool = false,
+        onSave: @escaping () -> Void
+    ) {
+        self.smartSearch = smartSearch
+        self.library = library
+        self.defaultFeedsToInbox = defaultFeedsToInbox
+        self.onSave = onSave
+    }
 
     private var isEditing: Bool {
         smartSearch != nil
@@ -142,6 +157,10 @@ struct SmartSearchEditorView: View {
             feedsToInbox = smartSearch.feedsToInbox
             autoRefreshEnabled = smartSearch.autoRefreshEnabled
             refreshInterval = RefreshIntervalPreset(rawValue: smartSearch.refreshIntervalSeconds) ?? .sixHours
+        } else {
+            // Apply defaults for new smart search
+            feedsToInbox = defaultFeedsToInbox
+            autoRefreshEnabled = defaultFeedsToInbox  // Auto-refresh on by default for inbox feeds
         }
     }
 

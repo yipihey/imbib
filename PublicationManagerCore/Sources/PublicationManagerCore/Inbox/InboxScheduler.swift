@@ -101,7 +101,7 @@ public actor InboxScheduler {
     /// Start the inbox scheduler.
     public func start() {
         guard !isRunning else {
-            Logger.smartSearch.debug("InboxScheduler already running")
+            Logger.inbox.debug("InboxScheduler already running")
             return
         }
 
@@ -110,7 +110,7 @@ public actor InboxScheduler {
         // Start network monitoring
         startNetworkMonitoring()
 
-        Logger.smartSearch.infoCapture(
+        Logger.inbox.infoCapture(
             "InboxScheduler started (check interval: \(Int(Self.checkInterval))s, skipOnBattery: \(skipOnBattery), skipWhenOffline: \(skipWhenOffline))",
             category: "inbox"
         )
@@ -131,7 +131,7 @@ public actor InboxScheduler {
         // Stop network monitoring
         stopNetworkMonitoring()
 
-        Logger.smartSearch.infoCapture(
+        Logger.inbox.infoCapture(
             "InboxScheduler stopped (total papers: \(totalPapersFetched), cycles: \(totalRefreshCycles), skipped: \(skippedCyclesForPower) power, \(skippedCyclesForNetwork) network)",
             category: "inbox"
         )
@@ -142,7 +142,7 @@ public actor InboxScheduler {
     /// - Returns: Total number of new papers fetched
     @discardableResult
     public func triggerImmediateCheck() async -> Int {
-        Logger.smartSearch.infoCapture("Manual Inbox refresh triggered", category: "inbox")
+        Logger.inbox.infoCapture("Manual Inbox refresh triggered", category: "scheduler")
         return await performCheckCycle()
     }
 
@@ -151,7 +151,7 @@ public actor InboxScheduler {
     /// - Returns: Number of new papers fetched
     @discardableResult
     public func refreshFeed(_ smartSearch: CDSmartSearch) async throws -> Int {
-        Logger.smartSearch.infoCapture("Manual refresh of feed: \(smartSearch.name)", category: "inbox")
+        Logger.inbox.infoCapture("Manual refresh of feed: \(smartSearch.name)", category: "scheduler")
 
         let count = try await paperFetchService.fetchForInbox(smartSearch: smartSearch)
         lastRefreshTimes[smartSearch.id] = Date()
@@ -228,7 +228,7 @@ public actor InboxScheduler {
         // Check network availability
         if skipWhenOffline && !isNetworkAvailable {
             skippedCyclesForNetwork += 1
-            Logger.smartSearch.debugCapture(
+            Logger.inbox.debugCapture(
                 "InboxScheduler cycle \(totalRefreshCycles): skipped (offline)",
                 category: "inbox"
             )
@@ -239,7 +239,7 @@ public actor InboxScheduler {
         #if os(macOS)
         if skipOnBattery && isOnBatteryPower() {
             skippedCyclesForPower += 1
-            Logger.smartSearch.debugCapture(
+            Logger.inbox.debugCapture(
                 "InboxScheduler cycle \(totalRefreshCycles): skipped (on battery)",
                 category: "inbox"
             )
@@ -251,11 +251,11 @@ public actor InboxScheduler {
         let feeds = await fetchInboxFeeds()
 
         if feeds.isEmpty {
-            Logger.smartSearch.debug("No Inbox feeds configured")
+            Logger.inbox.debug("No Inbox feeds configured")
             return 0
         }
 
-        Logger.smartSearch.debugCapture(
+        Logger.inbox.debugCapture(
             "InboxScheduler cycle \(totalRefreshCycles): checking \(feeds.count) feeds",
             category: "inbox"
         )
@@ -264,11 +264,11 @@ public actor InboxScheduler {
         let dueFeeds = feeds.filter { isDue($0) }
 
         if dueFeeds.isEmpty {
-            Logger.smartSearch.debug("No feeds due for refresh")
+            Logger.inbox.debug("No feeds due for refresh")
             return 0
         }
 
-        Logger.smartSearch.infoCapture(
+        Logger.inbox.infoCapture(
             "\(dueFeeds.count) feeds due for refresh",
             category: "inbox"
         )
@@ -281,12 +281,12 @@ public actor InboxScheduler {
                 lastRefreshTimes[feed.id] = Date()
                 totalNew += count
 
-                Logger.smartSearch.debugCapture(
+                Logger.inbox.debugCapture(
                     "Refreshed feed '\(feed.name)': \(count) new papers",
                     category: "inbox"
                 )
             } catch {
-                Logger.smartSearch.errorCapture(
+                Logger.inbox.errorCapture(
                     "Failed to refresh feed '\(feed.name)': \(error.localizedDescription)",
                     category: "inbox"
                 )
@@ -296,7 +296,7 @@ public actor InboxScheduler {
         totalPapersFetched += totalNew
 
         if totalNew > 0 {
-            Logger.smartSearch.infoCapture(
+            Logger.inbox.infoCapture(
                 "Inbox refresh complete: \(totalNew) new papers from \(dueFeeds.count) feeds",
                 category: "inbox"
             )
@@ -322,7 +322,7 @@ public actor InboxScheduler {
             do {
                 return try persistenceController.viewContext.fetch(request)
             } catch {
-                Logger.smartSearch.errorCapture(
+                Logger.inbox.errorCapture(
                     "Failed to fetch Inbox feeds: \(error.localizedDescription)",
                     category: "inbox"
                 )
@@ -362,14 +362,14 @@ public actor InboxScheduler {
         }
 
         networkMonitor.start(queue: queue)
-        Logger.smartSearch.debugCapture("Network monitoring started", category: "inbox")
+        Logger.inbox.debugCapture("Network monitoring started", category: "network")
     }
 
     /// Stop monitoring network connectivity.
     private func stopNetworkMonitoring() {
         networkMonitor.cancel()
         networkMonitorQueue = nil
-        Logger.smartSearch.debugCapture("Network monitoring stopped", category: "inbox")
+        Logger.inbox.debugCapture("Network monitoring stopped", category: "network")
     }
 
     /// Handle network path changes.
@@ -385,9 +385,9 @@ public actor InboxScheduler {
         #endif
 
         if wasAvailable != isNetworkAvailable {
-            Logger.smartSearch.infoCapture(
+            Logger.inbox.infoCapture(
                 "Network status changed: \(isNetworkAvailable ? "available" : "unavailable")",
-                category: "inbox"
+                category: "network"
             )
         }
     }

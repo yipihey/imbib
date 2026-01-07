@@ -451,24 +451,21 @@ public actor PublicationRepository {
     }
 
     /// Find publication by ADS bibcode
+    ///
+    /// Uses indexed `bibcodeNormalized` field for O(1) lookup instead of
+    /// scanning rawFields. This is much faster for large libraries.
     public func findByBibcode(_ bibcode: String) async -> CDPublication? {
-        let normalized = bibcode.trimmingCharacters(in: .whitespaces)
+        let normalized = bibcode.uppercased().trimmingCharacters(in: .whitespaces)
         let context = persistenceController.viewContext
 
         return await context.perform {
             let request = NSFetchRequest<CDPublication>(entityName: "Publication")
-            // Bibcode is typically stored in fields.bibcode or fields.adsurl
-            request.predicate = NSPredicate(
-                format: "rawFields CONTAINS[c] %@",
-                normalized
-            )
+            // Use indexed bibcodeNormalized field for O(1) lookup
+            request.predicate = NSPredicate(format: "bibcodeNormalized == %@", normalized)
+            request.fetchLimit = 1
 
             do {
-                let results = try context.fetch(request)
-                return results.first { pub in
-                    let fields = pub.fields
-                    return fields["bibcode"]?.lowercased() == normalized.lowercased()
-                }
+                return try context.fetch(request).first
             } catch {
                 return nil
             }

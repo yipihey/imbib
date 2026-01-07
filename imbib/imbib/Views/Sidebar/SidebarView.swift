@@ -35,6 +35,7 @@ struct SidebarView: View {
     @State private var dropTargetedLibraryHeader: UUID?
     @State private var refreshTrigger = UUID()  // Triggers re-render when read status changes
     @State private var renamingCollection: CDCollection?  // Collection being renamed inline
+    @State private var showingNewInboxFeed = false
 
     // MARK: - Body
 
@@ -80,6 +81,11 @@ struct SidebarView: View {
         }
         .sheet(item: $editingSmartSearch) { smartSearch in
             SmartSearchEditorView(smartSearch: smartSearch, library: smartSearch.library) {
+                // Refresh handled by Core Data observation
+            }
+        }
+        .sheet(isPresented: $showingNewInboxFeed) {
+            SmartSearchEditorView(smartSearch: nil, library: nil, defaultFeedsToInbox: true) {
                 // Refresh handled by Core Data observation
             }
         }
@@ -454,7 +460,7 @@ struct SidebarView: View {
 
             // Add feed button
             Button {
-                // TODO: Show feed picker or create new feed
+                showingNewInboxFeed = true
             } label: {
                 Label("Add Feed...", systemImage: "plus.circle")
                     .foregroundStyle(.secondary)
