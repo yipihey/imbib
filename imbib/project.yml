@@ -34,6 +34,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app
         PRODUCT_NAME: imbib
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         INFOPLIST_FILE: imbib/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO
         INFOPLIST_KEY_CFBundleDisplayName: imbib
