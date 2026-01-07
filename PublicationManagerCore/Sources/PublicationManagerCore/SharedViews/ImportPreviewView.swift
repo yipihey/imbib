@@ -155,6 +155,7 @@ public struct ImportPreviewView: View {
             Divider()
 
             // Split view: list on left, detail on right
+            #if os(macOS)
             HSplitView {
                 // Entry list
                 List(selection: $selectedEntryID) {
@@ -176,6 +177,31 @@ public struct ImportPreviewView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
+            #else
+            // iOS: List only, tap to see detail in sheet
+            List(selection: $selectedEntryID) {
+                ForEach($entries) { $entry in
+                    ImportPreviewRow(entry: $entry)
+                        .tag(entry.id)
+                }
+            }
+            .listStyle(.inset)
+            .sheet(item: Binding(
+                get: { entries.first { $0.id == selectedEntryID } },
+                set: { _ in selectedEntryID = nil }
+            )) { entry in
+                NavigationStack {
+                    ImportPreviewDetail(entry: entry)
+                        .navigationTitle("Entry Details")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { selectedEntryID = nil }
+                            }
+                        }
+                }
+            }
+            #endif
         }
     }
 

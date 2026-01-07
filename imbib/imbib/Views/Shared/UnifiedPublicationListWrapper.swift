@@ -44,36 +44,7 @@ enum LibraryFilterMode: String, CaseIterable {
     case unread
 }
 
-// MARK: - Provider Cache
-
-/// Caches SmartSearchProvider instances to avoid re-fetching when switching between views
-actor SmartSearchProviderCache {
-    static let shared = SmartSearchProviderCache()
-
-    private var providers: [UUID: SmartSearchProvider] = [:]
-
-    func getOrCreate(
-        for smartSearch: CDSmartSearch,
-        sourceManager: SourceManager,
-        repository: PublicationRepository
-    ) -> SmartSearchProvider {
-        if let existing = providers[smartSearch.id] {
-            return existing
-        }
-        let provider = SmartSearchProvider(
-            from: smartSearch,
-            sourceManager: sourceManager,
-            repository: repository
-        )
-        providers[smartSearch.id] = provider
-        return provider
-    }
-
-    /// Invalidate cached provider (call when smart search is edited)
-    func invalidate(_ id: UUID) {
-        providers.removeValue(forKey: id)
-    }
-}
+// Note: SmartSearchProviderCache is now in PublicationManagerCore
 
 // MARK: - Unified Publication List Wrapper
 
@@ -288,6 +259,7 @@ struct UnifiedPublicationListWrapper: View {
             emptyStateMessage: emptyMessage,
             emptyStateDescription: emptyDescription,
             listID: listID,
+            disableUnreadFilter: isInboxView,
             onDelete: { ids in
                 await libraryViewModel.delete(ids: ids)
                 refreshPublicationsList()
@@ -355,14 +327,16 @@ struct UnifiedPublicationListWrapper: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Filter toggle (both sources)
-        ToolbarItem(placement: .automatic) {
-            Picker("Filter", selection: $filterMode) {
-                Text("All").tag(LibraryFilterMode.all)
-                Text("Unread").tag(LibraryFilterMode.unread)
+        // Filter toggle - hide for Inbox (papers always stay visible after being read)
+        if !isInboxView {
+            ToolbarItem(placement: .automatic) {
+                Picker("Filter", selection: $filterMode) {
+                    Text("All").tag(LibraryFilterMode.all)
+                    Text("Unread").tag(LibraryFilterMode.unread)
+                }
+                .pickerStyle(.segmented)
+                .fixedSize()
             }
-            .pickerStyle(.segmented)
-            .fixedSize()
         }
 
         // Refresh button (both sources)
@@ -400,8 +374,8 @@ struct UnifiedPublicationListWrapper: View {
             var result = nsSet.compactMap { $0 as? CDPublication }
                 .filter { !$0.isDeleted && $0.managedObjectContext != nil }
 
-            // Apply filter mode
-            if filterMode == .unread {
+            // Apply filter mode (skip for Inbox - papers should stay visible after being read)
+            if filterMode == .unread && !library.isInbox {
                 result = result.filter { !$0.isRead }
             }
 
@@ -416,8 +390,8 @@ struct UnifiedPublicationListWrapper: View {
             var result = (collection.publications ?? [])
                 .filter { !$0.isDeleted && $0.managedObjectContext != nil }
 
-            // Apply filter mode
-            if filterMode == .unread {
+            // Apply filter mode (skip for Inbox feeds - papers should stay visible after being read)
+            if filterMode == .unread && !smartSearch.feedsToInbox {
                 result = result.filter { !$0.isRead }
             }
 
@@ -476,11 +450,9 @@ struct UnifiedPublicationListWrapper: View {
         guard !multiSelection.isEmpty else { return }
 
         Task {
-            for uuid in multiSelection {
-                if let publication = publications.first(where: { $0.id == uuid }) {
-                    await libraryViewModel.toggleReadStatus(publication)
-                }
-            }
+            // Apple Mail behavior: if ANY are unread, mark ALL as read
+            // If ALL are read, mark ALL as unread
+            await libraryViewModel.smartToggleReadStatus(multiSelection)
             refreshPublicationsList()
         }
     }

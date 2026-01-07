@@ -8,10 +8,55 @@
 import Foundation
 import CoreData
 import OSLog
+#if canImport(CloudKit)
+import CloudKit
+#endif
+
+// MARK: - Persistence Configuration
+
+/// Configuration options for the persistence controller.
+public struct PersistenceConfiguration {
+    /// Whether to use an in-memory store (for previews/testing)
+    public var inMemory: Bool = false
+
+    /// Whether to enable CloudKit sync (requires iCloud entitlement)
+    public var enableCloudKit: Bool = false
+
+    /// CloudKit container identifier (e.g., "iCloud.com.imbib.app")
+    public var cloudKitContainerIdentifier: String?
+
+    public init(
+        inMemory: Bool = false,
+        enableCloudKit: Bool = false,
+        cloudKitContainerIdentifier: String? = nil
+    ) {
+        self.inMemory = inMemory
+        self.enableCloudKit = enableCloudKit
+        self.cloudKitContainerIdentifier = cloudKitContainerIdentifier
+    }
+
+    /// Default configuration for production use
+    public static let `default` = PersistenceConfiguration()
+
+    /// Configuration for previews and testing
+    public static let preview = PersistenceConfiguration(inMemory: true)
+
+    /// Configuration with CloudKit enabled
+    public static func withCloudKit(containerID: String) -> PersistenceConfiguration {
+        PersistenceConfiguration(
+            inMemory: false,
+            enableCloudKit: true,
+            cloudKitContainerIdentifier: containerID
+        )
+    }
+}
 
 // MARK: - Persistence Controller
 
 /// Manages the Core Data stack for the publication database.
+///
+/// Supports optional CloudKit sync for cross-device library synchronization.
+/// Enable CloudKit by passing a configuration with `enableCloudKit: true`.
 public final class PersistenceController: @unchecked Sendable {
 
     // MARK: - Shared Instance
@@ -21,7 +66,7 @@ public final class PersistenceController: @unchecked Sendable {
     // MARK: - Preview Instance
 
     public static let preview: PersistenceController = {
-        let controller = PersistenceController(inMemory: true)
+        let controller = PersistenceController(configuration: .preview)
         // Add sample data for previews
         controller.addSampleData()
         return controller
@@ -30,23 +75,59 @@ public final class PersistenceController: @unchecked Sendable {
     // MARK: - Properties
 
     public let container: NSPersistentContainer
+    public let configuration: PersistenceConfiguration
 
     public var viewContext: NSManagedObjectContext {
         container.viewContext
     }
 
+    /// Whether CloudKit sync is enabled
+    public var isCloudKitEnabled: Bool {
+        configuration.enableCloudKit
+    }
+
     // MARK: - Initialization
 
-    public init(inMemory: Bool = false) {
+    public convenience init(inMemory: Bool = false) {
+        self.init(configuration: PersistenceConfiguration(inMemory: inMemory))
+    }
+
+    public init(configuration: PersistenceConfiguration) {
         Logger.persistence.entering()
+
+        self.configuration = configuration
 
         // Create the managed object model programmatically
         let model = Self.createManagedObjectModel()
 
-        container = NSPersistentContainer(name: "PublicationManager", managedObjectModel: model)
+        // Use CloudKit container if enabled, otherwise standard container
+        if configuration.enableCloudKit {
+            container = NSPersistentCloudKitContainer(name: "PublicationManager", managedObjectModel: model)
+            Logger.persistence.info("Using NSPersistentCloudKitContainer for CloudKit sync")
+        } else {
+            container = NSPersistentContainer(name: "PublicationManager", managedObjectModel: model)
+            Logger.persistence.info("Using standard NSPersistentContainer (no CloudKit)")
+        }
 
-        if inMemory {
-            container.persistentStoreDescriptions.first?.url = URL(fileURLWithPath: "/dev/null")
+        // Configure store description
+        if let description = container.persistentStoreDescriptions.first {
+            if configuration.inMemory {
+                description.url = URL(fileURLWithPath: "/dev/null")
+            }
+
+            if configuration.enableCloudKit {
+                // Enable CloudKit sync
+                if let containerID = configuration.cloudKitContainerIdentifier {
+                    description.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
+                        containerIdentifier: containerID
+                    )
+                    Logger.persistence.info("CloudKit container: \(containerID)")
+                }
+
+                // Enable history tracking for CloudKit
+                description.setOption(true as NSNumber, forKey: NSPersistentHistoryTrackingKey)
+                description.setOption(true as NSNumber, forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
+            }
         }
 
         container.loadPersistentStores { description, error in
@@ -60,7 +141,35 @@ public final class PersistenceController: @unchecked Sendable {
         container.viewContext.automaticallyMergesChangesFromParent = true
         container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
 
+        // For CloudKit, observe remote change notifications
+        if configuration.enableCloudKit {
+            setupCloudKitObservers()
+        }
+
         Logger.persistence.exiting()
+    }
+
+    // MARK: - CloudKit Observers
+
+    private func setupCloudKitObservers() {
+        NotificationCenter.default.addObserver(
+            forName: .NSPersistentStoreRemoteChange,
+            object: container.persistentStoreCoordinator,
+            queue: .main
+        ) { [weak self] _ in
+            Logger.persistence.debug("Remote CloudKit changes received")
+            self?.handleRemoteChanges()
+        }
+    }
+
+    private func handleRemoteChanges() {
+        // Refresh view context to pick up remote changes
+        viewContext.perform {
+            self.viewContext.refreshAllObjects()
+        }
+
+        // Post notification for UI updates
+        NotificationCenter.default.post(name: .cloudKitDataDidChange, object: nil)
     }
 
     // MARK: - Core Data Model Creation
@@ -312,6 +421,13 @@ public final class PersistenceController: @unchecked Sendable {
         arxivIDNormalized.isOptional = true
         properties.append(arxivIDNormalized)
 
+        // Normalized bibcode for O(1) lookups (indexed)
+        let bibcodeNormalized = NSAttributeDescription()
+        bibcodeNormalized.name = "bibcodeNormalized"
+        bibcodeNormalized.attributeType = .stringAttributeType
+        bibcodeNormalized.isOptional = true
+        properties.append(bibcodeNormalized)
+
         let openAlexID = NSAttributeDescription()
         openAlexID.name = "openAlexID"
         openAlexID.attributeType = .stringAttributeType
@@ -341,6 +457,25 @@ public final class PersistenceController: @unchecked Sendable {
         properties.append(isStarred)
 
         entity.properties = properties
+
+        // Add indexes for O(1) deduplication lookups
+        let doiIndex = NSFetchIndexDescription(name: "byDOI", elements: [
+            NSFetchIndexElementDescription(property: doi, collationType: .binary)
+        ])
+        let arxivIndex = NSFetchIndexDescription(name: "byArxivID", elements: [
+            NSFetchIndexElementDescription(property: arxivIDNormalized, collationType: .binary)
+        ])
+        let bibcodeIndex = NSFetchIndexDescription(name: "byBibcode", elements: [
+            NSFetchIndexElementDescription(property: bibcodeNormalized, collationType: .binary)
+        ])
+        let semanticScholarIndex = NSFetchIndexDescription(name: "bySemanticScholarID", elements: [
+            NSFetchIndexElementDescription(property: semanticScholarID, collationType: .binary)
+        ])
+        let openAlexIndex = NSFetchIndexDescription(name: "byOpenAlexID", elements: [
+            NSFetchIndexElementDescription(property: openAlexID, collationType: .binary)
+        ])
+        entity.indexes = [doiIndex, arxivIndex, bibcodeIndex, semanticScholarIndex, openAlexIndex]
+
         return entity
     }
 
@@ -1087,6 +1222,84 @@ public final class PersistenceController: @unchecked Sendable {
         container.performBackgroundTask(block)
     }
 
+    // MARK: - Migrations
+
+    /// Backfill bibcodeNormalized for existing publications.
+    ///
+    /// Call this once after upgrading to populate the indexed bibcodeNormalized
+    /// column from rawFields["bibcode"]. This enables O(1) bibcode lookups.
+    public func migrateBibcodeNormalized() {
+        Logger.persistence.info("Starting bibcodeNormalized migration")
+
+        let context = viewContext
+        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+        // Only migrate publications that have bibcode in rawFields but no bibcodeNormalized
+        request.predicate = NSPredicate(format: "bibcodeNormalized == nil AND rawFields CONTAINS 'bibcode'")
+
+        do {
+            let publications = try context.fetch(request)
+            var migrated = 0
+
+            for publication in publications {
+                // updateBibcodeNormalized will extract bibcode from fields and normalize it
+                publication.updateBibcodeNormalized()
+                if publication.bibcodeNormalized != nil {
+                    migrated += 1
+                }
+            }
+
+            if migrated > 0 {
+                try context.save()
+                Logger.persistence.info("Migrated bibcodeNormalized for \(migrated) publications")
+            } else {
+                Logger.persistence.debug("No publications needed bibcodeNormalized migration")
+            }
+        } catch {
+            Logger.persistence.error("bibcodeNormalized migration failed: \(error)")
+        }
+    }
+
+    /// Backfill arxivIDNormalized for existing publications.
+    ///
+    /// Similar to migrateBibcodeNormalized but for arXiv IDs.
+    public func migrateArxivIDNormalized() {
+        Logger.persistence.info("Starting arxivIDNormalized migration")
+
+        let context = viewContext
+        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+        // Only migrate publications that might have arXiv ID but no arxivIDNormalized
+        request.predicate = NSPredicate(format: "arxivIDNormalized == nil AND (rawFields CONTAINS 'eprint' OR rawFields CONTAINS 'arxiv')")
+
+        do {
+            let publications = try context.fetch(request)
+            var migrated = 0
+
+            for publication in publications {
+                publication.updateArxivIDNormalized()
+                if publication.arxivIDNormalized != nil {
+                    migrated += 1
+                }
+            }
+
+            if migrated > 0 {
+                try context.save()
+                Logger.persistence.info("Migrated arxivIDNormalized for \(migrated) publications")
+            } else {
+                Logger.persistence.debug("No publications needed arxivIDNormalized migration")
+            }
+        } catch {
+            Logger.persistence.error("arxivIDNormalized migration failed: \(error)")
+        }
+    }
+
+    /// Run all pending data migrations.
+    ///
+    /// Call this on app startup to ensure all indexed identifier columns are populated.
+    public func runMigrations() {
+        migrateArxivIDNormalized()
+        migrateBibcodeNormalized()
+    }
+
     // MARK: - Sample Data
 
     private func addSampleData() {
@@ -1113,4 +1326,11 @@ public final class PersistenceController: @unchecked Sendable {
 
         try? context.save()
     }
+}
+
+// MARK: - CloudKit Notifications
+
+extension Notification.Name {
+    /// Posted when CloudKit remote changes are received
+    public static let cloudKitDataDidChange = Notification.Name("cloudKitDataDidChange")
 }

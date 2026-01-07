@@ -57,6 +57,10 @@ public struct PublicationListView: View {
     /// Identifier for state persistence (nil = no persistence)
     public var listID: ListViewID?
 
+    /// When true, the unread filter is disabled and all papers are shown.
+    /// Used for Inbox view where papers should remain visible after being marked as read.
+    public var disableUnreadFilter: Bool = false
+
     // MARK: - Callbacks
 
     /// Called when delete is requested (via context menu or keyboard)
@@ -131,8 +135,8 @@ public struct PublicationListView: View {
     private var filteredRowData: [PublicationRowData] {
         var result = Array(rowDataCache.values)
 
-        // Filter by unread
-        if showUnreadOnly {
+        // Filter by unread (skip for Inbox where disableUnreadFilter is true)
+        if showUnreadOnly && !disableUnreadFilter {
             result = result.filter { !$0.isRead }
         }
 
@@ -178,6 +182,7 @@ public struct PublicationListView: View {
         emptyStateMessage: String = "No publications found.",
         emptyStateDescription: String = "Import a BibTeX file or search online sources to add publications.",
         listID: ListViewID? = nil,
+        disableUnreadFilter: Bool = false,
         onDelete: ((Set<UUID>) async -> Void)? = nil,
         onToggleRead: ((CDPublication) async -> Void)? = nil,
         onCopy: ((Set<UUID>) async -> Void)? = nil,
@@ -206,6 +211,7 @@ public struct PublicationListView: View {
         self.emptyStateMessage = emptyStateMessage
         self.emptyStateDescription = emptyStateDescription
         self.listID = listID
+        self.disableUnreadFilter = disableUnreadFilter
         self.onDelete = onDelete
         self.onToggleRead = onToggleRead
         self.onCopy = onCopy
@@ -252,9 +258,14 @@ public struct PublicationListView: View {
             // Rebuild row data when publications change (add/delete)
             rebuildRowData()
         }
-        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("readStatusDidChange"))) { _ in
-            // Rebuild row data when read status changes
-            rebuildRowData()
+        .onReceive(NotificationCenter.default.publisher(for: Notification.Name("readStatusDidChange"))) { notification in
+            // Smart update: only rebuild the changed row (O(1) instead of O(n))
+            if let changedID = notification.object as? UUID {
+                updateSingleRowData(for: changedID)
+            } else {
+                // Fallback: unknown change, rebuild all
+                rebuildRowData()
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .listViewSettingsDidChange)) { _ in
             // Reload settings when they change
@@ -263,15 +274,21 @@ public struct PublicationListView: View {
             }
         }
         .onChange(of: selection) { _, newValue in
-            // Find publication for single-selection binding
-            if let firstID = newValue.first,
-               let pub = publications.first(where: { $0.id == firstID }),
-               !pub.isDeleted,
-               pub.managedObjectContext != nil {
-                selectedPublication = pub
-            } else {
+            // Apple Mail behavior: only update detail view on single selection
+            if newValue.count == 1 {
+                // Single selection - show this paper and trigger auto-mark-as-read
+                if let id = newValue.first,
+                   let pub = publications.first(where: { $0.id == id }),
+                   !pub.isDeleted,
+                   pub.managedObjectContext != nil {
+                    selectedPublication = pub
+                }
+            } else if newValue.isEmpty {
+                // No selection - clear detail view
                 selectedPublication = nil
             }
+            // Multi-selection (2+): keep showing previous paper, don't auto-mark
+
             // Save selection state
             if hasLoadedState {
                 Task { await saveState() }
@@ -301,6 +318,18 @@ public struct PublicationListView: View {
             }
         }
         rowDataCache = newCache
+    }
+
+    /// Update a single row in the cache (O(1) instead of full rebuild).
+    /// Used when only one publication's read status changed.
+    private func updateSingleRowData(for publicationID: UUID) {
+        guard let publication = publications.first(where: { $0.id == publicationID }),
+              !publication.isDeleted,
+              publication.managedObjectContext != nil,
+              let updatedData = PublicationRowData(publication: publication) else {
+            return
+        }
+        rowDataCache[publicationID] = updatedData
     }
 
     // MARK: - State Persistence
@@ -371,15 +400,17 @@ public struct PublicationListView: View {
 
             Spacer()
 
-            // Filter button (unread only)
-            Button {
-                showUnreadOnly.toggle()
-            } label: {
-                Image(systemName: "line.3.horizontal.decrease")
+            // Filter button (unread only) - hidden for Inbox
+            if !disableUnreadFilter {
+                Button {
+                    showUnreadOnly.toggle()
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease")
+                }
+                .foregroundStyle(showUnreadOnly ? .blue : .secondary)
+                .help(showUnreadOnly ? "Show all publications" : "Show unread only")
+                .buttonStyle(.plain)
             }
-            .foregroundStyle(showUnreadOnly ? .blue : .secondary)
-            .help(showUnreadOnly ? "Show all publications" : "Show unread only")
-            .buttonStyle(.plain)
 
             // Import button
             if showImportButton, let onImport = onImport {

@@ -923,11 +923,7 @@ public struct PDFViewerWithControls: View {
     }
 
     private func openInExternalApp(url: URL) {
-        #if os(macOS)
-        NSWorkspace.shared.open(url)
-        #else
-        // iOS would use UIApplication.shared.open() but needs UIKit import
-        #endif
+        _ = FileManager_Opener.shared.openFile(url)
     }
 
     // MARK: - Error View

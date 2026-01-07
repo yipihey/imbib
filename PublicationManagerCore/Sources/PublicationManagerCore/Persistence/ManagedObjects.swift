@@ -48,6 +48,10 @@ public class CDPublication: NSManagedObject {
     // Set automatically when fields change via updateArxivIDNormalized()
     @NSManaged public var arxivIDNormalized: String?
 
+    // Normalized bibcode for O(1) indexed lookups
+    // Set automatically when fields change via updateBibcodeNormalized()
+    @NSManaged public var bibcodeNormalized: String?
+
     // Read status (Apple Mail styling)
     @NSManaged public var isRead: Bool
     @NSManaged public var dateRead: Date?
@@ -81,8 +85,9 @@ public extension CDPublication {
             if let data = try? JSONEncoder().encode(newValue),
                let json = String(data: data, encoding: .utf8) {
                 rawFields = json
-                // Update indexed arXiv ID for O(1) lookups
+                // Update indexed fields for O(1) lookups
                 updateArxivIDNormalized(from: newValue)
+                updateBibcodeNormalized(from: newValue)
             }
         }
     }
@@ -95,6 +100,17 @@ public extension CDPublication {
             arxivIDNormalized = IdentifierExtractor.normalizeArXivID(arxivID)
         } else {
             arxivIDNormalized = nil
+        }
+    }
+
+    /// Update the normalized bibcode from field values.
+    /// Called automatically when `fields` is set.
+    func updateBibcodeNormalized(from fields: [String: String]? = nil) {
+        let fieldsToUse = fields ?? self.fields
+        if let bibcode = IdentifierExtractor.bibcode(from: fieldsToUse) {
+            bibcodeNormalized = bibcode.uppercased()
+        } else {
+            bibcodeNormalized = nil
         }
     }
 
@@ -622,8 +638,9 @@ public extension CDLibrary {
         return "Untitled Library"
     }
 
-    /// Resolve the .bib file URL using the security-scoped bookmark
+    /// Resolve the .bib file URL using the security-scoped bookmark (macOS) or path (iOS)
     func resolveURL() -> URL? {
+        #if os(macOS)
         guard let bookmarkData else {
             // Fall back to path if no bookmark
             if let path = bibFilePath {
@@ -644,6 +661,13 @@ public extension CDLibrary {
 
         // If bookmark is stale, we should refresh it (handled elsewhere)
         return url
+        #else
+        // iOS: Use path directly (files are in app container)
+        if let path = bibFilePath {
+            return URL(fileURLWithPath: path)
+        }
+        return nil
+        #endif
     }
 
     /// Folder URL where the library's files are stored (parent directory of .bib file)

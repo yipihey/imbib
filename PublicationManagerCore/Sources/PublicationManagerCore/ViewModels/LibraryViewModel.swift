@@ -8,11 +8,6 @@
 import Foundation
 import OSLog
 import SwiftUI
-#if os(macOS)
-import AppKit
-#else
-import UIKit
-#endif
 
 // MARK: - Library View Model
 
@@ -290,28 +285,28 @@ public final class LibraryViewModel {
     /// Mark a publication as read
     public func markAsRead(_ publication: CDPublication) async {
         await repository.markAsRead(publication)
-        // Post notification so PublicationListView rebuilds row data cache
-        // (rows use immutable PublicationRowData snapshots, not @ObservedObject)
+        // Post notification with publication ID for efficient single-row cache update
+        // (O(1) update instead of O(n) full rebuild)
         await MainActor.run {
-            NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: nil)
+            NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: publication.id)
         }
     }
 
     /// Mark a publication as unread
     public func markAsUnread(_ publication: CDPublication) async {
         await repository.markAsUnread(publication)
-        // Post notification so PublicationListView rebuilds row data cache
+        // Post notification with publication ID for efficient single-row cache update
         await MainActor.run {
-            NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: nil)
+            NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: publication.id)
         }
     }
 
     /// Toggle read/unread status
     public func toggleReadStatus(_ publication: CDPublication) async {
         await repository.toggleReadStatus(publication)
-        // Post notification so PublicationListView rebuilds row data cache
+        // Post notification with publication ID for efficient single-row cache update
         await MainActor.run {
-            NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: nil)
+            NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: publication.id)
         }
     }
 
@@ -320,6 +315,36 @@ public final class LibraryViewModel {
         let toMark = publications.filter { selectedPublications.contains($0.id) }
         await repository.markAllAsRead(toMark)
         await loadPublications()
+    }
+
+    /// Apple Mail-style smart toggle for multiple publications.
+    /// - If ANY are unread → mark ALL as read
+    /// - If ALL are read → mark ALL as unread
+    public func smartToggleReadStatus(_ publicationIDs: Set<UUID>) async {
+        let selected = publications.filter { publicationIDs.contains($0.id) }
+        guard !selected.isEmpty else { return }
+
+        // Check if any are unread
+        let anyUnread = selected.contains { !$0.isRead }
+
+        if anyUnread {
+            // Make all read
+            for pub in selected where !pub.isRead {
+                await repository.markAsRead(pub)
+            }
+        } else {
+            // All are read, make all unread
+            for pub in selected {
+                await repository.markAsUnread(pub)
+            }
+        }
+
+        // Post notification for each changed publication
+        await MainActor.run {
+            for pub in selected {
+                NotificationCenter.default.post(name: Notification.Name("readStatusDidChange"), object: pub.id)
+            }
+        }
     }
 
     /// Get count of unread publications
@@ -335,13 +360,7 @@ public final class LibraryViewModel {
         guard !toCopy.isEmpty else { return }
 
         let bibtex = await repository.export(toCopy)
-
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(bibtex, forType: .string)
-        #else
-        UIPasteboard.general.string = bibtex
-        #endif
+        Clipboard.shared.setString(bibtex)
 
         Logger.viewModels.infoCapture("Copied \(toCopy.count) publications to clipboard", category: "clipboard")
     }
@@ -352,13 +371,7 @@ public final class LibraryViewModel {
         guard !toCopy.isEmpty else { return }
 
         let bibtex = await repository.export(toCopy)
-
-        #if os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(bibtex, forType: .string)
-        #else
-        UIPasteboard.general.string = bibtex
-        #endif
+        Clipboard.shared.setString(bibtex)
 
         Logger.viewModels.infoCapture("Copied \(toCopy.count) publications to clipboard", category: "clipboard")
     }
@@ -380,15 +393,9 @@ public final class LibraryViewModel {
     /// Paste publications from clipboard (import BibTeX)
     @discardableResult
     public func pasteFromClipboard() async throws -> Int {
-        #if os(macOS)
-        guard let bibtex = NSPasteboard.general.string(forType: .string) else {
+        guard let bibtex = Clipboard.shared.getString() else {
             throw ImportError.noBibTeXEntry
         }
-        #else
-        guard let bibtex = UIPasteboard.general.string else {
-            throw ImportError.noBibTeXEntry
-        }
-        #endif
 
         let parser = BibTeXParser()
         let entries = try parser.parseEntries(bibtex)

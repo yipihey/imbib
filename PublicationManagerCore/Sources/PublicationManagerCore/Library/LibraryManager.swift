@@ -104,7 +104,8 @@ public final class LibraryManager {
         library.dateCreated = Date()
         library.isDefault = libraries.isEmpty  // First library is default
 
-        // Create security-scoped bookmark if URL provided
+        // Create security-scoped bookmark if URL provided (macOS only)
+        #if os(macOS)
         if let url = bibFileURL {
             library.bookmarkData = try? url.bookmarkData(
                 options: .withSecurityScope,
@@ -113,6 +114,7 @@ public final class LibraryManager {
             )
             Logger.library.debugCapture("Created security-scoped bookmark for: \(url.lastPathComponent)", category: "library")
         }
+        #endif
 
         persistenceController.save()
         loadLibraries()
@@ -133,7 +135,8 @@ public final class LibraryManager {
             return existing
         }
 
-        // Create security-scoped bookmark
+        #if os(macOS)
+        // Create security-scoped bookmark (macOS only)
         guard url.startAccessingSecurityScopedResource() else {
             Logger.library.errorCapture("Access denied to: \(url.lastPathComponent)", category: "library")
             throw LibraryError.accessDenied(url)
@@ -151,6 +154,13 @@ public final class LibraryManager {
             bibFileURL: url
         )
         library.bookmarkData = bookmarkData
+        #else
+        // iOS: Files are accessed via document picker, no security scoping needed
+        let library = createLibrary(
+            name: url.deletingPathExtension().lastPathComponent,
+            bibFileURL: url
+        )
+        #endif
 
         persistenceController.save()
         setActive(library)
