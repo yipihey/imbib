@@ -217,6 +217,42 @@ public extension PDFBrowserWindowController {
         // Open window
         openWindow(with: viewModel)
     }
+
+    /// Open a PDF browser for a publication with a specific URL.
+    ///
+    /// Use this when you want to open a specific PDF source URL rather than
+    /// auto-resolving the best URL.
+    ///
+    /// - Parameters:
+    ///   - publication: The publication context
+    ///   - startURL: The specific URL to open
+    ///   - libraryID: The library ID for PDF import
+    ///   - onPDFCaptured: Callback when a PDF is captured
+    func openBrowser(
+        for publication: CDPublication,
+        startURL: URL,
+        libraryID: UUID,
+        onPDFCaptured: @escaping (Data) async -> Void
+    ) async {
+        Logger.pdfBrowser.info("Opening browser with specific URL: \(startURL.absoluteString)")
+
+        // Create view model with the specific URL
+        let viewModel = PDFBrowserViewModel(
+            publication: publication,
+            initialURL: startURL,
+            libraryID: libraryID
+        )
+
+        // Load proxy settings so user can retry with proxy if needed
+        let settings = await PDFSettingsStore.shared.settings
+        viewModel.libraryProxyURL = settings.libraryProxyURL
+        viewModel.proxyEnabled = settings.proxyEnabled
+
+        viewModel.onPDFCaptured = onPDFCaptured
+
+        // Open window
+        openWindow(with: viewModel)
+    }
 }
 
 #endif // os(macOS)

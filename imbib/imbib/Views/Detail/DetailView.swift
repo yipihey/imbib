@@ -261,6 +261,15 @@ struct InfoTab: View {
                         Divider()
                     }
 
+                    // MARK: - PDF Sources
+                    if let pub = publication {
+                        let sources = collectPDFSources(for: pub)
+                        if !sources.isEmpty {
+                            pdfSourcesSection(sources, publication: pub)
+                            Divider()
+                        }
+                    }
+
                     // MARK: - Attachments Section with Drop Target
                     if let pub = publication {
                         attachmentsSectionWithDrop(pub)
@@ -777,6 +786,129 @@ struct InfoTab: View {
             Logger.files.errorCapture("Failed to delete attachment: \(error)", category: "pdf")
         }
     }
+
+    // MARK: - PDF Sources Section
+
+    /// A PDF source with URL, type and optional source ID
+    private struct PDFSource: Hashable {
+        let url: URL
+        let type: PDFLinkType
+        let sourceID: String?
+
+        var label: String {
+            let typeName = type.displayName
+            if let source = sourceID, !source.isEmpty {
+                return "\(typeName) (\(source.capitalized))"
+            }
+            return typeName
+        }
+    }
+
+    /// Collect all available PDF sources for a publication
+    private func collectPDFSources(for pub: CDPublication) -> [PDFSource] {
+        var sources: [PDFSource] = []
+        var seenURLs: Set<URL> = []
+
+        // Add from pdfLinks array
+        for link in pub.pdfLinks {
+            if !seenURLs.contains(link.url) {
+                sources.append(PDFSource(url: link.url, type: link.type, sourceID: link.sourceID))
+                seenURLs.insert(link.url)
+            }
+        }
+
+        // Add arXiv PDF URL if not already present
+        if let arxivURL = pub.arxivPDFURL, !seenURLs.contains(arxivURL) {
+            sources.append(PDFSource(url: arxivURL, type: .preprint, sourceID: "arXiv"))
+            seenURLs.insert(arxivURL)
+        }
+
+        // Add ADS gateway URL if bibcode available and not already present
+        if let bibcode = pub.bibcode,
+           let adsURL = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/PUB_PDF"),
+           !seenURLs.contains(adsURL) {
+            sources.append(PDFSource(url: adsURL, type: .publisher, sourceID: "ADS"))
+            seenURLs.insert(adsURL)
+        }
+
+        return sources
+    }
+
+    @ViewBuilder
+    private func pdfSourcesSection(_ sources: [PDFSource], publication: CDPublication) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("PDF Sources")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            ForEach(sources, id: \.self) { source in
+                pdfSourceRow(source, publication: publication)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pdfSourceRow(_ source: PDFSource, publication: CDPublication) -> some View {
+        HStack {
+            Text(source.label)
+                .font(.subheadline)
+
+            Spacer()
+
+            // System browser button
+            Button {
+                openInSystemBrowser(source.url)
+            } label: {
+                Image(systemName: "globe")
+            }
+            .buttonStyle(.borderless)
+            .help("Open in Safari")
+
+            // imBib browser button
+            #if os(macOS)
+            Button {
+                Task {
+                    await openInImBibBrowser(source.url, publication: publication)
+                }
+            } label: {
+                Image(systemName: "book")
+            }
+            .buttonStyle(.borderless)
+            .help("Open in imBib browser")
+            #endif
+        }
+    }
+
+    private func openInSystemBrowser(_ url: URL) {
+        #if os(macOS)
+        NSWorkspace.shared.open(url)
+        #else
+        UIApplication.shared.open(url)
+        #endif
+    }
+
+    #if os(macOS)
+    private func openInImBibBrowser(_ url: URL, publication: CDPublication) async {
+        guard let library = libraryManager.activeLibrary else { return }
+
+        await PDFBrowserWindowController.shared.openBrowser(
+            for: publication,
+            startURL: url,
+            libraryID: library.id
+        ) { data in
+            do {
+                try PDFManager.shared.importPDF(data: data, for: publication, in: library)
+                Logger.files.infoCapture("[InfoTab] PDF imported from browser successfully", category: "pdf")
+
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: publication.objectID)
+                }
+            } catch {
+                Logger.files.errorCapture("[InfoTab] Failed to import PDF from browser: \(error)", category: "pdf")
+            }
+        }
+    }
+    #endif
 }
 
 // MARK: - BibTeX Tab
