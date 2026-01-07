@@ -142,7 +142,28 @@ public struct PDFBrowserToolbar: View {
             .buttonStyle(.borderless)
             #endif
 
-            // Save PDF button (only shown when PDF detected)
+            // Manual capture button - always visible as fallback
+            Button {
+                Task {
+                    await viewModel.attemptManualCapture()
+                }
+            } label: {
+                if viewModel.isCapturing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 16, height: 16)
+                } else {
+                    Image(systemName: "camera.viewfinder")
+                        .font(.body)
+                }
+            }
+            .disabled(viewModel.isCapturing || viewModel.isLoading)
+            .help("Capture current page as PDF")
+            #if os(macOS)
+            .buttonStyle(.borderless)
+            #endif
+
+            // Save PDF button (only enabled when PDF detected)
             Button {
                 Task {
                     await viewModel.saveDetectedPDF()

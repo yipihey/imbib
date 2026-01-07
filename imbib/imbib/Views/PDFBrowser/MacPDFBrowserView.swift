@@ -116,6 +116,12 @@ struct MacWebViewRepresentable: NSViewRepresentable {
         // Store reference in view model
         viewModel.webView = webView
 
+        // Wire up manual capture callback
+        let coordinator = context.coordinator
+        viewModel.onManualCaptureRequested = {
+            await coordinator.captureCurrentContent()
+        }
+
         // Load initial URL
         Logger.pdfBrowser.info("Loading initial URL: \(viewModel.initialURL.absoluteString)")
         webView.load(URLRequest(url: viewModel.initialURL))
@@ -339,6 +345,107 @@ struct MacWebViewRepresentable: NSViewRepresentable {
                 webView.load(navigationAction.request)
             }
             return nil
+        }
+
+        // MARK: - Manual Capture
+
+        /// Manually capture the current page content as PDF.
+        ///
+        /// Uses WKWebView.createPDF() to render the page, then checks if
+        /// the result is a valid PDF or if the page was already displaying a PDF.
+        @MainActor
+        func captureCurrentContent() async {
+            guard let webView = viewModel.webView else {
+                Logger.pdfBrowser.error("Manual capture failed: no webView")
+                viewModel.errorMessage = "Browser not ready"
+                return
+            }
+
+            Logger.pdfBrowser.info("Starting manual PDF capture")
+
+            do {
+                // First try: Use createPDF to render current page
+                let pdfConfig = WKPDFConfiguration()
+                let pdfData = try await webView.pdf(configuration: pdfConfig)
+
+                // Check if the captured PDF is valid (has %PDF header)
+                if isPDF(data: pdfData) {
+                    // Generate filename from URL or publication
+                    let filename = generateFilename(from: webView.url)
+
+                    await MainActor.run {
+                        viewModel.detectedPDFFilename = filename
+                        viewModel.detectedPDFData = pdfData
+                    }
+
+                    Logger.pdfBrowser.info("Manual capture successful: \(filename), \(pdfData.count) bytes")
+                } else {
+                    Logger.pdfBrowser.warning("Captured data is not a valid PDF")
+                    viewModel.errorMessage = "Could not capture PDF content"
+                }
+            } catch {
+                Logger.pdfBrowser.error("Manual capture failed: \(error.localizedDescription)")
+
+                // Fall back to trying direct URL fetch if the page might be an inline PDF
+                await fallbackDirectFetch(webView: webView)
+            }
+        }
+
+        /// Fallback: Try to fetch the PDF directly from the URL.
+        ///
+        /// This works when the page is displaying an inline PDF that createPDF() can't capture.
+        @MainActor
+        private func fallbackDirectFetch(webView: WKWebView) async {
+            guard let url = webView.url else {
+                viewModel.errorMessage = "Could not capture PDF content"
+                return
+            }
+
+            Logger.pdfBrowser.info("Trying fallback direct fetch: \(url.absoluteString)")
+
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+
+                if isPDF(data: data) {
+                    let filename = response.suggestedFilename ?? generateFilename(from: url)
+
+                    await MainActor.run {
+                        viewModel.detectedPDFFilename = filename
+                        viewModel.detectedPDFData = data
+                    }
+
+                    Logger.pdfBrowser.info("Fallback fetch successful: \(filename), \(data.count) bytes")
+                } else {
+                    viewModel.errorMessage = "Page content is not a PDF"
+                    Logger.pdfBrowser.warning("Fallback fetch: content is not a PDF")
+                }
+            } catch {
+                viewModel.errorMessage = "Could not capture PDF: \(error.localizedDescription)"
+                Logger.pdfBrowser.error("Fallback fetch failed: \(error.localizedDescription)")
+            }
+        }
+
+        /// Generate a filename for the captured PDF.
+        private func generateFilename(from url: URL?) -> String {
+            // Try to get filename from URL path
+            if let url = url {
+                let lastComponent = url.lastPathComponent
+                if lastComponent.lowercased().hasSuffix(".pdf") {
+                    return lastComponent
+                }
+                if !lastComponent.isEmpty && lastComponent != "/" {
+                    return "\(lastComponent).pdf"
+                }
+            }
+
+            // Fall back to publication info
+            let pub = viewModel.publication
+            let authorStr = pub.authorString
+            let author = authorStr.split(separator: ",").first.map(String.init) ?? "Unknown"
+            let year = pub.year > 0 ? "\(pub.year)" : "NoYear"
+            let titleWord = pub.title?.split(separator: " ").first.map(String.init) ?? "Document"
+
+            return "\(author)_\(year)_\(titleWord).pdf"
         }
 
         // MARK: - Helpers

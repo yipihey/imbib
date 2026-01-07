@@ -77,6 +77,12 @@ public final class PDFBrowserViewModel {
     /// Called when the browser should be dismissed
     public var onDismiss: (() -> Void)?
 
+    /// Called when manual capture is requested (platform view implements actual capture)
+    public var onManualCaptureRequested: (() async -> Void)?
+
+    /// Whether a manual capture is in progress
+    public var isCapturing: Bool = false
+
     // MARK: - WebView Reference
 
     #if canImport(WebKit)
@@ -152,6 +158,24 @@ public final class PDFBrowserViewModel {
     }
 
     // MARK: - PDF Capture
+
+    /// Manually attempt to capture current page content as PDF.
+    ///
+    /// This is a fallback for when automatic PDF detection fails.
+    /// Uses WKWebView.createPDF() to render the current page.
+    public func attemptManualCapture() async {
+        guard !isCapturing else {
+            Logger.pdfBrowser.warning("Manual capture already in progress")
+            return
+        }
+
+        isCapturing = true
+        Logger.pdfBrowser.info("Manual capture requested for: \(self.currentURL?.absoluteString ?? "unknown")")
+
+        await onManualCaptureRequested?()
+
+        isCapturing = false
+    }
 
     /// Save the detected PDF to the library and close the browser
     public func saveDetectedPDF() async {
