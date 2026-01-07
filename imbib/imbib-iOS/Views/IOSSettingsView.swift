@@ -13,6 +13,8 @@ struct IOSSettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(SettingsViewModel.self) private var viewModel
 
+    @State private var showConsole = false
+
     var body: some View {
         NavigationStack {
             List {
@@ -43,6 +45,15 @@ struct IOSSettingsView: View {
                     }
                 }
 
+                // Developer Section
+                Section("Developer") {
+                    Button {
+                        showConsole = true
+                    } label: {
+                        Label("Console", systemImage: "terminal")
+                    }
+                }
+
                 // About Section
                 Section("About") {
                     HStack {
@@ -68,6 +79,9 @@ struct IOSSettingsView: View {
                         dismiss()
                     }
                 }
+            }
+            .sheet(isPresented: $showConsole) {
+                IOSConsoleView()
             }
         }
     }

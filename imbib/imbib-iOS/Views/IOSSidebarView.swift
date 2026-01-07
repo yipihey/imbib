@@ -91,7 +91,11 @@ struct IOSSidebarView: View {
             if let library = selectedLibraryForAction {
                 IOSSmartSearchEditorSheet(
                     isPresented: $showNewSmartSearchSheet,
-                    library: library
+                    library: library,
+                    onCreated: { newSmartSearch in
+                        // Navigate to the new smart search
+                        selection = .smartSearch(newSmartSearch)
+                    }
                 )
             }
         }
@@ -355,11 +359,18 @@ struct NewCollectionSheet: View {
 struct IOSSmartSearchEditorSheet: View {
     @Binding var isPresented: Bool
     let library: CDLibrary
+    let onCreated: ((CDSmartSearch) -> Void)?
 
     @State private var name = ""
     @State private var query = ""
     @State private var sourceID = "ads"
     @State private var maxResults: Int = 100
+
+    init(isPresented: Binding<Bool>, library: CDLibrary, onCreated: ((CDSmartSearch) -> Void)? = nil) {
+        self._isPresented = isPresented
+        self.library = library
+        self.onCreated = onCreated
+    }
 
     var body: some View {
         NavigationStack {
@@ -405,17 +416,15 @@ struct IOSSmartSearchEditorSheet: View {
     }
 
     private func createSmartSearch() {
-        Task {
-            let repository = SmartSearchRepository()
-            _ = repository.create(
-                name: name,
-                query: query,
-                sourceIDs: [sourceID],
-                library: library,
-                maxResults: Int16(maxResults)
-            )
-            isPresented = false
-        }
+        let newSearch = SmartSearchRepository.shared.create(
+            name: name,
+            query: query,
+            sourceIDs: [sourceID],
+            library: library,
+            maxResults: Int16(maxResults)
+        )
+        isPresented = false
+        onCreated?(newSearch)
     }
 }
 
