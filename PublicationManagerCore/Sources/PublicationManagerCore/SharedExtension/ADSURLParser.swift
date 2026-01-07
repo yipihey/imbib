@@ -26,6 +26,10 @@ public struct ADSURLParser {
 
         /// A paper URL with extracted bibcode
         case paper(bibcode: String)
+
+        /// A docs() selection URL - temporary selection of papers to import
+        /// These should be imported to Inbox, not saved as smart searches
+        case docsSelection(query: String)
     }
 
     /// ADS host variants to recognize
@@ -74,25 +78,71 @@ public struct ADSURLParser {
 
     /// Parse an ADS search URL to extract the query.
     ///
-    /// Search URLs have the form:
-    /// `https://ui.adsabs.harvard.edu/search/q=author%3AAbel%2CTom&sort=date%20desc`
+    /// Search URLs have two forms:
+    /// 1. Traditional: `https://ui.adsabs.harvard.edu/search?q=author%3AAbel%2CTom`
+    /// 2. ADS-style (params in path): `https://ui.adsabs.harvard.edu/search/q=author%3AAbel%2CTom&sort=date%20desc`
+    ///
+    /// Special case: `docs(hash)` queries represent temporary paper selections
+    /// and should be imported to Inbox, not saved as smart searches.
     ///
     /// The `q` parameter contains the search query (URL encoded).
     private static func parseSearchURL(_ url: URL) -> ADSURLType? {
-        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
-              let queryItems = components.queryItems else {
+        // First try traditional query string (after ?)
+        if let components = URLComponents(url: url, resolvingAgainstBaseURL: true),
+           let queryItems = components.queryItems,
+           let query = queryItems.first(where: { $0.name == "q" })?.value,
+           !query.isEmpty {
+            return classifyQuery(query)
+        }
+
+        // ADS-style: parameters are in the path after /search/
+        // URL looks like: /search/fq=...&q=author:Abel&sort=...
+        let path = url.path
+        guard path.hasPrefix("/search/") else {
+            // Just /search with no parameters
             return nil
         }
 
-        // Find the 'q' parameter (the search query)
-        guard let query = queryItems.first(where: { $0.name == "q" })?.value,
-              !query.isEmpty else {
+        // Extract the part after /search/
+        let paramString = String(path.dropFirst("/search/".count))
+        guard !paramString.isEmpty else {
             return nil
         }
 
-        // Generate a human-readable title from the query
+        // Parse as if it were a query string
+        // URL-decode the entire param string first since path components are encoded
+        let decodedParams = paramString.removingPercentEncoding ?? paramString
+
+        // Split by & to get individual params
+        let params = decodedParams.split(separator: "&")
+
+        // Find the 'q' parameter
+        for param in params {
+            let parts = param.split(separator: "=", maxSplits: 1)
+            if parts.count == 2 && parts[0] == "q" {
+                let query = String(parts[1])
+                if !query.isEmpty {
+                    return classifyQuery(query)
+                }
+            }
+        }
+
+        return nil
+    }
+
+    /// Classify a query as either a docs() selection or a regular search.
+    ///
+    /// `docs(hash)` queries are temporary paper selections that should be
+    /// imported to Inbox rather than saved as smart searches.
+    private static func classifyQuery(_ query: String) -> ADSURLType {
+        // Check if this is a docs() selection (temporary, not a real search)
+        // Pattern: docs(hexhash) where hexhash is typically 32 hex chars
+        if query.hasPrefix("docs(") && query.hasSuffix(")") {
+            return .docsSelection(query: query)
+        }
+
+        // Regular search query
         let title = generateTitle(from: query)
-
         return .search(query: query, title: title)
     }
 

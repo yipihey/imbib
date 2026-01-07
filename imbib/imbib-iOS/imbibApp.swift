@@ -21,6 +21,7 @@ struct imbibApp: App {
     @State private var libraryViewModel: LibraryViewModel
     @State private var searchViewModel: SearchViewModel
     @State private var settingsViewModel: SettingsViewModel
+    @State private var shareExtensionHandler: ShareExtensionHandler?
 
     // MARK: - Initialization
 
@@ -89,14 +90,21 @@ struct imbibApp: App {
                 .environment(settingsViewModel)
                 .onAppear {
                     setupBadgeObserver()
+                    // Initialize share extension handler
+                    if shareExtensionHandler == nil {
+                        shareExtensionHandler = ShareExtensionHandler(
+                            libraryManager: libraryManager,
+                            sourceManager: searchViewModel.sourceManager
+                        )
+                    }
                     // Process any pending shared URLs from share extension
                     Task {
-                        await handlePendingSharedURLs()
+                        await shareExtensionHandler?.handlePendingSharedItems()
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: ShareExtensionService.sharedURLReceivedNotification)) { _ in
                     Task {
-                        await handlePendingSharedURLs()
+                        await shareExtensionHandler?.handlePendingSharedItems()
                     }
                 }
         }
@@ -129,145 +137,6 @@ struct imbibApp: App {
             }
         }
     }
-
-    // MARK: - Share Extension Handling
-
-    /// Process pending shared URLs from the share extension
-    @MainActor
-    private func handlePendingSharedURLs() async {
-        let pendingItems = ShareExtensionService.shared.getPendingItems()
-
-        guard !pendingItems.isEmpty else {
-            // Update available libraries for share extension
-            updateShareExtensionLibraries()
-            return
-        }
-
-        appLogger.info("Processing \(pendingItems.count) pending shared items")
-
-        for item in pendingItems {
-            do {
-                switch item.type {
-                case .smartSearch:
-                    try await createSmartSearchFromSharedItem(item)
-                case .paper:
-                    try await importPaperFromSharedItem(item)
-                }
-                ShareExtensionService.shared.removeItem(item)
-                appLogger.info("Successfully processed shared item: \(item.type.rawValue)")
-            } catch {
-                appLogger.error("Failed to process shared item: \(error.localizedDescription)")
-                ShareExtensionService.shared.removeItem(item)
-            }
-        }
-
-        // Update available libraries for share extension
-        updateShareExtensionLibraries()
-    }
-
-    /// Create a smart search from a shared item
-    @MainActor
-    private func createSmartSearchFromSharedItem(_ item: ShareExtensionService.SharedItem) async throws {
-        // Parse the URL to get the query
-        guard case .search(let query, _) = ADSURLParser.parse(item.url) else {
-            throw ShareExtensionError.invalidURL
-        }
-
-        // Find the target library
-        let targetLibrary: CDLibrary
-        if let libraryID = item.libraryID,
-           let library = libraryManager.find(id: libraryID) {
-            targetLibrary = library
-        } else if let activeLib = libraryManager.activeLibrary {
-            targetLibrary = activeLib
-        } else if let firstLib = libraryManager.libraries.first(where: { !$0.isInbox }) {
-            targetLibrary = firstLib
-        } else {
-            throw ShareExtensionError.noLibrary
-        }
-
-        // Create the smart search
-        let name = item.name ?? "Shared Search"
-        _ = SmartSearchRepository.shared.create(
-            name: name,
-            query: query,
-            sourceIDs: ["ads"],
-            library: targetLibrary,
-            maxResults: 100
-        )
-
-        appLogger.info("Created smart search '\(name)' from shared URL")
-    }
-
-    /// Import a paper from a shared item
-    @MainActor
-    private func importPaperFromSharedItem(_ item: ShareExtensionService.SharedItem) async throws {
-        // Parse the URL to get the bibcode
-        guard case .paper(let bibcode) = ADSURLParser.parse(item.url) else {
-            throw ShareExtensionError.invalidURL
-        }
-
-        // Search for the paper using ADS source directly
-        let searchQuery = "bibcode:\(bibcode)"
-        let options = SearchOptions(maxResults: 1, sortOrder: .relevance, sourceIDs: ["ads"])
-        let results = try await searchViewModel.sourceManager.search(query: searchQuery, options: options)
-
-        guard let firstResult = results.first else {
-            throw ShareExtensionError.paperNotFound
-        }
-
-        // Create publication from search result
-        let repository = PublicationRepository()
-
-        // Import to library or Inbox
-        if let libraryID = item.libraryID,
-           let library = libraryManager.find(id: libraryID) {
-            // Import to specific library
-            let publication = await repository.createFromSearchResult(firstResult, in: library)
-            appLogger.info("Imported paper \(bibcode) to library \(library.displayName)")
-            _ = publication // silence unused variable warning
-        } else {
-            // Import to Inbox
-            let publication = await repository.createFromSearchResult(firstResult)
-            InboxManager.shared.addToInbox(publication)
-            appLogger.info("Imported paper \(bibcode) to Inbox")
-        }
-    }
-
-    /// Update the list of available libraries in the share extension
-    private func updateShareExtensionLibraries() {
-        let activeLibraryID = libraryManager.activeLibrary?.id
-        let libraryInfos = libraryManager.libraries
-            .filter { !$0.isInbox }
-            .map { library in
-                SharedLibraryInfo(
-                    id: library.id,
-                    name: library.displayName,
-                    isDefault: library.id == activeLibraryID
-                )
-            }
-
-        ShareExtensionService.shared.updateAvailableLibraries(libraryInfos)
-        appLogger.debug("Updated share extension with \(libraryInfos.count) libraries")
-    }
-}
-
-/// Errors for share extension handling
-enum ShareExtensionError: LocalizedError {
-    case invalidURL
-    case noLibrary
-    case paperNotFound
-
-    var errorDescription: String? {
-        switch self {
-        case .invalidURL:
-            return "Invalid ADS URL"
-        case .noLibrary:
-            return "No library available"
-        case .paperNotFound:
-            return "Paper not found in ADS"
-        }
-    }
 }
 
 /// Update the app icon badge with unread count
@@ -279,22 +148,5 @@ private func updateAppBadge(_ count: Int) {
     }
 }
 
-// MARK: - Notification Names (shared with macOS)
-
-extension Notification.Name {
-    static let importBibTeX = Notification.Name("importBibTeX")
-    static let exportBibTeX = Notification.Name("exportBibTeX")
-    static let showLibrary = Notification.Name("showLibrary")
-    static let showSearch = Notification.Name("showSearch")
-    static let toggleReadStatus = Notification.Name("toggleReadStatus")
-    static let readStatusDidChange = Notification.Name("readStatusDidChange")
-    static let copyPublications = Notification.Name("copyPublications")
-    static let cutPublications = Notification.Name("cutPublications")
-    static let pastePublications = Notification.Name("pastePublications")
-    static let selectAllPublications = Notification.Name("selectAllPublications")
-
-    // Inbox triage actions
-    static let inboxArchive = Notification.Name("inboxArchive")
-    static let inboxDismiss = Notification.Name("inboxDismiss")
-    static let inboxToggleStar = Notification.Name("inboxToggleStar")
-}
+// Note: Notification.Name extensions are now defined in PublicationManagerCore/Notifications.swift
+// Note: ShareExtensionError is now defined in PublicationManagerCore/SharedExtension/ShareExtensionError.swift

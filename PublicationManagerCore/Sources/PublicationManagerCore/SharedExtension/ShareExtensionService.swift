@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import OSLog
 
 /// Service for communication between the share extension and main app via App Groups.
 ///
@@ -38,12 +39,14 @@ public final class ShareExtensionService: Sendable {
         public let url: URL
         public let type: ItemType
         public let name: String?
+        public let query: String?  // The actual query to use (from page title via JS preprocessing)
         public let libraryID: UUID?
         public let createdAt: Date
 
         public enum ItemType: String, Codable, Sendable {
             case smartSearch
             case paper
+            case docsSelection  // Temporary paper selection to import to Inbox
         }
 
         public init(
@@ -51,6 +54,7 @@ public final class ShareExtensionService: Sendable {
             url: URL,
             type: ItemType,
             name: String?,
+            query: String? = nil,
             libraryID: UUID?,
             createdAt: Date = Date()
         ) {
@@ -58,6 +62,7 @@ public final class ShareExtensionService: Sendable {
             self.url = url
             self.type = type
             self.name = name
+            self.query = query
             self.libraryID = libraryID
             self.createdAt = createdAt
         }
@@ -115,21 +120,53 @@ public final class ShareExtensionService: Sendable {
         postNotification()
     }
 
+    /// Queue a docs() selection for bulk import to Inbox when the main app opens.
+    ///
+    /// Called from the share extension after user confirms the docs() import.
+    ///
+    /// - Parameters:
+    ///   - url: The ADS docs() URL
+    ///   - query: The docs() query string
+    public func queueDocsSelection(url: URL, query: String) {
+        Logger.shareExtension.infoCapture("Queueing docs() selection: \(query)", category: "shareext")
+        let item = SharedItem(
+            url: url,
+            type: .docsSelection,
+            name: nil,
+            query: query,
+            libraryID: nil,  // Always to Inbox
+            createdAt: Date()
+        )
+        appendItem(item)
+        postNotification()
+        Logger.shareExtension.infoCapture("docs() selection queued successfully", category: "shareext")
+    }
+
     // MARK: - Main App API
 
     /// Get all pending shared items.
     ///
     /// Called by the main app to retrieve queued items for processing.
     public func getPendingItems() -> [SharedItem] {
-        guard let defaults = sharedDefaults,
-              let data = defaults.data(forKey: Self.pendingItemsKey) else {
+        guard let defaults = sharedDefaults else {
+            Logger.shareExtension.warningCapture("Cannot access App Group UserDefaults", category: "shareext")
+            return []
+        }
+
+        guard let data = defaults.data(forKey: Self.pendingItemsKey) else {
+            Logger.shareExtension.debugCapture("No pending items in UserDefaults", category: "shareext")
             return []
         }
 
         do {
-            return try JSONDecoder().decode([SharedItem].self, from: data)
+            let items = try JSONDecoder().decode([SharedItem].self, from: data)
+            Logger.shareExtension.infoCapture("Retrieved \(items.count) pending items from queue", category: "shareext")
+            for item in items {
+                Logger.shareExtension.debugCapture("  - \(item.type.rawValue): \(item.query ?? item.url.absoluteString)", category: "shareext")
+            }
+            return items
         } catch {
-            print("Failed to decode pending shared items: \(error)")
+            Logger.shareExtension.errorCapture("Failed to decode pending items: \(error.localizedDescription)", category: "shareext")
             return []
         }
     }
@@ -140,6 +177,7 @@ public final class ShareExtensionService: Sendable {
     ///
     /// - Parameter item: The item to remove
     public func removeItem(_ item: SharedItem) {
+        Logger.shareExtension.debugCapture("Removing processed item: \(item.type.rawValue)", category: "shareext")
         var items = getPendingItems()
         items.removeAll { $0.id == item.id }
         saveItems(items)
@@ -167,15 +205,16 @@ public final class ShareExtensionService: Sendable {
 
     private func saveItems(_ items: [SharedItem]) {
         guard let defaults = sharedDefaults else {
-            print("Warning: Could not access App Group UserDefaults")
+            Logger.shareExtension.warningCapture("Cannot access App Group UserDefaults for saving", category: "shareext")
             return
         }
 
         do {
             let data = try JSONEncoder().encode(items)
             defaults.set(data, forKey: Self.pendingItemsKey)
+            Logger.shareExtension.debugCapture("Saved \(items.count) items to queue", category: "shareext")
         } catch {
-            print("Failed to encode shared items: \(error)")
+            Logger.shareExtension.errorCapture("Failed to encode shared items: \(error.localizedDescription)", category: "shareext")
         }
     }
 
@@ -220,13 +259,17 @@ extension ShareExtensionService {
     ///
     /// - Parameter libraries: The current list of libraries
     public func updateAvailableLibraries(_ libraries: [SharedLibraryInfo]) {
-        guard let defaults = sharedDefaults else { return }
+        guard let defaults = sharedDefaults else {
+            Logger.shareExtension.warningCapture("Cannot access App Group UserDefaults for libraries", category: "shareext")
+            return
+        }
 
         do {
             let data = try JSONEncoder().encode(libraries)
             defaults.set(data, forKey: Self.librariesKey)
+            Logger.shareExtension.debugCapture("Updated available libraries: \(libraries.count)", category: "shareext")
         } catch {
-            print("Failed to encode libraries: \(error)")
+            Logger.shareExtension.errorCapture("Failed to encode libraries: \(error.localizedDescription)", category: "shareext")
         }
     }
 
@@ -240,7 +283,7 @@ extension ShareExtensionService {
         do {
             return try JSONDecoder().decode([SharedLibraryInfo].self, from: data)
         } catch {
-            print("Failed to decode libraries: \(error)")
+            Logger.shareExtension.errorCapture("Failed to decode libraries: \(error.localizedDescription)", category: "shareext")
             return []
         }
     }

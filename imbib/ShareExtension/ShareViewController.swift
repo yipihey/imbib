@@ -13,11 +13,13 @@ import PublicationManagerCore
 /// macOS share extension view controller.
 ///
 /// Hosts the SwiftUI ShareExtensionView and handles NSExtensionItem processing.
+/// Uses JavaScript preprocessing to extract the page title from Safari.
 class ShareViewController: NSViewController {
 
     // MARK: - Properties
 
     private var sharedURL: URL?
+    private var pageTitle: String?
     private var hostingView: NSHostingView<ShareExtensionView>?
 
     // MARK: - Lifecycle
@@ -31,11 +33,12 @@ class ShareViewController: NSViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        // Extract the shared URL from the extension context
-        extractSharedURL { [weak self] url in
+        // Extract the shared URL and page title from the extension context
+        extractSharedContent { [weak self] url, title in
             DispatchQueue.main.async {
                 if let url = url {
-                    self?.showShareUI(for: url)
+                    self?.pageTitle = title
+                    self?.showShareUI(for: url, pageTitle: title)
                 } else {
                     self?.showError("No URL found in shared content")
                 }
@@ -43,60 +46,33 @@ class ShareViewController: NSViewController {
         }
     }
 
-    // MARK: - URL Extraction
+    // MARK: - Content Extraction
 
-    private func extractSharedURL(completion: @escaping (URL?) -> Void) {
+    /// Extract URL and page title using shared content extractor
+    private func extractSharedContent(completion: @escaping (URL?, String?) -> Void) {
         guard let extensionItem = extensionContext?.inputItems.first as? NSExtensionItem,
               let attachments = extensionItem.attachments else {
-            completion(nil)
+            completion(nil, nil)
             return
         }
 
-        // Look for URL attachment
-        let urlType = UTType.url.identifier
-
-        for attachment in attachments {
-            if attachment.hasItemConformingToTypeIdentifier(urlType) {
-                attachment.loadItem(forTypeIdentifier: urlType, options: nil) { item, error in
-                    if let url = item as? URL {
-                        completion(url)
-                    } else if let urlData = item as? Data,
-                              let url = URL(dataRepresentation: urlData, relativeTo: nil) {
-                        completion(url)
-                    } else {
-                        completion(nil)
-                    }
-                }
-                return
+        ShareExtensionContentExtractor.shared.extractContent(from: attachments) { content in
+            if let content = content {
+                completion(content.url, content.pageTitle)
+            } else {
+                completion(nil, nil)
             }
         }
-
-        // Try plain text that might be a URL
-        let textType = UTType.plainText.identifier
-        for attachment in attachments {
-            if attachment.hasItemConformingToTypeIdentifier(textType) {
-                attachment.loadItem(forTypeIdentifier: textType, options: nil) { item, error in
-                    if let urlString = item as? String,
-                       let url = URL(string: urlString) {
-                        completion(url)
-                    } else {
-                        completion(nil)
-                    }
-                }
-                return
-            }
-        }
-
-        completion(nil)
     }
 
     // MARK: - UI
 
-    private func showShareUI(for url: URL) {
+    private func showShareUI(for url: URL, pageTitle: String?) {
         sharedURL = url
 
         let shareView = ShareExtensionView(
             sharedURL: url,
+            pageTitle: pageTitle,
             onConfirm: { [weak self] item in
                 self?.handleConfirm(item)
             },
@@ -153,20 +129,8 @@ class ShareViewController: NSViewController {
     // MARK: - Actions
 
     private func handleConfirm(_ item: ShareExtensionService.SharedItem) {
-        // Queue the item for the main app
-        switch item.type {
-        case .smartSearch:
-            ShareExtensionService.shared.queueSmartSearch(
-                url: item.url,
-                name: item.name ?? "Shared Search",
-                libraryID: item.libraryID
-            )
-        case .paper:
-            ShareExtensionService.shared.queuePaperImport(
-                url: item.url,
-                libraryID: item.libraryID
-            )
-        }
+        // Queue the item for the main app using shared extractor
+        ShareExtensionContentExtractor.shared.queueItem(item)
 
         // Complete the extension
         extensionContext?.completeRequest(returningItems: nil, completionHandler: nil)

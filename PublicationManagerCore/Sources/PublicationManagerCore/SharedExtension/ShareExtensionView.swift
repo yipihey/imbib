@@ -10,13 +10,18 @@ import SwiftUI
 /// SwiftUI view for the share extension dialog.
 ///
 /// Displays either a smart search creation form or paper import form based on
-/// the type of ADS URL being shared.
+/// the type of ADS URL being shared. When a page title is provided (via JavaScript
+/// preprocessing), it's used as the clean query for smart searches.
 public struct ShareExtensionView: View {
 
     // MARK: - Properties
 
     /// The URL being shared
     public let sharedURL: URL
+
+    /// The page title extracted via JavaScript preprocessing
+    /// For ADS search pages, this contains the clean query
+    public let pageTitle: String?
 
     /// Callback when user confirms the action
     public let onConfirm: (ShareExtensionService.SharedItem) -> Void
@@ -28,6 +33,7 @@ public struct ShareExtensionView: View {
 
     @State private var parsedURL: ADSURLParser.ADSURLType?
     @State private var smartSearchName: String = ""
+    @State private var smartSearchQuery: String = ""
     @State private var selectedLibraryID: UUID?
     @State private var addToInbox: Bool = true
     @State private var isProcessing: Bool = false
@@ -40,11 +46,13 @@ public struct ShareExtensionView: View {
 
     public init(
         sharedURL: URL,
+        pageTitle: String? = nil,
         availableLibraries: [SharedLibraryInfo] = [],
         onConfirm: @escaping (ShareExtensionService.SharedItem) -> Void,
         onCancel: @escaping () -> Void
     ) {
         self.sharedURL = sharedURL
+        self.pageTitle = pageTitle
         self.availableLibraries = availableLibraries.isEmpty
             ? ShareExtensionService.shared.getAvailableLibraries()
             : availableLibraries
@@ -62,6 +70,8 @@ public struct ShareExtensionView: View {
                     smartSearchForm(query: query, suggestedTitle: title)
                 case .paper(let bibcode):
                     paperImportForm(bibcode: bibcode)
+                case .docsSelection(let query):
+                    docsSelectionForm(query: query)
                 }
             } else {
                 invalidURLView
@@ -69,8 +79,18 @@ public struct ShareExtensionView: View {
         }
         .onAppear {
             parsedURL = ADSURLParser.parse(sharedURL)
-            if case .search(_, let title) = parsedURL {
-                smartSearchName = title ?? ""
+            if case .search(let urlQuery, _) = parsedURL {
+                // If we have a page title from JavaScript preprocessing, use it as the query
+                // The ADS page title IS the clean search query
+                if let title = pageTitle, !title.isEmpty {
+                    // Use page title as both the name and query
+                    smartSearchName = title
+                    smartSearchQuery = title
+                } else {
+                    // Fall back to URL-parsed query
+                    smartSearchName = urlQuery
+                    smartSearchQuery = urlQuery
+                }
             }
             // Default to first library
             selectedLibraryID = availableLibraries.first(where: { $0.isDefault })?.id
@@ -95,12 +115,12 @@ public struct ShareExtensionView: View {
                     .textFieldStyle(.roundedBorder)
             }
 
-            // Query preview (read-only)
+            // Query preview (read-only) - show the actual query that will be used
             VStack(alignment: .leading, spacing: 4) {
                 Text("Query")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Text(query)
+                Text(smartSearchQuery)
                     .font(.system(.body, design: .monospaced))
                     .foregroundStyle(.secondary)
                     .lineLimit(3)
@@ -137,7 +157,7 @@ public struct ShareExtensionView: View {
                 Spacer()
 
                 Button("Create") {
-                    confirmSmartSearch(query: query)
+                    confirmSmartSearch()
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(smartSearchName.isEmpty || isProcessing)
@@ -207,6 +227,55 @@ public struct ShareExtensionView: View {
         .frame(minWidth: 300, minHeight: 200)
     }
 
+    // MARK: - Docs Selection Form
+
+    /// Form for importing papers from a temporary ADS selection (docs() URL).
+    /// Always imports to Inbox - no naming or library picker needed.
+    private func docsSelectionForm(query: String) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            Label("Import Selected Papers", systemImage: "square.and.arrow.down.on.square")
+                .font(.headline)
+
+            // Info text
+            Text("This will import all papers from your ADS selection to Inbox.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            // Query display (truncated hash)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Selection")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text(query)
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer()
+
+            // Buttons
+            HStack {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Import to Inbox") {
+                    confirmDocsSelection(query: query)
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(isProcessing)
+            }
+        }
+        .padding()
+        .frame(minWidth: 300, minHeight: 200)
+    }
+
     // MARK: - Invalid URL View
 
     private var invalidURLView: some View {
@@ -239,13 +308,16 @@ public struct ShareExtensionView: View {
 
     // MARK: - Actions
 
-    private func confirmSmartSearch(query: String) {
+    private func confirmSmartSearch() {
         isProcessing = true
 
+        // Store the query in the name field (for the main app to create the smart search)
+        // The main app will use ADSURLParser to get the URL query, but we override with pageTitle
         let item = ShareExtensionService.SharedItem(
             url: sharedURL,
             type: .smartSearch,
             name: smartSearchName,
+            query: smartSearchQuery,
             libraryID: selectedLibraryID,
             createdAt: Date()
         )
@@ -260,7 +332,23 @@ public struct ShareExtensionView: View {
             url: sharedURL,
             type: .paper,
             name: nil,
+            query: nil,
             libraryID: addToInbox ? nil : selectedLibraryID,
+            createdAt: Date()
+        )
+
+        onConfirm(item)
+    }
+
+    private func confirmDocsSelection(query: String) {
+        isProcessing = true
+
+        let item = ShareExtensionService.SharedItem(
+            url: sharedURL,
+            type: .docsSelection,
+            name: nil,
+            query: query,
+            libraryID: nil,  // Always to Inbox
             createdAt: Date()
         )
 
@@ -273,6 +361,7 @@ public struct ShareExtensionView: View {
 #Preview("Smart Search URL") {
     ShareExtensionView(
         sharedURL: URL(string: "https://ui.adsabs.harvard.edu/search/q=author%3AAbel%2CTom")!,
+        pageTitle: "author:Abel,Tom property:article property:refereed",
         availableLibraries: [
             SharedLibraryInfo(id: UUID(), name: "Main Library", isDefault: true),
             SharedLibraryInfo(id: UUID(), name: "Project Alpha", isDefault: false)

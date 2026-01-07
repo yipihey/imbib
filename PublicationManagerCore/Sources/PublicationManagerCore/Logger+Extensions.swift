@@ -25,6 +25,10 @@ public extension Logger {
     static let library = Logger(subsystem: subsystem, category: "library")
     static let smartSearch = Logger(subsystem: subsystem, category: "smartsearch")
 
+    // MARK: - Inbox
+
+    static let inbox = Logger(subsystem: subsystem, category: "inbox")
+
     // MARK: - BibTeX
 
     static let bibtex = Logger(subsystem: subsystem, category: "bibtex")
@@ -60,6 +64,10 @@ public extension Logger {
 
     static let viewModels = Logger(subsystem: subsystem, category: "viewmodels")
     static let navigation = Logger(subsystem: subsystem, category: "navigation")
+
+    // MARK: - Share Extension
+
+    static let shareExtension = Logger(subsystem: subsystem, category: "shareext")
 }
 
 // MARK: - Capturing Log Methods
