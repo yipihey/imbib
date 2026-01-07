@@ -62,7 +62,7 @@ public final class LibraryManager {
 
         let request = NSFetchRequest<CDLibrary>(entityName: "Library")
         request.sortDescriptors = [
-            NSSortDescriptor(key: "dateLastOpened", ascending: false),
+            NSSortDescriptor(key: "sortOrder", ascending: true),
             NSSortDescriptor(key: "name", ascending: true)
         ]
 
@@ -223,6 +223,22 @@ public final class LibraryManager {
     public func rename(_ library: CDLibrary, to name: String) {
         Logger.library.infoCapture("Renaming library '\(library.displayName)' to '\(name)'", category: "library")
         library.name = name
+        persistenceController.save()
+    }
+
+    /// Reorder libraries (for drag-and-drop in sidebar)
+    public func moveLibraries(from indices: IndexSet, to destination: Int) {
+        Logger.library.infoCapture("Moving libraries from \(indices) to \(destination)", category: "library")
+
+        var reordered = libraries
+        reordered.move(fromOffsets: indices, toOffset: destination)
+
+        // Update sortOrder for all libraries
+        for (index, library) in reordered.enumerated() {
+            library.sortOrder = Int16(index)
+        }
+
+        libraries = reordered
         persistenceController.save()
     }
 

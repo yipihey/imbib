@@ -47,6 +47,9 @@ struct SidebarView: View {
                     ForEach(libraryManager.libraries, id: \.id) { library in
                         libraryDisclosureGroup(for: library)
                     }
+                    .onMove { indices, destination in
+                        libraryManager.moveLibraries(from: indices, to: destination)
+                    }
                 }
 
                 // Search Section

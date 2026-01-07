@@ -632,6 +632,13 @@ public final class PersistenceController: @unchecked Sendable {
         isDefault.defaultValue = false
         properties.append(isDefault)
 
+        let sortOrder = NSAttributeDescription()
+        sortOrder.name = "sortOrder"
+        sortOrder.attributeType = .integer16AttributeType
+        sortOrder.isOptional = false
+        sortOrder.defaultValue = Int16(0)
+        properties.append(sortOrder)
+
         entity.properties = properties
         return entity
     }

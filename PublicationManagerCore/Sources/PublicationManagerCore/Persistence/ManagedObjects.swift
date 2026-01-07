@@ -594,6 +594,7 @@ public class CDLibrary: NSManagedObject, Identifiable {
     @NSManaged public var dateCreated: Date
     @NSManaged public var dateLastOpened: Date?
     @NSManaged public var isDefault: Bool              // Is this the default library?
+    @NSManaged public var sortOrder: Int16             // For sidebar ordering (drag-and-drop)
 
     // Relationships
     @NSManaged public var smartSearches: Set<CDSmartSearch>?
