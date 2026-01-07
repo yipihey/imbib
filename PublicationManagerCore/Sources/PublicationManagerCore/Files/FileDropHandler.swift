@@ -50,6 +50,9 @@ public final class FileDropHandler: ObservableObject {
     /// Last error that occurred
     @Published public var lastError: Error?
 
+    /// Pending duplicate that needs user confirmation
+    @Published public var pendingDuplicate: PendingDuplicateInfo?
+
     // MARK: - Initialization
 
     public init(attachmentManager: AttachmentManager = .shared) {
@@ -144,33 +147,122 @@ public final class FileDropHandler: ObservableObject {
 
         Logger.files.infoCapture("Importing \(urls.count) files from drop", category: "files")
 
-        // Import files with progress tracking
+        // Import files with duplicate checking
+        await importURLsWithDuplicateCheck(urls, for: publication, in: library)
+    }
+
+    /// Import URLs with duplicate checking for each file.
+    private func importURLsWithDuplicateCheck(
+        _ urls: [URL],
+        for publication: CDPublication,
+        in library: CDLibrary?
+    ) async {
         importProgress = (current: 0, total: urls.count)
 
-        do {
-            let _ = try attachmentManager.importAttachments(
-                from: urls,
-                for: publication,
-                in: library,
-                progress: { [weak self] current, total in
-                    Task { @MainActor in
-                        self?.importProgress = (current: current, total: total)
-                    }
-                }
-            )
+        for (index, url) in urls.enumerated() {
+            importProgress = (current: index + 1, total: urls.count)
 
-            Logger.files.infoCapture("Drop import completed: \(urls.count) files", category: "files")
-        } catch {
-            Logger.files.errorCapture("Drop import failed: \(error.localizedDescription)", category: "files")
-            lastError = error
+            // Check for duplicate
+            if let result = attachmentManager.checkForDuplicate(sourceURL: url, in: publication) {
+                switch result {
+                case .noDuplicate(let hash):
+                    // Import with precomputed hash
+                    do {
+                        let _ = try attachmentManager.importAttachment(
+                            from: url,
+                            for: publication,
+                            in: library,
+                            precomputedHash: hash
+                        )
+                        Logger.files.infoCapture("Imported: \(url.lastPathComponent)", category: "files")
+                    } catch {
+                        Logger.files.errorCapture("Import failed: \(error.localizedDescription)", category: "files")
+                        lastError = error
+                    }
+
+                case .duplicate(let existingFile, let hash):
+                    // Pause and ask user
+                    let remaining = Array(urls.dropFirst(index + 1))
+                    pendingDuplicate = PendingDuplicateInfo(
+                        sourceURL: url,
+                        existingFilename: existingFile.effectiveDisplayName,
+                        precomputedHash: hash,
+                        publication: publication,
+                        library: library,
+                        remainingURLs: remaining
+                    )
+                    Logger.files.infoCapture("Duplicate found, waiting for user decision: \(url.lastPathComponent)", category: "files")
+                    // Stop processing - will resume after user decision
+                    return
+                }
+            } else {
+                // Could not check (error getting file info) - import anyway
+                do {
+                    let _ = try attachmentManager.importAttachment(
+                        from: url,
+                        for: publication,
+                        in: library
+                    )
+                } catch {
+                    Logger.files.errorCapture("Import failed: \(error.localizedDescription)", category: "files")
+                    lastError = error
+                }
+            }
+
+            // Clean up this URL
+            url.stopAccessingSecurityScopedResource()
         }
 
+        // All done
         isImporting = false
         importProgress = nil
+        Logger.files.infoCapture("Drop import completed", category: "files")
+    }
 
-        // Clean up security-scoped access
-        for url in urls {
-            url.stopAccessingSecurityScopedResource()
+    // MARK: - Duplicate Resolution
+
+    /// Resolve a pending duplicate file.
+    ///
+    /// - Parameter proceed: If true, import the file anyway. If false, skip it.
+    public func resolveDuplicate(proceed: Bool) {
+        guard let pending = pendingDuplicate else { return }
+        pendingDuplicate = nil
+
+        Task {
+            if proceed {
+                // Import with pre-computed hash
+                do {
+                    let _ = try attachmentManager.importAttachment(
+                        from: pending.sourceURL,
+                        for: pending.publication,
+                        in: pending.library,
+                        precomputedHash: pending.precomputedHash
+                    )
+                    Logger.files.infoCapture("User chose to import duplicate: \(pending.sourceURL.lastPathComponent)", category: "files")
+                } catch {
+                    Logger.files.errorCapture("Import failed after duplicate resolution: \(error.localizedDescription)", category: "files")
+                    lastError = error
+                }
+            } else {
+                Logger.files.infoCapture("User skipped duplicate: \(pending.sourceURL.lastPathComponent)", category: "files")
+            }
+
+            // Clean up this URL
+            pending.sourceURL.stopAccessingSecurityScopedResource()
+
+            // Continue with remaining files
+            if !pending.remainingURLs.isEmpty {
+                await importURLsWithDuplicateCheck(
+                    pending.remainingURLs,
+                    for: pending.publication,
+                    in: pending.library
+                )
+            } else {
+                // All done
+                isImporting = false
+                importProgress = nil
+                Logger.files.infoCapture("Drop import completed", category: "files")
+            }
         }
     }
 
@@ -248,6 +340,35 @@ public final class FileDropHandler: ObservableObject {
             return nil
         }
     }
+}
+
+// MARK: - Pending Duplicate Info
+
+/// Information about a duplicate file pending user decision.
+public struct PendingDuplicateInfo: Identifiable, Equatable {
+    public let id = UUID()
+
+    public static func == (lhs: PendingDuplicateInfo, rhs: PendingDuplicateInfo) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    /// URL of the source file (in temp directory)
+    public let sourceURL: URL
+
+    /// Filename of the existing identical attachment
+    public let existingFilename: String
+
+    /// Pre-computed SHA256 hash (reuse for import if user proceeds)
+    public let precomputedHash: String
+
+    /// Publication to attach to
+    public let publication: CDPublication
+
+    /// Library containing the publication
+    public let library: CDLibrary?
+
+    /// Remaining URLs to import after this one is resolved
+    public let remainingURLs: [URL]
 }
 
 // MARK: - File Drop Error

@@ -247,6 +247,10 @@ struct CollectionListView: View {
     @State private var filterMode: LibraryFilterMode = .all
     @StateObject private var dropHandler = FileDropHandler()
 
+    // State for duplicate file alert
+    @State private var showDuplicateAlert = false
+    @State private var duplicateFilename = ""
+
     // MARK: - Body
 
     var body: some View {
@@ -345,6 +349,22 @@ struct CollectionListView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .selectAllPublications)) { _ in
             selectAllPublications()
+        }
+        .alert("Duplicate File", isPresented: $showDuplicateAlert) {
+            Button("Skip") {
+                dropHandler.resolveDuplicate(proceed: false)
+            }
+            Button("Attach Anyway") {
+                dropHandler.resolveDuplicate(proceed: true)
+            }
+        } message: {
+            Text("This file is identical to '\(duplicateFilename)' which is already attached. Do you want to attach it anyway?")
+        }
+        .onChange(of: dropHandler.pendingDuplicate) { _, newValue in
+            if let pending = newValue {
+                duplicateFilename = pending.existingFilename
+                showDuplicateAlert = true
+            }
         }
     }
 

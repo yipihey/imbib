@@ -144,6 +144,7 @@ public final class AttachmentManager: ObservableObject {
     ///   - library: The library containing the publication (determines Papers folder location)
     ///   - preserveFilename: If true, keeps the original filename. Default: true for non-PDFs, false for PDFs
     ///   - displayName: Optional user-friendly display name (if nil, uses filename)
+    ///   - precomputedHash: Optional pre-computed SHA256 hash (from `checkForDuplicate`). Avoids redundant hash computation.
     /// - Returns: The created CDLinkedFile entity
     @discardableResult
     public func importAttachment(
@@ -151,7 +152,8 @@ public final class AttachmentManager: ObservableObject {
         for publication: CDPublication,
         in library: CDLibrary? = nil,
         preserveFilename: Bool? = nil,
-        displayName: String? = nil
+        displayName: String? = nil,
+        precomputedHash: String? = nil
     ) throws -> CDLinkedFile {
         let fileExtension = sourceURL.pathExtension.lowercased()
         let isPDF = fileExtension == "pdf"
@@ -200,8 +202,8 @@ public final class AttachmentManager: ObservableObject {
             throw AttachmentError.copyFailed(sourceURL, error)
         }
 
-        // Compute SHA256
-        let sha256 = computeSHA256(for: destinationURL)
+        // Use precomputed hash or compute from destination file
+        let sha256 = precomputedHash ?? computeSHA256(for: destinationURL)
 
         // Detect MIME type
         let mimeType = detectMIMEType(for: sourceURL)
@@ -506,6 +508,59 @@ public final class AttachmentManager: ObservableObject {
         return expectedHash == actualHash
     }
 
+    // MARK: - Duplicate Detection
+
+    /// Check if a file with matching content already exists for this publication.
+    ///
+    /// Uses a two-phase approach for efficiency:
+    /// 1. File size pre-check: Skip hash computation if no existing files match size
+    /// 2. SHA256 comparison: Only compute hash when size matches
+    ///
+    /// The computed hash is returned in both cases so it can be reused during import,
+    /// avoiding redundant hash computation.
+    ///
+    /// - Parameters:
+    ///   - sourceURL: URL of the file to check
+    ///   - publication: The publication to check against
+    /// - Returns: Result indicating duplicate status and computed hash, or nil on error
+    public func checkForDuplicate(
+        sourceURL: URL,
+        in publication: CDPublication
+    ) -> DuplicateCheckResult? {
+        // Get source file size
+        guard let sourceSize = try? fileManager.attributesOfItem(atPath: sourceURL.path)[.size] as? Int64 else {
+            Logger.files.warningCapture("Could not get file size for: \(sourceURL.lastPathComponent)", category: "files")
+            return nil
+        }
+
+        // Find existing files with matching size (fast pre-check)
+        let existingFiles = publication.linkedFiles ?? []
+        let sameSizeFiles = existingFiles.filter { $0.fileSize == sourceSize && $0.sha256 != nil }
+
+        // No files with same size = no duplicate possible, but still compute hash for import
+        guard !sameSizeFiles.isEmpty else {
+            guard let hash = computeSHA256(for: sourceURL) else {
+                Logger.files.warningCapture("Could not compute hash for: \(sourceURL.lastPathComponent)", category: "files")
+                return nil
+            }
+            return .noDuplicate(hash: hash)
+        }
+
+        // Same size exists - compute hash to confirm duplicate
+        guard let hash = computeSHA256(for: sourceURL) else {
+            Logger.files.warningCapture("Could not compute hash for: \(sourceURL.lastPathComponent)", category: "files")
+            return nil
+        }
+
+        // Check if any existing file has matching hash
+        if let existing = sameSizeFiles.first(where: { $0.sha256 == hash }) {
+            Logger.files.infoCapture("Duplicate detected: \(sourceURL.lastPathComponent) matches \(existing.filename)", category: "files")
+            return .duplicate(existingFile: existing, hash: hash)
+        }
+
+        return .noDuplicate(hash: hash)
+    }
+
     // MARK: - Private Helpers
 
     /// Resolve the Papers directory for a library.
@@ -615,12 +670,30 @@ public final class AttachmentManager: ObservableObject {
         return candidate
     }
 
-    /// Compute SHA256 hash of a file.
+    /// Compute SHA256 hash of a file using streaming (memory-efficient for large files).
+    ///
+    /// Reads file in 64KB chunks to avoid loading entire file into memory.
+    /// Safe for files of any size.
     private func computeSHA256(for url: URL) -> String? {
-        guard let data = try? Data(contentsOf: url) else {
-            return nil
+        let bufferSize = 64 * 1024  // 64KB chunks
+        guard let stream = InputStream(url: url) else { return nil }
+        stream.open()
+        defer { stream.close() }
+
+        var hasher = SHA256()
+        var buffer = [UInt8](repeating: 0, count: bufferSize)
+
+        while stream.hasBytesAvailable {
+            let bytesRead = stream.read(&buffer, maxLength: bufferSize)
+            if bytesRead > 0 {
+                hasher.update(data: Data(buffer[0..<bytesRead]))
+            } else if bytesRead < 0 {
+                // Read error
+                return nil
+            }
         }
-        return SHA256.hash(data: data).compactMap { String(format: "%02x", $0) }.joined()
+
+        return hasher.finalize().compactMap { String(format: "%02x", $0) }.joined()
     }
 
     // MARK: - MIME Type Detection
@@ -704,6 +777,16 @@ public final class AttachmentManager: ObservableObject {
 
         return nil
     }
+}
+
+// MARK: - Duplicate Check Result
+
+/// Result of checking for duplicate attachments by content hash.
+public enum DuplicateCheckResult {
+    /// No duplicate found. Returns the computed hash for reuse during import.
+    case noDuplicate(hash: String)
+    /// Duplicate found. Returns the existing file and computed hash.
+    case duplicate(existingFile: CDLinkedFile, hash: String)
 }
 
 // MARK: - Attachment Error

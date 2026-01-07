@@ -232,6 +232,10 @@ struct InfoTab: View {
     @State private var isDropTargeted = false
     @State private var showFileImporter = false
 
+    // State for duplicate file alert
+    @State private var showDuplicateAlert = false
+    @State private var duplicateFilename = ""
+
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
@@ -293,6 +297,22 @@ struct InfoTab: View {
             allowsMultipleSelection: true
         ) { result in
             handleFileImport(result)
+        }
+        .alert("Duplicate File", isPresented: $showDuplicateAlert) {
+            Button("Skip") {
+                dropHandler.resolveDuplicate(proceed: false)
+            }
+            Button("Attach Anyway") {
+                dropHandler.resolveDuplicate(proceed: true)
+            }
+        } message: {
+            Text("This file is identical to '\(duplicateFilename)' which is already attached. Do you want to attach it anyway?")
+        }
+        .onChange(of: dropHandler.pendingDuplicate) { _, newValue in
+            if let pending = newValue {
+                duplicateFilename = pending.existingFilename
+                showDuplicateAlert = true
+            }
         }
     }
 
