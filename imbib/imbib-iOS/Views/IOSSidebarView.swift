@@ -21,6 +21,7 @@ struct IOSSidebarView: View {
     // MARK: - Bindings
 
     @Binding var selection: SidebarSection?
+    var onNavigateToSmartSearch: ((CDSmartSearch) -> Void)?  // Callback for iPhone navigation
 
     // MARK: - State
 
@@ -28,6 +29,8 @@ struct IOSSidebarView: View {
     @State private var showNewSmartSearchSheet = false
     @State private var showNewCollectionSheet = false
     @State private var selectedLibraryForAction: CDLibrary?
+    @State private var editingSmartSearch: CDSmartSearch?
+    @State private var refreshID = UUID()  // Used to force list refresh
 
     // MARK: - Body
 
@@ -46,8 +49,13 @@ struct IOSSidebarView: View {
             ForEach(libraryManager.libraries.filter { !$0.isInbox }) { library in
                 librarySection(for: library)
             }
+            .id(refreshID)  // Force refresh when smart searches change
         }
         .listStyle(.sidebar)
+        .onReceive(NotificationCenter.default.publisher(for: .NSManagedObjectContextDidSave)) { _ in
+            // Refresh when Core Data saves (new smart search, collection, etc.)
+            refreshID = UUID()
+        }
         .navigationTitle("imbib")
         .toolbar {
             ToolbarItem(placement: .bottomBar) {
@@ -59,21 +67,25 @@ struct IOSSidebarView: View {
                             Label("New Library", systemImage: "folder.badge.plus")
                         }
 
-                        if let library = selectedLibraryForAction {
+                        // Use selected library or default to first non-inbox library
+                        if let library = selectedLibraryForAction ?? libraryManager.libraries.first(where: { !$0.isInbox }) {
                             Divider()
 
-                            Button {
-                                selectedLibraryForAction = library
-                                showNewSmartSearchSheet = true
-                            } label: {
-                                Label("New Smart Search", systemImage: "magnifyingglass.circle")
-                            }
+                            // Show which library is targeted
+                            Section("Add to \(library.displayName)") {
+                                Button {
+                                    selectedLibraryForAction = library
+                                    showNewSmartSearchSheet = true
+                                } label: {
+                                    Label("New Smart Search", systemImage: "magnifyingglass.circle")
+                                }
 
-                            Button {
-                                selectedLibraryForAction = library
-                                showNewCollectionSheet = true
-                            } label: {
-                                Label("New Collection", systemImage: "folder")
+                                Button {
+                                    selectedLibraryForAction = library
+                                    showNewCollectionSheet = true
+                                } label: {
+                                    Label("New Collection", systemImage: "folder")
+                                }
                             }
                         }
                     } label: {
@@ -95,6 +107,10 @@ struct IOSSidebarView: View {
                     onCreated: { newSmartSearch in
                         // Navigate to the new smart search
                         selection = .smartSearch(newSmartSearch)
+                        // Use callback for iPhone navigation (needs small delay for sheet dismiss)
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                            onNavigateToSmartSearch?(newSmartSearch)
+                        }
                     }
                 )
             }
@@ -106,6 +122,19 @@ struct IOSSidebarView: View {
                     library: library
                 )
             }
+        }
+        .sheet(item: $editingSmartSearch) { smartSearch in
+            IOSSmartSearchEditorSheet(
+                isPresented: Binding(
+                    get: { editingSmartSearch != nil },
+                    set: { if !$0 { editingSmartSearch = nil } }
+                ),
+                library: smartSearch.library,
+                smartSearch: smartSearch,
+                onSaved: { _ in
+                    editingSmartSearch = nil
+                }
+            )
         }
         .onChange(of: selection) { _, newValue in
             // Track which library is selected for contextual actions
@@ -157,9 +186,14 @@ struct IOSSidebarView: View {
 
     // MARK: - Library Section
 
+    /// Check if this library is the currently selected one for actions
+    private func isLibrarySelected(_ library: CDLibrary) -> Bool {
+        selectedLibraryForAction?.id == library.id
+    }
+
     @ViewBuilder
     private func librarySection(for library: CDLibrary) -> some View {
-        Section(library.displayName) {
+        Section {
             // All Publications
             HStack {
                 Label("All Publications", systemImage: "books.vertical")
@@ -190,12 +224,33 @@ struct IOSSidebarView: View {
                     ForEach(Array(searchSet)) { search in
                         Label(search.name, systemImage: "magnifyingglass.circle")
                             .tag(SidebarSection.smartSearch(search))
+                            .contextMenu {
+                                Button {
+                                    editingSmartSearch = search
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+
+                                Button(role: .destructive) {
+                                    deleteSmartSearch(search)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
                                     deleteSmartSearch(search)
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
+                            }
+                            .swipeActions(edge: .leading) {
+                                Button {
+                                    editingSmartSearch = search
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                .tint(.blue)
                             }
                     }
                 }
@@ -221,6 +276,15 @@ struct IOSSidebarView: View {
                             }
                         }
                     }
+                }
+            }
+        } header: {
+            HStack {
+                Text(library.displayName)
+                if isLibrarySelected(library) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.blue)
+                        .font(.caption)
                 }
             }
         }
@@ -358,18 +422,51 @@ struct NewCollectionSheet: View {
 
 struct IOSSmartSearchEditorSheet: View {
     @Binding var isPresented: Bool
-    let library: CDLibrary
-    let onCreated: ((CDSmartSearch) -> Void)?
+    let library: CDLibrary?
+    let smartSearch: CDSmartSearch?  // nil for create, non-nil for edit
+    let onSaved: ((CDSmartSearch) -> Void)?
+
+    @Environment(SettingsViewModel.self) private var settingsViewModel
 
     @State private var name = ""
     @State private var query = ""
     @State private var sourceID = "ads"
     @State private var maxResults: Int = 100
+    @State private var credentialStatus: [SourceCredentialInfo] = []
 
+    private var isEditing: Bool { smartSearch != nil }
+
+    /// Check if selected source requires credentials that are missing
+    private var selectedSourceNeedsCredentials: Bool {
+        guard let info = credentialStatus.first(where: { $0.sourceID == sourceID }) else {
+            return false
+        }
+        return info.status == .missing
+    }
+
+    /// Get warning message for missing credentials
+    private var credentialWarningMessage: String? {
+        guard let info = credentialStatus.first(where: { $0.sourceID == sourceID }),
+              info.status == .missing else {
+            return nil
+        }
+        return "\(info.sourceName) requires an API key. Configure it in Settings to use this source."
+    }
+
+    // Convenience initializer for creating new smart search
     init(isPresented: Binding<Bool>, library: CDLibrary, onCreated: ((CDSmartSearch) -> Void)? = nil) {
         self._isPresented = isPresented
         self.library = library
-        self.onCreated = onCreated
+        self.smartSearch = nil
+        self.onSaved = onCreated
+    }
+
+    // Full initializer for editing
+    init(isPresented: Binding<Bool>, library: CDLibrary?, smartSearch: CDSmartSearch?, onSaved: ((CDSmartSearch) -> Void)? = nil) {
+        self._isPresented = isPresented
+        self.library = library
+        self.smartSearch = smartSearch
+        self.onSaved = onSaved
     }
 
     var body: some View {
@@ -391,13 +488,24 @@ struct IOSSmartSearchEditorSheet: View {
                         Text("Crossref").tag("crossref")
                         Text("Semantic Scholar").tag("semanticscholar")
                     }
+
+                    // Warning if source requires missing credentials
+                    if let warning = credentialWarningMessage {
+                        Label {
+                            Text(warning)
+                                .font(.caption)
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                        }
+                    }
                 }
 
                 Section {
                     Stepper("Max Results: \(maxResults)", value: $maxResults, in: 10...1000, step: 10)
                 }
             }
-            .navigationTitle("New Smart Search")
+            .navigationTitle(isEditing ? "Edit Smart Search" : "New Smart Search")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -406,25 +514,63 @@ struct IOSSmartSearchEditorSheet: View {
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Create") {
-                        createSmartSearch()
+                    Button(isEditing ? "Save" : "Create") {
+                        saveSmartSearch()
                     }
                     .disabled(name.isEmpty || query.isEmpty)
                 }
             }
+            .onAppear {
+                loadExistingValues()
+            }
+            .task {
+                // Load credential status to show warnings
+                await settingsViewModel.loadCredentialStatus()
+                credentialStatus = settingsViewModel.sourceCredentials
+            }
         }
     }
 
-    private func createSmartSearch() {
-        let newSearch = SmartSearchRepository.shared.create(
-            name: name,
-            query: query,
-            sourceIDs: [sourceID],
-            library: library,
-            maxResults: Int16(maxResults)
-        )
-        isPresented = false
-        onCreated?(newSearch)
+    private func loadExistingValues() {
+        if let smartSearch {
+            name = smartSearch.name
+            query = smartSearch.query
+            sourceID = smartSearch.sources.first ?? "ads"
+            maxResults = Int(smartSearch.maxResults)
+        }
+    }
+
+    private func saveSmartSearch() {
+        if let smartSearch {
+            // Update existing
+            SmartSearchRepository.shared.update(
+                smartSearch,
+                name: name,
+                query: query,
+                sourceIDs: [sourceID]
+            )
+            smartSearch.maxResults = Int16(maxResults)
+            try? smartSearch.managedObjectContext?.save()
+
+            // Invalidate cache so results refresh
+            Task {
+                await SmartSearchProviderCache.shared.invalidate(smartSearch.id)
+            }
+
+            isPresented = false
+            onSaved?(smartSearch)
+        } else if let library {
+            // Create new
+            let newSearch = SmartSearchRepository.shared.create(
+                name: name,
+                query: query,
+                sourceIDs: [sourceID],
+                library: library,
+                maxResults: Int16(maxResults)
+            )
+            isPresented = false
+            onSaved?(newSearch)
+        }
     }
 }
 

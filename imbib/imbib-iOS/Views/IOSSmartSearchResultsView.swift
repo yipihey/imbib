@@ -15,10 +15,12 @@ struct SmartSearchResultsView: View {
 
     @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(LibraryManager.self) private var libraryManager
+    @Environment(SearchViewModel.self) private var searchViewModel
 
     @State private var publications: [CDPublication] = []
     @State private var multiSelection = Set<UUID>()
     @State private var isRefreshing = false
+    @State private var errorMessage: String?
 
     var body: some View {
         PublicationListView(
@@ -86,8 +88,26 @@ struct SmartSearchResultsView: View {
         .task(id: smartSearch.id) {
             await refreshResults()
         }
+        .onChange(of: smartSearch.id) { _, _ in
+            // Also trigger refresh when smart search changes (e.g., after creation)
+            publications = []  // Clear immediately for visual feedback
+            Task { await refreshResults() }
+        }
+        .onAppear {
+            // Force refresh if publications are empty (new smart search)
+            if publications.isEmpty {
+                Task { await refreshResults() }
+            }
+        }
         .refreshable {
             await refreshResults()
+        }
+        .alert("Search Error", isPresented: .constant(errorMessage != nil)) {
+            Button("OK") {
+                errorMessage = nil
+            }
+        } message: {
+            Text(errorMessage ?? "Unknown error")
         }
     }
 
@@ -96,21 +116,20 @@ struct SmartSearchResultsView: View {
         isRefreshing = true
         defer { isRefreshing = false }
 
-        // Get provider from cache
-        let sourceManager = SourceManager()
-        let repository = PublicationRepository()
-
+        // Get provider from cache using the app's configured source manager
         let provider = await SmartSearchProviderCache.shared.getOrCreate(
             for: smartSearch,
-            sourceManager: sourceManager,
-            repository: repository
+            sourceManager: searchViewModel.sourceManager,
+            repository: searchViewModel.repository
         )
 
         // Refresh the provider
         do {
             try await provider.refresh()
+            errorMessage = nil
         } catch {
-            // Ignore errors - results may already be cached
+            errorMessage = error.localizedDescription
+            print("Smart search error: \(error)")
         }
 
         // Get publications from the smart search's result collection

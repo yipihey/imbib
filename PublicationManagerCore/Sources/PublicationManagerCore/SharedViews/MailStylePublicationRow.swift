@@ -151,7 +151,7 @@ public struct MailStylePublicationRow: View {
                         }
 
                         if settings.abstractLineLimit > 0, let abstract = data.abstract, !abstract.isEmpty {
-                            Text(abstract)
+                            ScientificTextParser.text(abstract)
                                 .font(MailStyleTokens.abstractFont)
                                 .foregroundStyle(MailStyleTokens.secondaryTextColor)
                                 .lineLimit(settings.abstractLineLimit)

@@ -461,6 +461,13 @@ public struct PublicationListView: View {
                 } : nil
             )
             .tag(rowData.id)
+            #if os(iOS)
+            // iOS: Explicit tap gesture for row selection (List selection doesn't auto-navigate)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                selection = [rowData.id]
+            }
+            #endif
             // File drop support for attaching files to publications
             .onDrop(of: FileDropHandler.acceptedTypes, isTargeted: Binding(
                 get: { dropTargetedRowID == rowData.id },

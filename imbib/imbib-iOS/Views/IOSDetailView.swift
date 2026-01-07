@@ -162,7 +162,7 @@ struct DetailView: View {
             Text("Abstract")
                 .font(.headline)
 
-            Text(abstract)
+            ScientificTextParser.text(abstract)
                 .font(.body)
                 .foregroundStyle(.secondary)
         }

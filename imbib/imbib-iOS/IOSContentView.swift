@@ -39,16 +39,23 @@ struct IOSContentView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            IOSSidebarView(selection: $selectedSection)
-                .toolbar {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            showSettings = true
-                        } label: {
-                            Image(systemName: "gear")
-                        }
+            IOSSidebarView(
+                selection: $selectedSection,
+                onNavigateToSmartSearch: { smartSearch in
+                    // On iPhone, explicitly navigate to content column
+                    selectedSection = .smartSearch(smartSearch)
+                    columnVisibility = .detailOnly
+                }
+            )
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gear")
                     }
                 }
+            }
         } content: {
             contentList
         } detail: {
