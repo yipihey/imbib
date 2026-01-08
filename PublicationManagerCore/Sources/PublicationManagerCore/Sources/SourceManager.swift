@@ -242,6 +242,7 @@ public actor SourceManager {
 
         // Sources requiring API keys - register but won't work without credentials
         register(ADSSource(credentialManager: credentialManager))
+        register(SciXSource(credentialManager: credentialManager))
         register(SemanticScholarSource(credentialManager: credentialManager))
         register(OpenAlexSource(credentialManager: credentialManager))
 

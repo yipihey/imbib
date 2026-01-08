@@ -221,6 +221,9 @@ public final class ShareExtensionHandler {
         if INSPIREURLParser.isINSPIREURL(url) {
             return "inspire"
         }
+        if SciXURLParser.isSciXURL(url) {
+            return "scix"
+        }
         // Future: Add detection for other sources
         // if PubMedURLParser.isPubMedURL(url) { return "pubmed" }
         // if CrossrefURLParser.isCrossrefURL(url) { return "crossref" }
@@ -264,6 +267,17 @@ public final class ShareExtensionHandler {
                 return nil
             }
         }
+        if let parsed = SciXURLParser.parse(url) {
+            switch parsed {
+            case .search(let query, _):
+                return (query, "scix")
+            case .docsSelection(let query):
+                return (query, "scix")
+            case .paper:
+                // Paper URLs are handled by extractPaperIdentifier
+                return nil
+            }
+        }
         // Future: Add parsing for other sources
         return nil
     }
@@ -294,6 +308,14 @@ public final class ShareExtensionHandler {
         return INSPIREURLParser.parse(url)
     }
 
+    /// Extract a SciX bibcode from a paper URL.
+    private func extractSciXBibcodeFromURL(_ url: URL) -> String? {
+        if let parsed = SciXURLParser.parse(url), case .paper(let bibcode) = parsed {
+            return bibcode
+        }
+        return nil
+    }
+
     /// Extract a paper identifier from any supported URL.
     ///
     /// Returns the identifier and its type for searching.
@@ -309,6 +331,10 @@ public final class ShareExtensionHandler {
         // Check INSPIRE
         if let inspireID = extractINSPIREIDFromURL(url) {
             return (inspireID.stringValue, inspireID.apiQuery, "inspire")
+        }
+        // Check SciX (bibcode - same format as ADS)
+        if let bibcode = extractSciXBibcodeFromURL(url) {
+            return (bibcode, "bibcode:\(bibcode)", "scix")
         }
         // Future: Add extraction for other sources (PubMed ID, DOI, etc.)
         return nil
