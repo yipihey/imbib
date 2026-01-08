@@ -238,6 +238,7 @@ public actor SourceManager {
         register(ArXivSource())
         register(CrossrefSource())
         register(DBLPSource())
+        register(INSPIRESource())
 
         // Sources requiring API keys - register but won't work without credentials
         register(ADSSource(credentialManager: credentialManager))

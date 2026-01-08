@@ -218,6 +218,9 @@ public final class ShareExtensionHandler {
         if ArXivURLParser.isArXivURL(url) {
             return "arxiv"
         }
+        if INSPIREURLParser.isINSPIREURL(url) {
+            return "inspire"
+        }
         // Future: Add detection for other sources
         // if PubMedURLParser.isPubMedURL(url) { return "pubmed" }
         // if CrossrefURLParser.isCrossrefURL(url) { return "crossref" }
@@ -250,6 +253,17 @@ public final class ShareExtensionHandler {
                 return nil
             }
         }
+        if let parsed = INSPIREURLParser.parse(url) {
+            switch parsed {
+            case .arXivID(let arxivID):
+                return ("arxiv:\(arxivID)", "inspire")
+            case .doi(let doi):
+                return ("doi:\(doi)", "inspire")
+            case .recordID:
+                // Paper URLs are handled by extractPaperIdentifier
+                return nil
+            }
+        }
         // Future: Add parsing for other sources
         return nil
     }
@@ -275,6 +289,11 @@ public final class ShareExtensionHandler {
         }
     }
 
+    /// Extract an INSPIRE record ID or identifier from a paper URL.
+    private func extractINSPIREIDFromURL(_ url: URL) -> INSPIREIdentifier? {
+        return INSPIREURLParser.parse(url)
+    }
+
     /// Extract a paper identifier from any supported URL.
     ///
     /// Returns the identifier and its type for searching.
@@ -286,6 +305,10 @@ public final class ShareExtensionHandler {
         // Check arXiv
         if let arxivID = extractArXivIDFromURL(url) {
             return (arxivID, arxivID, "arxiv")
+        }
+        // Check INSPIRE
+        if let inspireID = extractINSPIREIDFromURL(url) {
+            return (inspireID.stringValue, inspireID.apiQuery, "inspire")
         }
         // Future: Add extraction for other sources (PubMed ID, DOI, etc.)
         return nil

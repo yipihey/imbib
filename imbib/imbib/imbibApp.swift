@@ -81,6 +81,7 @@ struct imbibApp: App {
 
             // Register browser URL providers for interactive PDF downloads
             await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
+            await BrowserURLProviderRegistry.shared.register(INSPIRESource.self, priority: 9)
             appLogger.info("BrowserURLProviders registered")
 
             // Configure staggered smart search refresh service (before InboxCoordinator)
