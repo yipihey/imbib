@@ -32,12 +32,18 @@ public final class SettingsViewModel {
     public private(set) var smartSearchSettings: SmartSearchSettings = .default
     public private(set) var isLoadingSmartSearch = false
 
+    // MARK: - Inbox Settings State
+
+    public private(set) var inboxSettings: InboxSettings = .default
+    public private(set) var isLoadingInbox = false
+
     // MARK: - Dependencies
 
     private let sourceManager: SourceManager
     private let credentialManager: CredentialManager
     private let enrichmentSettingsStore: EnrichmentSettingsStore
     private let smartSearchSettingsStore: SmartSearchSettingsStore
+    private let inboxSettingsStore: InboxSettingsStore
 
     // MARK: - Initialization
 
@@ -45,12 +51,14 @@ public final class SettingsViewModel {
         sourceManager: SourceManager = SourceManager(),
         credentialManager: CredentialManager = .shared,
         enrichmentSettingsStore: EnrichmentSettingsStore = .shared,
-        smartSearchSettingsStore: SmartSearchSettingsStore = .shared
+        smartSearchSettingsStore: SmartSearchSettingsStore = .shared,
+        inboxSettingsStore: InboxSettingsStore = .shared
     ) {
         self.sourceManager = sourceManager
         self.credentialManager = credentialManager
         self.enrichmentSettingsStore = enrichmentSettingsStore
         self.smartSearchSettingsStore = smartSearchSettingsStore
+        self.inboxSettingsStore = inboxSettingsStore
     }
 
     // MARK: - Loading
@@ -194,6 +202,35 @@ public final class SettingsViewModel {
         Logger.smartSearch.infoCapture(
             "Smart search settings reset to defaults",
             category: "smartsearch"
+        )
+    }
+
+    // MARK: - Inbox Settings
+
+    /// Load current inbox settings
+    public func loadInboxSettings() async {
+        isLoadingInbox = true
+        inboxSettings = await inboxSettingsStore.settings
+        isLoadingInbox = false
+    }
+
+    /// Update the inbox age limit
+    public func updateInboxAgeLimit(_ ageLimit: AgeLimitPreset) async {
+        await inboxSettingsStore.updateAgeLimit(ageLimit)
+        inboxSettings = await inboxSettingsStore.settings
+        Logger.inbox.infoCapture(
+            "Inbox age limit set to \(ageLimit.displayName)",
+            category: "settings"
+        )
+    }
+
+    /// Reset inbox settings to defaults
+    public func resetInboxSettingsToDefaults() async {
+        await inboxSettingsStore.reset()
+        inboxSettings = await inboxSettingsStore.settings
+        Logger.inbox.infoCapture(
+            "Inbox settings reset to defaults",
+            category: "settings"
         )
     }
 }

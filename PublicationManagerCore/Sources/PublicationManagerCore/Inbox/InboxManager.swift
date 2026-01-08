@@ -374,6 +374,7 @@ public final class InboxManager {
         Logger.inbox.infoCapture("Adding paper to Inbox: \(publication.citeKey)", category: "papers")
         publication.addToLibrary(inbox)
         publication.isRead = false  // Mark as unread in Inbox
+        publication.dateAddedToInbox = Date()  // Track when added for age filtering
         persistenceController.save()
         updateUnreadCount()
     }
@@ -383,6 +384,10 @@ public final class InboxManager {
         guard let inbox = inboxLibrary else { return }
 
         Logger.inbox.infoCapture("Dismissing paper from Inbox: \(publication.citeKey)", category: "papers")
+
+        // Track dismissal so paper won't reappear
+        trackDismissal(publication)
+
         publication.removeFromLibrary(inbox)
 
         // If paper is not in any other library, delete it
@@ -398,6 +403,9 @@ public final class InboxManager {
     public func archiveToLibrary(_ publication: CDPublication, library: CDLibrary) {
         Logger.inbox.infoCapture("Archiving paper '\(publication.citeKey)' to library '\(library.displayName)'", category: "papers")
 
+        // Track dismissal so paper won't reappear in Inbox
+        trackDismissal(publication)
+
         // Add to target library
         publication.addToLibrary(library)
         persistenceController.save()
@@ -406,8 +414,44 @@ public final class InboxManager {
         NotificationCenter.default.post(name: .publicationArchivedToLibrary, object: publication)
     }
 
-    /// Get all papers in the Inbox
-    public func getInboxPapers() -> [CDPublication] {
+    /// Get all papers in the Inbox, filtered by age limit
+    public func getInboxPapers() async -> [CDPublication] {
+        guard let inbox = inboxLibrary else { return [] }
+
+        let settings = await InboxSettingsStore.shared.settings
+
+        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+
+        // Build predicates
+        var predicates: [NSPredicate] = [
+            NSPredicate(format: "ANY libraries == %@", inbox)
+        ]
+
+        // Apply age limit if set
+        if settings.ageLimit.hasLimit {
+            let cutoffDate = Calendar.current.date(
+                byAdding: .day,
+                value: -settings.ageLimit.days,
+                to: Date()
+            ) ?? Date()
+            predicates.append(NSPredicate(format: "dateAddedToInbox >= %@ OR dateAddedToInbox == nil", cutoffDate as NSDate))
+        }
+
+        request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+        request.sortDescriptors = [NSSortDescriptor(key: "dateAdded", ascending: false)]
+
+        do {
+            let papers = try persistenceController.viewContext.fetch(request)
+            Logger.inbox.debugCapture("Fetched \(papers.count) Inbox papers (age limit: \(settings.ageLimit.displayName))", category: "papers")
+            return papers
+        } catch {
+            Logger.inbox.errorCapture("Failed to fetch Inbox papers: \(error.localizedDescription)", category: "papers")
+            return []
+        }
+    }
+
+    /// Synchronous version for compatibility
+    public func getInboxPapersSync() -> [CDPublication] {
         guard let inbox = inboxLibrary else { return [] }
 
         let request = NSFetchRequest<CDPublication>(entityName: "Publication")
@@ -419,6 +463,91 @@ public final class InboxManager {
         } catch {
             Logger.inbox.errorCapture("Failed to fetch Inbox papers: \(error.localizedDescription)", category: "papers")
             return []
+        }
+    }
+
+    // MARK: - Dismissal Tracking
+
+    /// Track a dismissed paper so it won't reappear in the Inbox
+    public func trackDismissal(_ publication: CDPublication) {
+        // Only track if we have at least one identifier
+        let doi = publication.doi
+        let arxivID = publication.arxivID
+        let bibcode = publication.bibcode
+
+        guard doi != nil || arxivID != nil || bibcode != nil else {
+            Logger.inbox.debugCapture("Cannot track dismissal for paper without identifiers: \(publication.citeKey)", category: "dismiss")
+            return
+        }
+
+        // Check if already tracked
+        if wasDismissed(doi: doi, arxivID: arxivID, bibcode: bibcode) {
+            return
+        }
+
+        let context = persistenceController.viewContext
+        let dismissed = CDDismissedPaper(context: context)
+        dismissed.id = UUID()
+        dismissed.doi = doi
+        dismissed.arxivID = arxivID
+        dismissed.bibcode = bibcode
+        dismissed.dateDismissed = Date()
+
+        Logger.inbox.infoCapture("Tracked dismissal for paper: DOI=\(doi ?? "nil"), arXiv=\(arxivID ?? "nil"), bibcode=\(bibcode ?? "nil")", category: "dismiss")
+    }
+
+    /// Check if a paper was previously dismissed
+    public func wasDismissed(doi: String?, arxivID: String?, bibcode: String?) -> Bool {
+        // Need at least one identifier to check
+        guard doi != nil || arxivID != nil || bibcode != nil else {
+            return false
+        }
+
+        let request = NSFetchRequest<CDDismissedPaper>(entityName: "DismissedPaper")
+
+        // Build OR predicate for any matching identifier
+        var orPredicates: [NSPredicate] = []
+
+        if let doi = doi {
+            orPredicates.append(NSPredicate(format: "doi == %@", doi))
+        }
+        if let arxivID = arxivID {
+            orPredicates.append(NSPredicate(format: "arxivID == %@", arxivID))
+        }
+        if let bibcode = bibcode {
+            orPredicates.append(NSPredicate(format: "bibcode == %@", bibcode))
+        }
+
+        request.predicate = NSCompoundPredicate(orPredicateWithSubpredicates: orPredicates)
+        request.fetchLimit = 1
+
+        do {
+            let count = try persistenceController.viewContext.count(for: request)
+            return count > 0
+        } catch {
+            Logger.inbox.errorCapture("Failed to check dismissal status: \(error.localizedDescription)", category: "dismiss")
+            return false
+        }
+    }
+
+    /// Check if a search result was previously dismissed
+    public func wasDismissed(result: SearchResult) -> Bool {
+        wasDismissed(doi: result.doi, arxivID: result.arxivID, bibcode: result.bibcode)
+    }
+
+    /// Clear all dismissed paper records (for testing)
+    public func clearAllDismissedPapers() {
+        let request = NSFetchRequest<CDDismissedPaper>(entityName: "DismissedPaper")
+
+        do {
+            let dismissed = try persistenceController.viewContext.fetch(request)
+            for item in dismissed {
+                persistenceController.viewContext.delete(item)
+            }
+            persistenceController.save()
+            Logger.inbox.warningCapture("Cleared \(dismissed.count) dismissed paper records", category: "dismiss")
+        } catch {
+            Logger.inbox.errorCapture("Failed to clear dismissed papers: \(error.localizedDescription)", category: "dismiss")
         }
     }
 }

@@ -41,24 +41,50 @@ public actor ArXivSource: SourcePlugin {
     // MARK: - SourcePlugin
 
     public func search(query: String, maxResults: Int = 50) async throws -> [SearchResult] {
+        try await searchWithRetry(query: query, maxResults: maxResults, retryCount: 0)
+    }
+
+    private func searchWithRetry(query: String, maxResults: Int, retryCount: Int) async throws -> [SearchResult] {
         Logger.sources.entering()
         defer { Logger.sources.exiting() }
 
         await rateLimiter.waitIfNeeded()
 
+        // Cap maxResults to avoid rate limiting (arXiv recommends smaller requests)
+        let cappedMaxResults = min(maxResults, 500)
+
         // Build the arXiv API query from user query
         let apiQuery = buildAPIQuery(from: query)
 
         // Determine sort order based on query type
-        let sortBy = query.hasPrefix("cat:") ? "submittedDate" : "relevance"
+        let isCategorySearch = query.contains("cat:")
+        let sortBy = isCategorySearch ? "submittedDate" : "relevance"
         let sortOrder = "descending"
+
+        // For category searches, add date filter to get recent papers (last 7 days)
+        var finalQuery = apiQuery
+        if isCategorySearch {
+            let calendar = Calendar.current
+            let endDate = Date()
+            let startDate = calendar.date(byAdding: .day, value: -7, to: endDate)!
+
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyyMMddHHmm"
+            formatter.timeZone = TimeZone(identifier: "UTC")
+
+            let startStr = formatter.string(from: startDate)
+            let endStr = formatter.string(from: endDate)
+
+            // arXiv date range format: submittedDate:[YYYYMMDDHHMM TO YYYYMMDDHHMM]
+            finalQuery = "(\(apiQuery)) AND submittedDate:[\(startStr) TO \(endStr)]"
+        }
 
         // Build URL
         var components = URLComponents(string: baseURL)!
         components.queryItems = [
-            URLQueryItem(name: "search_query", value: apiQuery),
+            URLQueryItem(name: "search_query", value: finalQuery),
             URLQueryItem(name: "start", value: "0"),
-            URLQueryItem(name: "max_results", value: "\(maxResults)"),
+            URLQueryItem(name: "max_results", value: "\(cappedMaxResults)"),
             URLQueryItem(name: "sortBy", value: sortBy),
             URLQueryItem(name: "sortOrder", value: sortOrder),
         ]
@@ -76,6 +102,19 @@ public actor ArXivSource: SourcePlugin {
         }
 
         Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
+
+        // Handle rate limiting with retry (max 2 retries)
+        if httpResponse.statusCode == 429 {
+            if retryCount < 2 {
+                let waitSeconds = 30 * (retryCount + 1)  // 30s, then 60s
+                Logger.sources.warningCapture("arXiv rate limited (429), waiting \(waitSeconds) seconds before retry \(retryCount + 1)/2...", category: "sources")
+                try await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
+                return try await searchWithRetry(query: query, maxResults: maxResults, retryCount: retryCount + 1)
+            } else {
+                Logger.sources.errorCapture("arXiv rate limited after 2 retries, please wait a few minutes", category: "sources")
+                throw SourceError.rateLimited(retryAfter: 300)  // Suggest 5 minutes
+            }
+        }
 
         guard httpResponse.statusCode == 200 else {
             throw SourceError.networkError(URLError(.badServerResponse))
@@ -115,6 +154,12 @@ public actor ArXivSource: SourcePlugin {
             ("abstract:", "abs:"),
             ("id:", "id:"),
             ("arxiv:", "id:"),
+            ("co:", "co:"),
+            ("comment:", "co:"),
+            ("jr:", "jr:"),
+            ("journal:", "jr:"),
+            ("rn:", "rn:"),
+            ("report:", "rn:"),
         ]
 
         // Check for field prefix at start
@@ -161,6 +206,12 @@ public actor ArXivSource: SourcePlugin {
             ("abstract:", "abs:"),
             ("id:", "id:"),
             ("arxiv:", "id:"),
+            ("co:", "co:"),
+            ("comment:", "co:"),
+            ("jr:", "jr:"),
+            ("journal:", "jr:"),
+            ("rn:", "rn:"),
+            ("report:", "rn:"),
         ]
 
         for (prefix, apiField) in fieldMappings {
@@ -180,7 +231,7 @@ public actor ArXivSource: SourcePlugin {
 
     /// Check if query is already in raw arXiv API format.
     private func isRawAPIQuery(_ query: String) -> Bool {
-        let apiPrefixes = ["all:", "ti:", "au:", "abs:", "co:", "jr:", "cat:", "rn:", "id:", "submittedDate:"]
+        let apiPrefixes = ["all:", "ti:", "au:", "abs:", "co:", "jr:", "cat:", "rn:", "id:", "submittedDate:", "lastUpdatedDate:"]
         return apiPrefixes.contains { query.hasPrefix($0) }
     }
 

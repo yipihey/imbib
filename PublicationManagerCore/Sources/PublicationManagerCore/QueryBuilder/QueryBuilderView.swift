@@ -13,13 +13,14 @@ import SwiftUI
 public struct QueryBuilderView: View {
     @Binding var state: QueryBuilderState
     @Binding var rawQuery: String
+    @Binding var isManuallyEditing: Bool
     @State private var isRawQueryExpanded = false
-    @State private var isManuallyEditing = false
     @State private var isSyncing = false  // Prevents feedback loop when syncing
 
-    public init(state: Binding<QueryBuilderState>, rawQuery: Binding<String>) {
+    public init(state: Binding<QueryBuilderState>, rawQuery: Binding<String>, isManuallyEditing: Binding<Bool>) {
         self._state = state
         self._rawQuery = rawQuery
+        self._isManuallyEditing = isManuallyEditing
     }
 
     public var body: some View {
@@ -184,7 +185,7 @@ struct QueryTermRow: View {
 
             case .none:
                 // Text field
-                TextField(term.field.placeholder, text: $term.value)
+                TextField("", text: $term.value, prompt: Text(term.field.placeholder).foregroundStyle(.secondary))
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: term.value) { _, _ in
                         onValueChange()
@@ -302,9 +303,10 @@ struct QueryBuilderPreview: View {
         ]
     )
     @State private var rawQuery = ""
+    @State private var isManuallyEditing = false
 
     var body: some View {
-        QueryBuilderView(state: $state, rawQuery: $rawQuery)
+        QueryBuilderView(state: $state, rawQuery: $rawQuery, isManuallyEditing: $isManuallyEditing)
     }
 }
 #endif

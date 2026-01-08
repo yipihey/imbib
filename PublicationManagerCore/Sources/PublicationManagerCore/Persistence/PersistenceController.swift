@@ -195,6 +195,7 @@ public final class PersistenceController: @unchecked Sendable {
         let libraryEntity = createLibraryEntity()
         let smartSearchEntity = createSmartSearchEntity()
         let mutedItemEntity = createMutedItemEntity()
+        let dismissedPaperEntity = createDismissedPaperEntity()
 
         // Set up relationships
         setupRelationships(
@@ -253,6 +254,7 @@ public final class PersistenceController: @unchecked Sendable {
             libraryEntity,
             smartSearchEntity,
             mutedItemEntity,
+            dismissedPaperEntity,
         ]
 
         return model
@@ -455,6 +457,13 @@ public final class PersistenceController: @unchecked Sendable {
         isStarred.isOptional = false
         isStarred.defaultValue = false
         properties.append(isStarred)
+
+        // Inbox tracking
+        let dateAddedToInbox = NSAttributeDescription()
+        dateAddedToInbox.name = "dateAddedToInbox"
+        dateAddedToInbox.attributeType = .dateAttributeType
+        dateAddedToInbox.isOptional = true
+        properties.append(dateAddedToInbox)
 
         entity.properties = properties
 
@@ -920,6 +929,61 @@ public final class PersistenceController: @unchecked Sendable {
         properties.append(dateAdded)
 
         entity.properties = properties
+        return entity
+    }
+
+    private static func createDismissedPaperEntity() -> NSEntityDescription {
+        let entity = NSEntityDescription()
+        entity.name = "DismissedPaper"
+        entity.managedObjectClassName = "PublicationManagerCore.CDDismissedPaper"
+
+        var properties: [NSPropertyDescription] = []
+
+        let id = NSAttributeDescription()
+        id.name = "id"
+        id.attributeType = .UUIDAttributeType
+        id.isOptional = false
+        properties.append(id)
+
+        let doi = NSAttributeDescription()
+        doi.name = "doi"
+        doi.attributeType = .stringAttributeType
+        doi.isOptional = true
+        properties.append(doi)
+
+        let arxivID = NSAttributeDescription()
+        arxivID.name = "arxivID"
+        arxivID.attributeType = .stringAttributeType
+        arxivID.isOptional = true
+        properties.append(arxivID)
+
+        let bibcode = NSAttributeDescription()
+        bibcode.name = "bibcode"
+        bibcode.attributeType = .stringAttributeType
+        bibcode.isOptional = true
+        properties.append(bibcode)
+
+        let dateDismissed = NSAttributeDescription()
+        dateDismissed.name = "dateDismissed"
+        dateDismissed.attributeType = .dateAttributeType
+        dateDismissed.isOptional = false
+        dateDismissed.defaultValue = Date()
+        properties.append(dateDismissed)
+
+        entity.properties = properties
+
+        // Add indexes for O(1) lookups during deduplication
+        let doiIndex = NSFetchIndexDescription(name: "dismissedByDOI", elements: [
+            NSFetchIndexElementDescription(property: doi, collationType: .binary)
+        ])
+        let arxivIndex = NSFetchIndexDescription(name: "dismissedByArxivID", elements: [
+            NSFetchIndexElementDescription(property: arxivID, collationType: .binary)
+        ])
+        let bibcodeIndex = NSFetchIndexDescription(name: "dismissedByBibcode", elements: [
+            NSFetchIndexElementDescription(property: bibcode, collationType: .binary)
+        ])
+        entity.indexes = [doiIndex, arxivIndex, bibcodeIndex]
+
         return entity
     }
 

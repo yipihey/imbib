@@ -353,12 +353,33 @@ struct SourceCredentialRow: View {
 
 struct InboxSettingsTab: View {
 
+    @Environment(SettingsViewModel.self) private var viewModel
+
     @State private var mutedItems: [CDMutedItem] = []
     @State private var selectedMuteType: CDMutedItem.MuteType = .author
     @State private var newMuteValue: String = ""
 
     var body: some View {
         Form {
+            Section("Age Limit") {
+                Picker("Keep papers for", selection: Binding(
+                    get: { viewModel.inboxSettings.ageLimit },
+                    set: { newValue in
+                        Task {
+                            await viewModel.updateInboxAgeLimit(newValue)
+                        }
+                    }
+                )) {
+                    ForEach(AgeLimitPreset.allCases, id: \.self) { preset in
+                        Text(preset.displayName).tag(preset)
+                    }
+                }
+
+                Text("Papers older than this limit (based on when they were added to the Inbox) will be hidden")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Muted Items") {
                 if mutedItems.isEmpty {
                     Text("No muted items")
@@ -413,6 +434,7 @@ struct InboxSettingsTab: View {
         .formStyle(.grouped)
         .padding()
         .task {
+            await viewModel.loadInboxSettings()
             loadMutedItems()
         }
     }

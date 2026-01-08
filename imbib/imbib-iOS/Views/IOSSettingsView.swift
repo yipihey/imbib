@@ -45,6 +45,15 @@ struct IOSSettingsView: View {
                     }
                 }
 
+                // Inbox Settings
+                Section("Inbox") {
+                    NavigationLink {
+                        IOSInboxSettingsView()
+                    } label: {
+                        Label("Inbox Settings", systemImage: "tray")
+                    }
+                }
+
                 // Display Settings
                 Section("Display") {
                     NavigationLink {
@@ -453,6 +462,183 @@ struct ListViewSettingsView: View {
     private func saveSettings(_ newSettings: ListViewSettings) {
         Task {
             await ListViewSettingsStore.shared.update(newSettings)
+        }
+    }
+}
+
+// MARK: - Inbox Settings
+
+struct IOSInboxSettingsView: View {
+    @Environment(SettingsViewModel.self) private var viewModel
+
+    @State private var mutedItems: [CDMutedItem] = []
+    @State private var showAddMute = false
+
+    var body: some View {
+        List {
+            // Age Limit Section
+            Section {
+                Picker("Keep papers for", selection: Binding(
+                    get: { viewModel.inboxSettings.ageLimit },
+                    set: { newValue in
+                        Task {
+                            await viewModel.updateInboxAgeLimit(newValue)
+                        }
+                    }
+                )) {
+                    ForEach(AgeLimitPreset.allCases, id: \.self) { preset in
+                        Text(preset.displayName).tag(preset)
+                    }
+                }
+            } header: {
+                Text("Age Limit")
+            } footer: {
+                Text("Papers older than this limit (based on when they were added to the Inbox) will be hidden.")
+            }
+
+            // Muted Items Section
+            Section {
+                if mutedItems.isEmpty {
+                    Text("No muted items")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(mutedItems) { item in
+                        HStack {
+                            VStack(alignment: .leading) {
+                                Text(item.value)
+                                if let muteType = item.muteType {
+                                    Text(muteType.displayName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                        }
+                    }
+                    .onDelete(perform: deleteMutedItems)
+                }
+
+                Button("Add Mute Rule") {
+                    showAddMute = true
+                }
+            } header: {
+                Text("Muted Items")
+            } footer: {
+                Text("Muted items will be hidden from Inbox feeds.")
+            }
+
+            // Clear All Section
+            if !mutedItems.isEmpty {
+                Section {
+                    Button("Clear All Muted Items", role: .destructive) {
+                        InboxManager.shared.clearAllMutedItems()
+                        loadMutedItems()
+                    }
+                }
+            }
+        }
+        .navigationTitle("Inbox Settings")
+        .task {
+            await viewModel.loadInboxSettings()
+            loadMutedItems()
+        }
+        .sheet(isPresented: $showAddMute) {
+            AddMuteRuleSheet { type, value in
+                InboxManager.shared.mute(type: type, value: value)
+                loadMutedItems()
+            }
+        }
+    }
+
+    private func loadMutedItems() {
+        mutedItems = InboxManager.shared.mutedItems
+    }
+
+    private func deleteMutedItems(at offsets: IndexSet) {
+        for index in offsets {
+            let item = mutedItems[index]
+            InboxManager.shared.unmute(item)
+        }
+        loadMutedItems()
+    }
+}
+
+// MARK: - Add Mute Rule Sheet
+
+struct AddMuteRuleSheet: View {
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var selectedType: CDMutedItem.MuteType = .author
+    @State private var value: String = ""
+
+    let onAdd: (CDMutedItem.MuteType, String) -> Void
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Picker("Type", selection: $selectedType) {
+                    ForEach(CDMutedItem.MuteType.allCases, id: \.self) { type in
+                        Text(type.displayName).tag(type)
+                    }
+                }
+
+                TextField(placeholderText, text: $value)
+                    .autocapitalization(.none)
+
+                Text(helpText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .navigationTitle("Add Mute Rule")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") {
+                        onAdd(selectedType, value)
+                        dismiss()
+                    }
+                    .disabled(value.isEmpty)
+                }
+            }
+        }
+    }
+
+    private var placeholderText: String {
+        switch selectedType {
+        case .author: return "Author name"
+        case .doi: return "DOI"
+        case .bibcode: return "ADS Bibcode"
+        case .venue: return "Venue name"
+        case .arxivCategory: return "arXiv category"
+        }
+    }
+
+    private var helpText: String {
+        switch selectedType {
+        case .author: return "Papers by this author will be hidden"
+        case .doi: return "This specific paper will be hidden"
+        case .bibcode: return "This specific paper (by ADS bibcode) will be hidden"
+        case .venue: return "Papers from this venue will be hidden"
+        case .arxivCategory: return "Papers from this arXiv category will be hidden"
+        }
+    }
+}
+
+// MARK: - MuteType Display Name (iOS)
+
+extension CDMutedItem.MuteType {
+    var displayName: String {
+        switch self {
+        case .author: return "Author"
+        case .doi: return "DOI"
+        case .bibcode: return "Bibcode"
+        case .venue: return "Venue"
+        case .arxivCategory: return "arXiv Category"
         }
     }
 }

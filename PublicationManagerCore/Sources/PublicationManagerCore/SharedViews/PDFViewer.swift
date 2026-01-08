@@ -617,25 +617,27 @@ public struct PDFViewerWithControls: View {
     // MARK: - Reading Position
 
     private func loadSavedPosition() async {
-        guard let pubID = publicationID else { return }
+        // Load global zoom first (applies even without publication ID)
+        let globalZoom = await ReadingPositionStore.shared.globalZoomLevel
+        await MainActor.run {
+            if globalZoom >= 0.25 && globalZoom <= 4.0 {
+                scaleFactor = globalZoom
+            }
+        }
 
+        // Load per-publication page number
+        guard let pubID = publicationID else { return }
         if let position = await ReadingPositionStore.shared.get(for: pubID) {
             await MainActor.run {
-                // Only apply if within valid range
                 if position.pageNumber >= 1 && position.pageNumber <= totalPages {
                     currentPage = position.pageNumber
                 }
-                if position.zoomLevel >= 0.25 && position.zoomLevel <= 4.0 {
-                    scaleFactor = position.zoomLevel
-                }
-                Logger.files.debugCapture("Restored reading position: page \(position.pageNumber), zoom \(Int(position.zoomLevel * 100))%", category: "pdf")
+                Logger.files.debugCapture("Restored reading position: page \(position.pageNumber), zoom \(Int(globalZoom * 100))%", category: "pdf")
             }
         }
     }
 
     private func schedulePositionSave() {
-        guard publicationID != nil else { return }
-
         // Cancel existing save task
         saveTask?.cancel()
 
@@ -648,8 +650,6 @@ public struct PDFViewerWithControls: View {
     }
 
     private func savePositionImmediately() {
-        guard publicationID != nil else { return }
-
         saveTask?.cancel()
         Task {
             await savePosition()
@@ -657,11 +657,14 @@ public struct PDFViewerWithControls: View {
     }
 
     private func savePosition() async {
-        guard let pubID = publicationID else { return }
+        // Save global zoom (always, even without publication ID)
+        await ReadingPositionStore.shared.setGlobalZoom(scaleFactor)
 
+        // Save per-publication page number
+        guard let pubID = publicationID else { return }
         let position = ReadingPosition(
             pageNumber: currentPage,
-            zoomLevel: scaleFactor,
+            zoomLevel: scaleFactor,  // kept for struct compatibility but not used on load
             lastReadDate: Date()
         )
         await ReadingPositionStore.shared.save(position, for: pubID)

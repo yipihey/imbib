@@ -27,7 +27,7 @@ public enum QuerySource: String, CaseIterable, Identifiable, Sendable {
     public var fields: [QueryField] {
         switch self {
         case .arXiv:
-            return [.arXivAll, .arXivAuthor, .arXivTitle, .arXivAbstract, .arXivCategory, .arXivID]
+            return [.arXivAll, .arXivAuthor, .arXivTitle, .arXivAbstract, .arXivCategory, .arXivID, .arXivComment, .arXivJournalRef, .arXivReportNumber]
         case .ads:
             return [.adsAll, .adsAuthor, .adsTitle, .adsAbstract, .adsAbs, .adsFullText, .adsYear, .adsProperty, .adsBibstem, .adsAffiliation, .adsObject, .adsKeyword, .adsDOI, .adsBibcode, .adsArXivID, .adsORCID, .adsDatabase]
         }
@@ -54,6 +54,9 @@ public enum QueryField: String, CaseIterable, Identifiable, Sendable {
     case arXivAbstract
     case arXivCategory
     case arXivID
+    case arXivComment
+    case arXivJournalRef
+    case arXivReportNumber
 
     // ADS fields
     case adsAll
@@ -85,6 +88,9 @@ public enum QueryField: String, CaseIterable, Identifiable, Sendable {
         case .arXivAbstract: return "Abstract"
         case .arXivCategory: return "Category"
         case .arXivID: return "arXiv ID"
+        case .arXivComment: return "Comment"
+        case .arXivJournalRef: return "Journal Reference"
+        case .arXivReportNumber: return "Report Number"
 
         case .adsAll: return "All Fields"
         case .adsAuthor: return "Author"
@@ -115,6 +121,9 @@ public enum QueryField: String, CaseIterable, Identifiable, Sendable {
         case .arXivAbstract: return "abs:"
         case .arXivCategory: return "cat:"
         case .arXivID: return "id:"
+        case .arXivComment: return "co:"
+        case .arXivJournalRef: return "jr:"
+        case .arXivReportNumber: return "rn:"
 
         case .adsAll: return ""
         case .adsAuthor: return "author:"
@@ -167,6 +176,9 @@ public enum QueryField: String, CaseIterable, Identifiable, Sendable {
         case .arXivAbstract: return "quantum mechanics"
         case .arXivCategory: return "cs.LG"
         case .arXivID: return "2301.12345"
+        case .arXivComment: return "10 pages, 5 figures"
+        case .arXivJournalRef: return "Phys. Rev. D"
+        case .arXivReportNumber: return "CERN-TH-2024"
 
         case .adsAll: return "search terms"
         case .adsAuthor: return "Rubin, Vera"
@@ -191,7 +203,8 @@ public enum QueryField: String, CaseIterable, Identifiable, Sendable {
     /// The source this field belongs to
     public var source: QuerySource {
         switch self {
-        case .arXivAll, .arXivAuthor, .arXivTitle, .arXivAbstract, .arXivCategory, .arXivID:
+        case .arXivAll, .arXivAuthor, .arXivTitle, .arXivAbstract, .arXivCategory, .arXivID,
+             .arXivComment, .arXivJournalRef, .arXivReportNumber:
             return .arXiv
         case .adsAll, .adsAuthor, .adsTitle, .adsAbstract, .adsAbs, .adsFullText, .adsYear,
              .adsProperty, .adsBibstem, .adsAffiliation, .adsObject, .adsKeyword, .adsDOI,
@@ -414,9 +427,9 @@ public struct QueryBuilderState: Sendable {
             return targetSource == .arXiv ? .arXivAbstract : .adsAbs
         case .arXivID, .adsArXivID:
             return targetSource == .arXiv ? .arXivID : .adsArXivID
-        case .arXivCategory:
-            // No equivalent in ADS, use all fields
-            return targetSource == .arXiv ? .arXivCategory : .adsAll
+        case .arXivCategory, .arXivComment, .arXivJournalRef, .arXivReportNumber:
+            // No direct equivalent in ADS, use all fields
+            return targetSource == .arXiv ? field : .adsAll
         case .adsYear, .adsBibcode, .adsDatabase, .adsProperty, .adsBibstem,
              .adsAffiliation, .adsObject, .adsKeyword, .adsDOI, .adsORCID, .adsFullText:
             // No equivalent in arXiv, use all fields

@@ -7,16 +7,18 @@
 
 import SwiftUI
 
-/// Parses scientific text with subscripts, superscripts, and HTML entities.
+/// Parses scientific text with subscripts, superscripts, LaTeX, and HTML entities.
 ///
 /// Handles:
 /// - `<SUB>...</SUB>` and `<sub>...</sub>` → subscript
 /// - `<SUP>...</SUP>` and `<sup>...</sup>` → superscript
-/// - `&lt;` → <
-/// - `&gt;` → >
-/// - `&amp;` → &
+/// - `&lt;` → <, `&gt;` → >, `&amp;` → &
 /// - `^{...}` or `^X` (single char) → superscript (LaTeX-style)
 /// - `_{...}` or `_X` (single char) → subscript (LaTeX-style)
+/// - `$...$` → italic (inline math mode)
+/// - `\textbf{...}` → bold
+/// - `\textit{...}`, `\emph{...}` → italic
+/// - Greek letters: `\alpha`, `\beta`, `\phi`, etc. → Unicode equivalents
 public struct ScientificTextParser {
 
     /// Parse scientific text and return an AttributedString with proper formatting
@@ -36,15 +38,30 @@ public struct ScientificTextParser {
                     result.append(AttributedString(prefix))
                 }
 
-                // Add the formatted content
-                var formatted = AttributedString(match.content)
+                // Add the formatted content - recursively parse for nested formatting
+                let parsedContent = parse(match.content)
+                var formatted = parsedContent
                 switch match.type {
                 case .sub:
+                    formatted = AttributedString(match.content)
                     formatted.baselineOffset = -4
                     formatted.font = .system(size: 10)
                 case .sup:
+                    formatted = AttributedString(match.content)
                     formatted.baselineOffset = 6
                     formatted.font = .system(size: 10)
+                case .math, .italic:
+                    // Apply italic to the parsed content
+                    for run in formatted.runs {
+                        let range = run.range
+                        formatted[range].font = Font.body.italic()
+                    }
+                case .bold:
+                    // Apply bold to the parsed content
+                    for run in formatted.runs {
+                        let range = run.range
+                        formatted[range].font = Font.body.bold()
+                    }
                 }
                 result.append(formatted)
 
@@ -70,6 +87,9 @@ public struct ScientificTextParser {
     private enum TagType {
         case sub
         case sup
+        case math      // $...$
+        case bold      // \textbf{...}
+        case italic    // \textit{...}, \emph{...}
     }
 
     private struct TagMatch {
@@ -87,8 +107,56 @@ public struct ScientificTextParser {
         result = result.replacingOccurrences(of: "&nbsp;", with: " ")
         result = result.replacingOccurrences(of: "&quot;", with: "\"")
         result = result.replacingOccurrences(of: "&apos;", with: "'")
+
+        // Replace LaTeX Greek letters with Unicode
+        result = replaceGreekLetters(result)
+
         // Strip standalone LaTeX braces (not preceded by ^ or _)
         result = stripStandaloneBraces(result)
+        return result
+    }
+
+    /// Replace LaTeX Greek letter commands with Unicode characters
+    private static func replaceGreekLetters(_ text: String) -> String {
+        var result = text
+
+        // Lowercase Greek
+        let greekLower: [(String, String)] = [
+            ("\\alpha", "α"), ("\\beta", "β"), ("\\gamma", "γ"), ("\\delta", "δ"),
+            ("\\epsilon", "ε"), ("\\varepsilon", "ε"), ("\\zeta", "ζ"), ("\\eta", "η"),
+            ("\\theta", "θ"), ("\\vartheta", "ϑ"), ("\\iota", "ι"), ("\\kappa", "κ"),
+            ("\\lambda", "λ"), ("\\mu", "μ"), ("\\nu", "ν"), ("\\xi", "ξ"),
+            ("\\pi", "π"), ("\\varpi", "ϖ"), ("\\rho", "ρ"), ("\\varrho", "ϱ"),
+            ("\\sigma", "σ"), ("\\varsigma", "ς"), ("\\tau", "τ"), ("\\upsilon", "υ"),
+            ("\\phi", "φ"), ("\\varphi", "ϕ"), ("\\chi", "χ"), ("\\psi", "ψ"),
+            ("\\omega", "ω"),
+        ]
+
+        // Uppercase Greek
+        let greekUpper: [(String, String)] = [
+            ("\\Gamma", "Γ"), ("\\Delta", "Δ"), ("\\Theta", "Θ"), ("\\Lambda", "Λ"),
+            ("\\Xi", "Ξ"), ("\\Pi", "Π"), ("\\Sigma", "Σ"), ("\\Upsilon", "Υ"),
+            ("\\Phi", "Φ"), ("\\Psi", "Ψ"), ("\\Omega", "Ω"),
+        ]
+
+        // Common math symbols
+        let mathSymbols: [(String, String)] = [
+            ("\\infty", "∞"), ("\\partial", "∂"), ("\\nabla", "∇"),
+            ("\\pm", "±"), ("\\mp", "∓"), ("\\times", "×"), ("\\div", "÷"),
+            ("\\cdot", "·"), ("\\leq", "≤"), ("\\geq", "≥"), ("\\neq", "≠"),
+            ("\\approx", "≈"), ("\\equiv", "≡"), ("\\sim", "∼"),
+            ("\\propto", "∝"), ("\\sum", "∑"), ("\\prod", "∏"), ("\\int", "∫"),
+            ("\\sqrt", "√"), ("\\forall", "∀"), ("\\exists", "∃"),
+            ("\\in", "∈"), ("\\notin", "∉"), ("\\subset", "⊂"), ("\\supset", "⊃"),
+            ("\\cup", "∪"), ("\\cap", "∩"), ("\\emptyset", "∅"),
+            ("\\rightarrow", "→"), ("\\leftarrow", "←"), ("\\Rightarrow", "⇒"),
+            ("\\Leftarrow", "⇐"), ("\\leftrightarrow", "↔"), ("\\Leftrightarrow", "⇔"),
+        ]
+
+        for (latex, unicode) in greekLower + greekUpper + mathSymbols {
+            result = result.replacingOccurrences(of: latex, with: unicode)
+        }
+
         return result
     }
 
@@ -222,7 +290,70 @@ public struct ScientificTextParser {
             }
         }
 
+        // Check for $...$ math mode (single $ only, not $$)
+        if let dollarIndex = text.firstIndex(of: "$") {
+            // Make sure it's not $$ (display math)
+            let afterDollar = text.index(after: dollarIndex)
+            if afterDollar < text.endIndex && text[afterDollar] != "$" {
+                // Find closing $
+                if let closeIndex = text[afterDollar...].firstIndex(of: "$") {
+                    if earliestIndex == nil || dollarIndex < earliestIndex! {
+                        let content = String(text[afterDollar..<closeIndex])
+                        let openRange = dollarIndex..<afterDollar
+                        let closeRange = closeIndex..<text.index(after: closeIndex)
+                        earliest = TagMatch(type: .math, content: content, prefixRange: openRange, suffixRange: closeRange)
+                        earliestIndex = dollarIndex
+                    }
+                }
+            }
+        }
+
+        // Check for \textbf{...}, \textit{...}, \emph{...}
+        let latexCommands: [(String, TagType)] = [
+            ("\\textbf{", .bold),
+            ("\\textit{", .italic),
+            ("\\emph{", .italic),
+            ("\\mathbf{", .bold),
+            ("\\mathit{", .italic),
+            ("\\mathrm{", .italic),  // Roman math - just use italic for now
+        ]
+
+        for (command, type) in latexCommands {
+            if let cmdRange = text.range(of: command) {
+                if earliestIndex == nil || cmdRange.lowerBound < earliestIndex! {
+                    // Find matching closing brace
+                    if let closeIndex = findMatchingBrace(in: text, from: cmdRange.upperBound) {
+                        let content = String(text[cmdRange.upperBound..<closeIndex])
+                        let closeRange = closeIndex..<text.index(after: closeIndex)
+                        earliest = TagMatch(type: type, content: content, prefixRange: cmdRange, suffixRange: closeRange)
+                        earliestIndex = cmdRange.lowerBound
+                    }
+                }
+            }
+        }
+
         return earliest
+    }
+
+    /// Find matching closing brace, handling nested braces
+    private static func findMatchingBrace(in text: String, from start: String.Index) -> String.Index? {
+        var depth = 1
+        var i = start
+
+        while i < text.endIndex {
+            let char = text[i]
+            if char == "{" {
+                depth += 1
+            } else if char == "}" {
+                depth -= 1
+                if depth == 0 {
+                    return i
+                }
+            }
+            i = text.index(after: i)
+        }
+
+        return nil
     }
 }
 

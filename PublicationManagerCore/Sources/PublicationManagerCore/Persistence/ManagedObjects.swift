@@ -59,6 +59,9 @@ public class CDPublication: NSManagedObject {
     // Star/flag status (Inbox triage)
     @NSManaged public var isStarred: Bool
 
+    // Inbox tracking
+    @NSManaged public var dateAddedToInbox: Date?  // When paper was added to Inbox (for age filtering)
+
     // Relationships
     @NSManaged public var publicationAuthors: Set<CDPublicationAuthor>?
     @NSManaged public var linkedFiles: Set<CDLinkedFile>?
@@ -759,4 +762,18 @@ public extension CDMutedItem {
     var muteType: MuteType? {
         MuteType(rawValue: type)
     }
+}
+
+// MARK: - Dismissed Paper
+
+/// Represents a paper that was dismissed from the Inbox.
+/// Used to prevent papers from reappearing when found again by smart search feeds.
+/// Tracks by DOI, arXiv ID, and/or bibcode for deduplication.
+@objc(CDDismissedPaper)
+public class CDDismissedPaper: NSManagedObject, Identifiable {
+    @NSManaged public var id: UUID
+    @NSManaged public var doi: String?             // DOI of dismissed paper
+    @NSManaged public var arxivID: String?         // arXiv ID of dismissed paper
+    @NSManaged public var bibcode: String?         // ADS bibcode of dismissed paper
+    @NSManaged public var dateDismissed: Date      // When the paper was dismissed
 }

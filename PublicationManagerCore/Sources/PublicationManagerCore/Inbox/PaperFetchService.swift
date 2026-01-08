@@ -220,6 +220,9 @@ public actor PaperFetchService {
 
         // Filter results
         var filteredResults: [SearchResult] = []
+        var mutedCount = 0
+        var dismissedCount = 0
+
         for result in results {
             // Check mute filter using SearchResult overload
             let shouldFilter = await MainActor.run {
@@ -228,6 +231,18 @@ public actor PaperFetchService {
 
             if shouldFilter {
                 Logger.inbox.debugCapture("Filtered out muted paper: \(result.title)", category: "fetch")
+                mutedCount += 1
+                continue
+            }
+
+            // Check if previously dismissed
+            let wasDismissed = await MainActor.run {
+                inboxManager.wasDismissed(result: result)
+            }
+
+            if wasDismissed {
+                Logger.inbox.debugCapture("Skipping previously dismissed paper: \(result.title)", category: "fetch")
+                dismissedCount += 1
                 continue
             }
 
@@ -235,7 +250,7 @@ public actor PaperFetchService {
         }
 
         Logger.inbox.debugCapture(
-            "After mute filter: \(filteredResults.count) of \(results.count) papers remain",
+            "After filters: \(filteredResults.count) of \(results.count) papers remain (muted: \(mutedCount), dismissed: \(dismissedCount))",
             category: "inbox"
         )
 

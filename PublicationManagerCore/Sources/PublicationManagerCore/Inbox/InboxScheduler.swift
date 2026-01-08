@@ -477,9 +477,7 @@ public struct InboxFeedStatus: Sendable, Identifiable {
 
 /// Common refresh interval presets for UI pickers.
 public enum RefreshIntervalPreset: Int32, CaseIterable, Sendable {
-    case fifteenMinutes = 900       // 15 min
-    case thirtyMinutes = 1800       // 30 min
-    case oneHour = 3600             // 1 hour
+    case oneHour = 3600             // 1 hour (minimum to avoid rate limiting)
     case threeHours = 10800         // 3 hours
     case sixHours = 21600           // 6 hours (default)
     case twelveHours = 43200        // 12 hours
@@ -488,8 +486,6 @@ public enum RefreshIntervalPreset: Int32, CaseIterable, Sendable {
 
     public var displayName: String {
         switch self {
-        case .fifteenMinutes: return "15 minutes"
-        case .thirtyMinutes: return "30 minutes"
         case .oneHour: return "1 hour"
         case .threeHours: return "3 hours"
         case .sixHours: return "6 hours"

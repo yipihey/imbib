@@ -49,11 +49,33 @@ public actor ReadingPositionStore {
     private let userDefaults: UserDefaults
     private var cache: [UUID: ReadingPosition] = [:]
     private let keyPrefix = "reading_position_"
+    private let globalZoomKey = "global_pdf_zoom_level"
+    private let defaultZoomLevel: CGFloat = 1.0
 
     // MARK: - Initialization
 
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
+    }
+
+    // MARK: - Global Zoom
+
+    /// Get or set the global zoom level (shared across all PDFs)
+    public var globalZoomLevel: CGFloat {
+        get {
+            let value = userDefaults.double(forKey: globalZoomKey)
+            return value > 0 ? CGFloat(value) : defaultZoomLevel
+        }
+        set {
+            let clamped = max(0.25, min(4.0, newValue))
+            userDefaults.set(Double(clamped), forKey: globalZoomKey)
+        }
+    }
+
+    /// Set the global zoom level
+    public func setGlobalZoom(_ zoomLevel: CGFloat) {
+        globalZoomLevel = zoomLevel
+        Logger.files.debugCapture("Global zoom set to \(Int(zoomLevel * 100))%", category: "reading")
     }
 
     // MARK: - Public Interface

@@ -316,8 +316,6 @@ final class InboxSchedulerTests: XCTestCase {
     // MARK: - Refresh Interval Presets Tests
 
     func testRefreshIntervalPreset_values() {
-        XCTAssertEqual(RefreshIntervalPreset.fifteenMinutes.seconds, 900)
-        XCTAssertEqual(RefreshIntervalPreset.thirtyMinutes.seconds, 1800)
         XCTAssertEqual(RefreshIntervalPreset.oneHour.seconds, 3600)
         XCTAssertEqual(RefreshIntervalPreset.threeHours.seconds, 10800)
         XCTAssertEqual(RefreshIntervalPreset.sixHours.seconds, 21600)
@@ -327,8 +325,6 @@ final class InboxSchedulerTests: XCTestCase {
     }
 
     func testRefreshIntervalPreset_displayNames() {
-        XCTAssertEqual(RefreshIntervalPreset.fifteenMinutes.displayName, "15 minutes")
-        XCTAssertEqual(RefreshIntervalPreset.thirtyMinutes.displayName, "30 minutes")
         XCTAssertEqual(RefreshIntervalPreset.oneHour.displayName, "1 hour")
         XCTAssertEqual(RefreshIntervalPreset.threeHours.displayName, "3 hours")
         XCTAssertEqual(RefreshIntervalPreset.sixHours.displayName, "6 hours")
@@ -339,7 +335,7 @@ final class InboxSchedulerTests: XCTestCase {
 
     func testRefreshIntervalPreset_allCases() {
         // Verify all cases are defined
-        XCTAssertEqual(RefreshIntervalPreset.allCases.count, 8)
+        XCTAssertEqual(RefreshIntervalPreset.allCases.count, 6)
     }
 
     // MARK: - InboxFeedStatus Tests

@@ -442,7 +442,7 @@ final class InboxManagerTests: XCTestCase {
         XCTAssertTrue(pub.libraries?.contains(targetLib) ?? false)
     }
 
-    func testGetInboxPapers_returnsAllPapersInInbox() {
+    func testGetInboxPapers_returnsAllPapersInInbox() async {
         // Given
         let inbox = inboxManager.getOrCreateInbox()
         let pub1 = createTestPublication(citeKey: "Test2024a")
@@ -452,7 +452,7 @@ final class InboxManagerTests: XCTestCase {
         persistenceController.save()
 
         // When
-        let papers = inboxManager.getInboxPapers()
+        let papers = await inboxManager.getInboxPapers()
 
         // Then
         XCTAssertEqual(papers.count, 2)

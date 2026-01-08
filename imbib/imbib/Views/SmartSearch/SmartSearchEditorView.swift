@@ -27,6 +27,7 @@ struct SmartSearchEditorView: View {
     @State private var name: String = ""
     @State private var query: String = ""
     @State private var queryBuilderState = QueryBuilderState()
+    @State private var isManuallyEditing: Bool = false
     @State private var selectedSourceIDs: Set<String> = []
     @State private var availableSources: [SourceMetadata] = []
 
@@ -66,7 +67,7 @@ struct SmartSearchEditorView: View {
                 }
 
                 Section("Query") {
-                    QueryBuilderView(state: $queryBuilderState, rawQuery: $query)
+                    QueryBuilderView(state: $queryBuilderState, rawQuery: $query, isManuallyEditing: $isManuallyEditing)
                         .onChange(of: queryBuilderState.source) { _, newSource in
                             // Update selected sources to match query builder source
                             let sourceID = newSource == .arXiv ? "arxiv" : "ads"
@@ -172,14 +173,18 @@ struct SmartSearchEditorView: View {
             // Apply defaults for new smart search
             feedsToInbox = defaultFeedsToInbox
             autoRefreshEnabled = defaultFeedsToInbox  // Auto-refresh on by default for inbox feeds
+
+            // Set initial source based on query builder's default source
+            let sourceID = queryBuilderState.source == .arXiv ? "arxiv" : "ads"
+            selectedSourceIDs = [sourceID]
         }
     }
 
     // MARK: - Save
 
     private func saveSmartSearch() {
-        // Use generated query if raw query is empty
-        let finalQuery = query.isEmpty ? queryBuilderState.generateQuery() : query
+        // Use manual edits if user edited the raw query directly, otherwise generate from builder
+        let finalQuery = isManuallyEditing ? query : queryBuilderState.generateQuery()
         let sourceIDs = Array(selectedSourceIDs)
 
         if let smartSearch {
