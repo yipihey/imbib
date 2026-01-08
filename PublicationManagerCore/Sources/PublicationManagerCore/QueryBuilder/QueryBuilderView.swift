@@ -134,7 +134,7 @@ struct QueryTermRow: View {
     let onDelete: () -> Void
     let onValueChange: () -> Void
 
-    @State private var showCategoryPicker = false
+    @State private var showPicker = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -145,45 +145,38 @@ struct QueryTermRow: View {
                 }
             }
             .labelsHidden()
-            .frame(width: 120)
+            .frame(width: 180)
             .onChange(of: term.field) { _, newField in
-                // Clear value when switching to/from category field
-                if newField.requiresCategoryPicker || term.field.requiresCategoryPicker {
+                // Clear value when switching to/from special picker field
+                if newField.requiresSpecialPicker || term.field.requiresSpecialPicker {
                     term.value = ""
                 }
                 onValueChange()
             }
 
-            // Value input
-            if term.field.requiresCategoryPicker {
+            // Value input - depends on picker type
+            switch term.field.pickerType {
+            case .arXivCategory:
                 // Category picker button
-                Button {
-                    showCategoryPicker = true
-                } label: {
-                    HStack {
-                        if term.value.isEmpty {
-                            Text("Select category...")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text(term.value)
-                        }
-                        Spacer()
-                        Image(systemName: "chevron.down")
-                            .foregroundStyle(.secondary)
+                pickerButton(placeholder: "Select category...")
+                    .sheet(isPresented: $showPicker) {
+                        ArXivCategoryPickerView(selectedCategory: $term.value)
+                            .onChange(of: term.value) { _, _ in
+                                onValueChange()
+                            }
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 6)
-                    .background(Color(nsColor: .textBackgroundColor))
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-                .buttonStyle(.plain)
-                .sheet(isPresented: $showCategoryPicker) {
-                    ArXivCategoryPickerView(selectedCategory: $term.value)
-                        .onChange(of: term.value) { _, _ in
-                            onValueChange()
-                        }
-                }
-            } else {
+
+            case .adsProperty:
+                // Property picker button
+                pickerButton(placeholder: "Select property...")
+                    .sheet(isPresented: $showPicker) {
+                        ADSPropertyPickerView(selectedProperty: $term.value)
+                            .onChange(of: term.value) { _, _ in
+                                onValueChange()
+                            }
+                    }
+
+            case .none:
                 // Text field
                 TextField(term.field.placeholder, text: $term.value)
                     .textFieldStyle(.roundedBorder)
@@ -202,6 +195,82 @@ struct QueryTermRow: View {
             .buttonStyle(.plain)
             .opacity(canDelete ? 1 : 0.3)
             .disabled(!canDelete)
+        }
+    }
+
+    @ViewBuilder
+    private func pickerButton(placeholder: String) -> some View {
+        Button {
+            showPicker = true
+        } label: {
+            HStack {
+                if term.value.isEmpty {
+                    Text(placeholder)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(term.value)
+                }
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(Color(nsColor: .textBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - ADS Property Picker View
+
+/// A picker for selecting ADS property values
+struct ADSPropertyPickerView: View {
+    @Binding var selectedProperty: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(ADSPropertyGroup.allCases) { group in
+                    Section(group.displayName) {
+                        ForEach(group.properties) { property in
+                            Button {
+                                selectedProperty = property.rawValue
+                                dismiss()
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(property.displayName)
+                                            .foregroundStyle(.primary)
+                                        Text(property.description)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if selectedProperty == property.rawValue {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(Color.accentColor)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Select Property")
+            #if os(macOS)
+            .frame(minWidth: 350, minHeight: 400)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
 }

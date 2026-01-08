@@ -29,9 +29,18 @@ public enum QuerySource: String, CaseIterable, Identifiable, Sendable {
         case .arXiv:
             return [.arXivAll, .arXivAuthor, .arXivTitle, .arXivAbstract, .arXivCategory, .arXivID]
         case .ads:
-            return [.adsAll, .adsAuthor, .adsTitle, .adsAbstract, .adsYear, .adsBibcode, .adsArXivID, .adsDatabase]
+            return [.adsAll, .adsAuthor, .adsTitle, .adsAbstract, .adsAbs, .adsFullText, .adsYear, .adsProperty, .adsBibstem, .adsAffiliation, .adsObject, .adsKeyword, .adsDOI, .adsBibcode, .adsArXivID, .adsORCID, .adsDatabase]
         }
     }
+}
+
+// MARK: - Query Field Picker Type
+
+/// The type of special picker a field needs
+public enum QueryFieldPickerType: Sendable {
+    case none
+    case arXivCategory
+    case adsProperty
 }
 
 // MARK: - Query Field
@@ -51,9 +60,18 @@ public enum QueryField: String, CaseIterable, Identifiable, Sendable {
     case adsAuthor
     case adsTitle
     case adsAbstract
+    case adsAbs  // Combined: abstract + title + keywords
+    case adsFullText
     case adsYear
+    case adsProperty
+    case adsBibstem
+    case adsAffiliation
+    case adsObject
+    case adsKeyword
+    case adsDOI
     case adsBibcode
     case adsArXivID
+    case adsORCID
     case adsDatabase
 
     public var id: String { rawValue }
@@ -71,10 +89,19 @@ public enum QueryField: String, CaseIterable, Identifiable, Sendable {
         case .adsAll: return "All Fields"
         case .adsAuthor: return "Author"
         case .adsTitle: return "Title"
-        case .adsAbstract: return "Abstract"
+        case .adsAbstract: return "Abstract Only"
+        case .adsAbs: return "Abstract+Title+Keywords"
+        case .adsFullText: return "Full Text"
         case .adsYear: return "Year"
+        case .adsProperty: return "Property"
+        case .adsBibstem: return "Journal"
+        case .adsAffiliation: return "Affiliation"
+        case .adsObject: return "Object"
+        case .adsKeyword: return "Keyword"
+        case .adsDOI: return "DOI"
         case .adsBibcode: return "Bibcode"
         case .adsArXivID: return "arXiv ID"
+        case .adsORCID: return "ORCID"
         case .adsDatabase: return "Database"
         }
     }
@@ -93,16 +120,42 @@ public enum QueryField: String, CaseIterable, Identifiable, Sendable {
         case .adsAuthor: return "author:"
         case .adsTitle: return "title:"
         case .adsAbstract: return "abstract:"
+        case .adsAbs: return "abs:"
+        case .adsFullText: return "full:"
         case .adsYear: return "year:"
+        case .adsProperty: return "property:"
+        case .adsBibstem: return "bibstem:"
+        case .adsAffiliation: return "aff:"
+        case .adsObject: return "object:"
+        case .adsKeyword: return "keyword:"
+        case .adsDOI: return "doi:"
         case .adsBibcode: return "bibcode:"
         case .adsArXivID: return "arxiv:"
+        case .adsORCID: return "orcid:"
         case .adsDatabase: return "database:"
         }
     }
 
-    /// Whether this field requires a category picker (vs free text)
-    public var requiresCategoryPicker: Bool {
-        self == .arXivCategory
+    /// Whether this field requires a special picker (vs free text)
+    public var requiresSpecialPicker: Bool {
+        switch self {
+        case .arXivCategory, .adsProperty:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// The type of picker needed for this field
+    public var pickerType: QueryFieldPickerType {
+        switch self {
+        case .arXivCategory:
+            return .arXivCategory
+        case .adsProperty:
+            return .adsProperty
+        default:
+            return .none
+        }
     }
 
     /// Placeholder text for the value field
@@ -116,12 +169,21 @@ public enum QueryField: String, CaseIterable, Identifiable, Sendable {
         case .arXivID: return "2301.12345"
 
         case .adsAll: return "search terms"
-        case .adsAuthor: return "Rubin"
+        case .adsAuthor: return "Rubin, Vera"
         case .adsTitle: return "galaxy rotation"
         case .adsAbstract: return "dark matter"
+        case .adsAbs: return "exoplanet"
+        case .adsFullText: return "methodology"
         case .adsYear: return "2024"
+        case .adsProperty: return "refereed"
+        case .adsBibstem: return "ApJ"
+        case .adsAffiliation: return "Harvard"
+        case .adsObject: return "M31"
+        case .adsKeyword: return "galaxies"
+        case .adsDOI: return "10.1088/..."
         case .adsBibcode: return "2024ApJ..."
         case .adsArXivID: return "2301.12345"
+        case .adsORCID: return "0000-0001-..."
         case .adsDatabase: return "astronomy"
         }
     }
@@ -131,9 +193,94 @@ public enum QueryField: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .arXivAll, .arXivAuthor, .arXivTitle, .arXivAbstract, .arXivCategory, .arXivID:
             return .arXiv
-        case .adsAll, .adsAuthor, .adsTitle, .adsAbstract, .adsYear, .adsBibcode, .adsArXivID, .adsDatabase:
+        case .adsAll, .adsAuthor, .adsTitle, .adsAbstract, .adsAbs, .adsFullText, .adsYear,
+             .adsProperty, .adsBibstem, .adsAffiliation, .adsObject, .adsKeyword, .adsDOI,
+             .adsBibcode, .adsArXivID, .adsORCID, .adsDatabase:
             return .ads
         }
+    }
+}
+
+// MARK: - ADS Property Values
+
+/// Available property values for ADS searches
+public enum ADSProperty: String, CaseIterable, Identifiable, Sendable {
+    // Document status
+    case refereed
+    case notrefereed
+    case article
+    case nonarticle
+
+    // Open access
+    case openaccess
+    case eprint_openaccess
+    case pub_openaccess
+
+    // Content availability
+    case esource
+    case data
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .refereed: return "Refereed"
+        case .notrefereed: return "Not Refereed"
+        case .article: return "Article"
+        case .nonarticle: return "Non-Article"
+        case .openaccess: return "Open Access"
+        case .eprint_openaccess: return "arXiv Open Access"
+        case .pub_openaccess: return "Publisher Open Access"
+        case .esource: return "Electronic Source"
+        case .data: return "Has Data Links"
+        }
+    }
+
+    public var description: String {
+        switch self {
+        case .refereed: return "Peer-reviewed articles only"
+        case .notrefereed: return "Non-peer-reviewed content"
+        case .article: return "Regular journal articles"
+        case .nonarticle: return "Meeting abstracts, software, catalogs"
+        case .openaccess: return "At least one OA version available"
+        case .eprint_openaccess: return "Open access from arXiv"
+        case .pub_openaccess: return "Publisher-provided open access"
+        case .esource: return "Electronic source available"
+        case .data: return "Has associated data links"
+        }
+    }
+
+    /// Group for organizing in picker
+    public var group: ADSPropertyGroup {
+        switch self {
+        case .refereed, .notrefereed, .article, .nonarticle:
+            return .documentStatus
+        case .openaccess, .eprint_openaccess, .pub_openaccess:
+            return .openAccess
+        case .esource, .data:
+            return .availability
+        }
+    }
+}
+
+/// Groups for organizing ADS properties in the picker
+public enum ADSPropertyGroup: String, CaseIterable, Identifiable, Sendable {
+    case documentStatus
+    case openAccess
+    case availability
+
+    public var id: String { rawValue }
+
+    public var displayName: String {
+        switch self {
+        case .documentStatus: return "Document Status"
+        case .openAccess: return "Open Access"
+        case .availability: return "Availability"
+        }
+    }
+
+    public var properties: [ADSProperty] {
+        ADSProperty.allCases.filter { $0.group == self }
     }
 }
 
@@ -263,14 +410,15 @@ public struct QueryBuilderState: Sendable {
             return targetSource == .arXiv ? .arXivAuthor : .adsAuthor
         case .arXivTitle, .adsTitle:
             return targetSource == .arXiv ? .arXivTitle : .adsTitle
-        case .arXivAbstract, .adsAbstract:
-            return targetSource == .arXiv ? .arXivAbstract : .adsAbstract
+        case .arXivAbstract, .adsAbstract, .adsAbs:
+            return targetSource == .arXiv ? .arXivAbstract : .adsAbs
         case .arXivID, .adsArXivID:
             return targetSource == .arXiv ? .arXivID : .adsArXivID
         case .arXivCategory:
             // No equivalent in ADS, use all fields
             return targetSource == .arXiv ? .arXivCategory : .adsAll
-        case .adsYear, .adsBibcode, .adsDatabase:
+        case .adsYear, .adsBibcode, .adsDatabase, .adsProperty, .adsBibstem,
+             .adsAffiliation, .adsObject, .adsKeyword, .adsDOI, .adsORCID, .adsFullText:
             // No equivalent in arXiv, use all fields
             return targetSource == .arXiv ? .arXivAll : field
         }
