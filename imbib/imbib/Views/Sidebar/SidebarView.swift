@@ -860,12 +860,22 @@ struct SidebarDropTarget<Content: View>: View {
 
 // MARK: - New Library Sheet
 
+#if os(macOS)
+enum LibraryStorageType: String, CaseIterable {
+    case iCloud = "iCloud"
+    case local = "Local Folder"
+}
+#endif
+
 struct NewLibrarySheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(LibraryManager.self) private var libraryManager
 
     @State private var name = ""
-    @State private var showFilePicker = false
+    #if os(macOS)
+    @State private var storageType: LibraryStorageType = .iCloud
+    @State private var selectedFolderURL: URL?
+    #endif
 
     var body: some View {
         NavigationStack {
@@ -875,19 +885,46 @@ struct NewLibrarySheet: View {
                 }
 
                 #if os(macOS)
-                Section("Location") {
-                    Button("Choose Folder...") {
-                        showFilePicker = true
+                Section("Storage") {
+                    Picker("Storage", selection: $storageType) {
+                        ForEach(LibraryStorageType.allCases, id: \.self) { type in
+                            Text(type.rawValue).tag(type)
+                        }
                     }
-                    Text("Select a folder to store your library files")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+
+                    if storageType == .iCloud {
+                        Text("Library will sync across your devices via iCloud")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if storageType == .local {
+                    Section("Location") {
+                        HStack {
+                            if let url = selectedFolderURL {
+                                Image(systemName: "folder.fill")
+                                    .foregroundStyle(.secondary)
+                                Text(url.lastPathComponent)
+                                    .lineLimit(1)
+                                Spacer()
+                            }
+                            Button(selectedFolderURL == nil ? "Choose Folder..." : "Change...") {
+                                chooseFolder()
+                            }
+                        }
+                        Text("Select a folder to store your library files")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 #endif
             }
             .navigationTitle("New Library")
             #if os(macOS)
-            .frame(minWidth: 350, minHeight: 200)
+            .frame(minWidth: 380, minHeight: storageType == .local ? 280 : 200)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -899,35 +936,58 @@ struct NewLibrarySheet: View {
                     Button("Create") {
                         createLibrary()
                     }
-                    .disabled(name.isEmpty)
+                    .disabled(!canCreate)
                 }
             }
         }
     }
 
-    private func createLibrary() {
+    private var canCreate: Bool {
+        guard !name.isEmpty else { return false }
         #if os(macOS)
-        // On macOS, show folder picker then create
+        if storageType == .local {
+            return selectedFolderURL != nil
+        }
+        #endif
+        return true
+    }
+
+    #if os(macOS)
+    private func chooseFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.message = "Choose a folder for your library"
 
-        if panel.runModal() == .OK, let url = panel.url {
-            let bibURL = url.appendingPathComponent("\(name.isEmpty ? "Library" : name).bib")
+        if panel.runModal() == .OK {
+            selectedFolderURL = panel.url
+        }
+    }
+    #endif
+
+    private func createLibrary() {
+        let libraryName = name.isEmpty ? "New Library" : name
+
+        #if os(macOS)
+        if storageType == .iCloud {
+            // iCloud: Create in Core Data (synced via CloudKit)
+            _ = libraryManager.createLibrary(name: libraryName)
+        } else if let url = selectedFolderURL {
+            // Local: Create with file-based storage
+            let bibURL = url.appendingPathComponent("\(libraryName).bib")
             _ = libraryManager.createLibrary(
-                name: name.isEmpty ? "New Library" : name,
+                name: libraryName,
                 bibFileURL: bibURL,
                 papersDirectoryURL: url.appendingPathComponent("Papers")
             )
-            dismiss()
         }
         #else
-        // On iOS, create in app container
-        _ = libraryManager.createLibrary(name: name.isEmpty ? "New Library" : name)
-        dismiss()
+        // On iOS, always create iCloud library
+        _ = libraryManager.createLibrary(name: libraryName)
         #endif
+
+        dismiss()
     }
 }
 

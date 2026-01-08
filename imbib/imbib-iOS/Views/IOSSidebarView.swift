@@ -346,7 +346,7 @@ struct NewLibrarySheet: View {
                 }
 
                 Section {
-                    Text("On iOS, libraries are stored in the app's container and synced via iCloud.")
+                    Text("Library will sync across your devices via iCloud.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -370,17 +370,9 @@ struct NewLibrarySheet: View {
     }
 
     private func createLibrary() {
-        Task { @MainActor in
-            // On iOS, create library in app container
-            let containerURL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-            let libraryURL = containerURL.appendingPathComponent("\(name).bib")
-
-            // Create empty .bib file
-            try? "".write(to: libraryURL, atomically: true, encoding: .utf8)
-
-            libraryManager.createLibrary(name: name, bibFileURL: libraryURL)
-            isPresented = false
-        }
+        // Create iCloud library (synced via CloudKit)
+        _ = libraryManager.createLibrary(name: name.isEmpty ? "New Library" : name)
+        isPresented = false
     }
 }
 
