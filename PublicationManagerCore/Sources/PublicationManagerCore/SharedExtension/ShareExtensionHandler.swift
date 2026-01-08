@@ -136,15 +136,12 @@ public final class ShareExtensionHandler {
 
     /// Import a paper from a shared item
     private func importPaperFromSharedItem(_ item: ShareExtensionService.SharedItem) async throws {
-        // Try to extract bibcode from URL
-        guard let bibcode = extractBibcodeFromURL(item.url) else {
+        // Try to extract paper identifier from URL (bibcode, arXiv ID, etc.)
+        guard let (identifier, searchQuery, sourceID) = extractPaperIdentifier(from: item.url) else {
             throw ShareExtensionError.invalidURL
         }
 
-        let sourceID = detectSourceID(from: item.url) ?? "ads"
-
         // Search for the paper using the appropriate source
-        let searchQuery = "bibcode:\(bibcode)"
         let options = SearchOptions(maxResults: 1, sortOrder: .relevance, sourceIDs: [sourceID])
         let results = try await sourceManager.search(query: searchQuery, options: options)
 
@@ -157,13 +154,13 @@ public final class ShareExtensionHandler {
            let library = libraryManager.find(id: libraryID) {
             // Import to specific library
             let publication = await repository.createFromSearchResult(firstResult, in: library)
-            Logger.shareExtension.infoCapture("Imported paper \(bibcode) to library \(library.displayName)", category: "shareext")
+            Logger.shareExtension.infoCapture("Imported paper \(identifier) to library \(library.displayName)", category: "shareext")
             _ = publication
         } else {
             // Import to Inbox
             let publication = await repository.createFromSearchResult(firstResult)
             InboxManager.shared.addToInbox(publication)
-            Logger.shareExtension.infoCapture("Imported paper \(bibcode) to Inbox", category: "shareext")
+            Logger.shareExtension.infoCapture("Imported paper \(identifier) to Inbox", category: "shareext")
         }
     }
 
@@ -218,6 +215,9 @@ public final class ShareExtensionHandler {
         if ADSURLParser.isADSURL(url) {
             return "ads"
         }
+        if ArXivURLParser.isArXivURL(url) {
+            return "arxiv"
+        }
         // Future: Add detection for other sources
         // if PubMedURLParser.isPubMedURL(url) { return "pubmed" }
         // if CrossrefURLParser.isCrossrefURL(url) { return "crossref" }
@@ -238,6 +238,18 @@ public final class ShareExtensionHandler {
                 return nil
             }
         }
+        if let parsed = ArXivURLParser.parse(url) {
+            switch parsed {
+            case .search(let query, _):
+                return (query, "arxiv")
+            case .categoryList(let category, _):
+                // Category feeds become cat: queries
+                return ("cat:\(category)", "arxiv")
+            case .paper, .pdf:
+                // Paper URLs are handled by extractArXivIDFromURL
+                return nil
+            }
+        }
         // Future: Add parsing for other sources
         return nil
     }
@@ -246,6 +258,34 @@ public final class ShareExtensionHandler {
     private func extractBibcodeFromURL(_ url: URL) -> String? {
         if let parsed = ADSURLParser.parse(url), case .paper(let bibcode) = parsed {
             return bibcode
+        }
+        return nil
+    }
+
+    /// Extract an arXiv ID from a paper or PDF URL.
+    private func extractArXivIDFromURL(_ url: URL) -> String? {
+        guard let parsed = ArXivURLParser.parse(url) else {
+            return nil
+        }
+        switch parsed {
+        case .paper(let arxivID), .pdf(let arxivID):
+            return arxivID
+        case .search, .categoryList:
+            return nil
+        }
+    }
+
+    /// Extract a paper identifier from any supported URL.
+    ///
+    /// Returns the identifier and its type for searching.
+    private func extractPaperIdentifier(from url: URL) -> (identifier: String, queryFormat: String, sourceID: String)? {
+        // Check ADS (bibcode)
+        if let bibcode = extractBibcodeFromURL(url) {
+            return (bibcode, "bibcode:\(bibcode)", "ads")
+        }
+        // Check arXiv
+        if let arxivID = extractArXivIDFromURL(url) {
+            return (arxivID, arxivID, "arxiv")
         }
         // Future: Add extraction for other sources (PubMed ID, DOI, etc.)
         return nil

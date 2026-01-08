@@ -69,6 +69,9 @@ public struct ListViewSettings: Codable, Equatable, Sendable {
     /// Show paperclip icon for publications with attachments
     public var showAttachmentIndicator: Bool
 
+    /// Show arXiv category chips for papers with categories
+    public var showCategories: Bool
+
     // MARK: - Content Limits
 
     /// Number of abstract preview lines (0 = hidden)
@@ -88,6 +91,7 @@ public struct ListViewSettings: Codable, Equatable, Sendable {
         showCitationCount: Bool = true,
         showUnreadIndicator: Bool = true,
         showAttachmentIndicator: Bool = true,
+        showCategories: Bool = true,
         abstractLineLimit: Int = 2,
         rowDensity: RowDensity = .default
     ) {
@@ -97,6 +101,7 @@ public struct ListViewSettings: Codable, Equatable, Sendable {
         self.showCitationCount = showCitationCount
         self.showUnreadIndicator = showUnreadIndicator
         self.showAttachmentIndicator = showAttachmentIndicator
+        self.showCategories = showCategories
         self.abstractLineLimit = max(0, min(10, abstractLineLimit))
         self.rowDensity = rowDensity
     }

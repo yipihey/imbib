@@ -99,6 +99,14 @@ public struct SearchResult: Sendable, Identifiable, Equatable, Hashable {
     public let semanticScholarID: String?
     public let openAlexID: String?
 
+    // MARK: - Categories (primarily for arXiv)
+
+    /// Primary category (e.g., "cs.LG", "astro-ph.GA")
+    public let primaryCategory: String?
+
+    /// All categories including cross-listed (e.g., ["cs.LG", "stat.ML"])
+    public let categories: [String]?
+
     // MARK: - URLs
 
     /// All available PDF links with type information
@@ -127,6 +135,8 @@ public struct SearchResult: Sendable, Identifiable, Equatable, Hashable {
         bibcode: String? = nil,
         semanticScholarID: String? = nil,
         openAlexID: String? = nil,
+        primaryCategory: String? = nil,
+        categories: [String]? = nil,
         pdfLinks: [PDFLink] = [],
         webURL: URL? = nil,
         bibtexURL: URL? = nil
@@ -144,6 +154,8 @@ public struct SearchResult: Sendable, Identifiable, Equatable, Hashable {
         self.bibcode = bibcode
         self.semanticScholarID = semanticScholarID
         self.openAlexID = openAlexID
+        self.primaryCategory = primaryCategory
+        self.categories = categories
         self.pdfLinks = pdfLinks
         self.webURL = webURL
         self.bibtexURL = bibtexURL
@@ -164,6 +176,8 @@ public struct SearchResult: Sendable, Identifiable, Equatable, Hashable {
         bibcode: String? = nil,
         semanticScholarID: String? = nil,
         openAlexID: String? = nil,
+        primaryCategory: String? = nil,
+        categories: [String]? = nil,
         pdfURL: URL?,
         webURL: URL? = nil,
         bibtexURL: URL? = nil
@@ -181,6 +195,8 @@ public struct SearchResult: Sendable, Identifiable, Equatable, Hashable {
         self.bibcode = bibcode
         self.semanticScholarID = semanticScholarID
         self.openAlexID = openAlexID
+        self.primaryCategory = primaryCategory
+        self.categories = categories
         // Convert single URL to pdfLinks array with default type
         if let url = pdfURL {
             self.pdfLinks = [PDFLink(url: url, type: .publisher)]

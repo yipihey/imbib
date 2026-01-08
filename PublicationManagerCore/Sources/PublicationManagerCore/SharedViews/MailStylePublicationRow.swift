@@ -141,6 +141,15 @@ public struct MailStylePublicationRow: View {
                         .lineLimit(1)
                 }
 
+                // Row 2.75: Category chips (conditional)
+                if settings.showCategories && !data.categories.isEmpty {
+                    CategoryChipsRow(
+                        categories: data.categories,
+                        primaryCategory: data.primaryCategory,
+                        maxVisible: 3
+                    )
+                }
+
                 // Row 3: Attachment indicator + Abstract preview (conditional)
                 if (settings.showAttachmentIndicator && data.hasPDF) || settings.abstractLineLimit > 0 {
                     HStack(spacing: 4) {
@@ -281,7 +290,9 @@ extension PublicationRowData {
         doi: String?,
         venue: String? = nil,
         dateAdded: Date = Date(),
-        dateModified: Date = Date()
+        dateModified: Date = Date(),
+        primaryCategory: String? = nil,
+        categories: [String] = []
     ) {
         self.id = id
         self.citeKey = citeKey
@@ -296,5 +307,7 @@ extension PublicationRowData {
         self.venue = venue
         self.dateAdded = dateAdded
         self.dateModified = dateModified
+        self.primaryCategory = primaryCategory
+        self.categories = categories
     }
 }

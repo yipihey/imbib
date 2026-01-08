@@ -10,9 +10,19 @@ import SwiftUI
 /// SwiftUI view for the share extension dialog.
 ///
 /// Displays either a smart search creation form or paper import form based on
-/// the type of ADS URL being shared. When a page title is provided (via JavaScript
-/// preprocessing), it's used as the clean query for smart searches.
+/// the type of URL being shared (ADS or arXiv). When a page title is provided
+/// (via JavaScript preprocessing), it's used as the clean query for smart searches.
 public struct ShareExtensionView: View {
+
+    // MARK: - Parsed URL Type
+
+    /// Unified type for parsed URLs from any supported source
+    enum ParsedURLType {
+        case paper(identifier: String, sourceID: String, label: String)
+        case search(query: String, title: String?, sourceID: String)
+        case categoryFeed(category: String, sourceID: String)
+        case docsSelection(query: String)
+    }
 
     // MARK: - Properties
 
@@ -31,7 +41,7 @@ public struct ShareExtensionView: View {
 
     // MARK: - State
 
-    @State private var parsedURL: ADSURLParser.ADSURLType?
+    @State private var parsedURL: ParsedURLType?
     @State private var smartSearchName: String = ""
     @State private var smartSearchQuery: String = ""
     @State private var selectedLibraryID: UUID?
@@ -66,10 +76,12 @@ public struct ShareExtensionView: View {
         Group {
             if let urlType = parsedURL {
                 switch urlType {
-                case .search(let query, let title):
+                case .search(let query, let title, _):
                     smartSearchForm(query: query, suggestedTitle: title)
-                case .paper(let bibcode):
-                    paperImportForm(bibcode: bibcode)
+                case .paper(let identifier, _, let label):
+                    paperImportForm(identifier: identifier, label: label)
+                case .categoryFeed(let category, _):
+                    categoryFeedForm(category: category)
                 case .docsSelection(let query):
                     docsSelectionForm(query: query)
                 }
@@ -78,24 +90,58 @@ public struct ShareExtensionView: View {
             }
         }
         .onAppear {
-            parsedURL = ADSURLParser.parse(sharedURL)
-            if case .search(let urlQuery, _) = parsedURL {
+            parsedURL = parseSharedURL(sharedURL)
+            if case .search(let urlQuery, _, _) = parsedURL {
                 // If we have a page title from JavaScript preprocessing, use it as the query
-                // The ADS page title IS the clean search query
                 if let title = pageTitle, !title.isEmpty {
-                    // Use page title as both the name and query
                     smartSearchName = title
                     smartSearchQuery = title
                 } else {
-                    // Fall back to URL-parsed query
                     smartSearchName = urlQuery
                     smartSearchQuery = urlQuery
                 }
+            } else if case .categoryFeed(let category, _) = parsedURL {
+                // For category feeds, create a descriptive name
+                smartSearchName = "arXiv \(category)"
+                smartSearchQuery = "cat:\(category)"
             }
             // Default to first library
             selectedLibraryID = availableLibraries.first(where: { $0.isDefault })?.id
                 ?? availableLibraries.first?.id
         }
+    }
+
+    // MARK: - URL Parsing
+
+    /// Parse URL to unified type supporting both ADS and arXiv
+    private func parseSharedURL(_ url: URL) -> ParsedURLType? {
+        // Try ADS first
+        if let adsType = ADSURLParser.parse(url) {
+            switch adsType {
+            case .paper(let bibcode):
+                return .paper(identifier: bibcode, sourceID: "ads", label: "ADS Bibcode")
+            case .search(let query, let title):
+                return .search(query: query, title: title, sourceID: "ads")
+            case .docsSelection(let query):
+                return .docsSelection(query: query)
+            }
+        }
+
+        // Try arXiv
+        if let arxivType = ArXivURLParser.parse(url) {
+            switch arxivType {
+            case .paper(let arxivID):
+                return .paper(identifier: arxivID, sourceID: "arxiv", label: "arXiv ID")
+            case .pdf(let arxivID):
+                return .paper(identifier: arxivID, sourceID: "arxiv", label: "arXiv ID")
+            case .search(let query, let title):
+                return .search(query: query, title: title, sourceID: "arxiv")
+            case .categoryList(let category, _):
+                return .categoryFeed(category: category, sourceID: "arxiv")
+            }
+        }
+
+        return nil
     }
 
     // MARK: - Smart Search Form
@@ -169,18 +215,18 @@ public struct ShareExtensionView: View {
 
     // MARK: - Paper Import Form
 
-    private func paperImportForm(bibcode: String) -> some View {
+    private func paperImportForm(identifier: String, label: String) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             // Header
             Label("Import Paper", systemImage: "doc.badge.plus")
                 .font(.headline)
 
-            // Bibcode display
+            // Identifier display
             VStack(alignment: .leading, spacing: 4) {
-                Text("Bibcode")
+                Text(label)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
-                Text(bibcode)
+                Text(identifier)
                     .font(.system(.body, design: .monospaced))
             }
 
@@ -217,7 +263,7 @@ public struct ShareExtensionView: View {
                 Spacer()
 
                 Button("Import") {
-                    confirmPaperImport(bibcode: bibcode)
+                    confirmPaperImport()
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(isProcessing)
@@ -225,6 +271,73 @@ public struct ShareExtensionView: View {
         }
         .padding()
         .frame(minWidth: 300, minHeight: 200)
+    }
+
+    // MARK: - Category Feed Form
+
+    private func categoryFeedForm(category: String) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            Label("Follow arXiv Category", systemImage: "antenna.radiowaves.left.and.right")
+                .font(.headline)
+
+            // Category display
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Category")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text(category)
+                    .font(.system(.title3, design: .monospaced))
+                    .fontWeight(.medium)
+            }
+
+            // Name field
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Feed Name")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                TextField("Feed Name", text: $smartSearchName)
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            // Library picker
+            if !availableLibraries.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Library")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Picker("Library", selection: $selectedLibraryID) {
+                        ForEach(availableLibraries) { library in
+                            Text(library.name).tag(library.id as UUID?)
+                        }
+                    }
+                    .labelsHidden()
+                    #if os(macOS)
+                    .pickerStyle(.menu)
+                    #endif
+                }
+            }
+
+            Spacer()
+
+            // Buttons
+            HStack {
+                Button("Cancel") {
+                    onCancel()
+                }
+                .keyboardShortcut(.cancelAction)
+
+                Spacer()
+
+                Button("Follow") {
+                    confirmSmartSearch()
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(smartSearchName.isEmpty || isProcessing)
+            }
+        }
+        .padding()
+        .frame(minWidth: 300, minHeight: 280)
     }
 
     // MARK: - Docs Selection Form
@@ -284,10 +397,10 @@ public struct ShareExtensionView: View {
                 .font(.largeTitle)
                 .foregroundStyle(.orange)
 
-            Text("Invalid ADS URL")
+            Text("Unsupported URL")
                 .font(.headline)
 
-            Text("This URL is not a recognized ADS search or paper URL.")
+            Text("This URL is not a recognized ADS or arXiv URL.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -325,7 +438,7 @@ public struct ShareExtensionView: View {
         onConfirm(item)
     }
 
-    private func confirmPaperImport(bibcode: String) {
+    private func confirmPaperImport() {
         isProcessing = true
 
         let item = ShareExtensionService.SharedItem(
@@ -396,5 +509,51 @@ public struct ShareExtensionView: View {
         availableLibraries: [],
         onConfirm: { _ in },
         onCancel: {}
+    )
+}
+
+#Preview("arXiv Paper URL") {
+    ShareExtensionView(
+        sharedURL: URL(string: "https://arxiv.org/abs/2301.12345")!,
+        availableLibraries: [
+            SharedLibraryInfo(id: UUID(), name: "Main Library", isDefault: true)
+        ],
+        onConfirm: { item in
+            print("Confirmed: \(item)")
+        },
+        onCancel: {
+            print("Cancelled")
+        }
+    )
+}
+
+#Preview("arXiv Category Feed") {
+    ShareExtensionView(
+        sharedURL: URL(string: "https://arxiv.org/list/cs.LG/recent")!,
+        availableLibraries: [
+            SharedLibraryInfo(id: UUID(), name: "Main Library", isDefault: true),
+            SharedLibraryInfo(id: UUID(), name: "ML Papers", isDefault: false)
+        ],
+        onConfirm: { item in
+            print("Confirmed: \(item)")
+        },
+        onCancel: {
+            print("Cancelled")
+        }
+    )
+}
+
+#Preview("arXiv Search URL") {
+    ShareExtensionView(
+        sharedURL: URL(string: "https://arxiv.org/search/?query=transformer+attention&searchtype=all")!,
+        availableLibraries: [
+            SharedLibraryInfo(id: UUID(), name: "Main Library", isDefault: true)
+        ],
+        onConfirm: { item in
+            print("Confirmed: \(item)")
+        },
+        onCancel: {
+            print("Cancelled")
+        }
     )
 }

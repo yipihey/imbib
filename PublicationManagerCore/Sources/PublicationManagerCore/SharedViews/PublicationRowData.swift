@@ -68,6 +68,14 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     /// Date last modified (for sorting)
     public let dateModified: Date
 
+    // MARK: - arXiv Categories
+
+    /// Primary arXiv category (e.g., "cs.LG", "astro-ph.GA")
+    public let primaryCategory: String?
+
+    /// All arXiv categories (includes cross-listed)
+    public let categories: [String]
+
     // MARK: - Initialization
 
     /// Create a snapshot from a CDPublication.
@@ -94,6 +102,8 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         self.venue = Self.extractVenue(from: publication)
         self.dateAdded = publication.dateAdded
         self.dateModified = publication.dateModified
+        self.primaryCategory = Self.extractPrimaryCategory(from: publication)
+        self.categories = Self.extractCategories(from: publication)
     }
 
     // MARK: - Venue Extraction
@@ -214,6 +224,38 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         // Only show paperclip for actual stored attachments (not potential download URLs)
         guard let linkedFiles = publication.linkedFiles else { return false }
         return !linkedFiles.isEmpty
+    }
+
+    // MARK: - Category Extraction
+
+    /// Extract primary arXiv category from BibTeX fields.
+    ///
+    /// Looks for `primaryclass` field (standard arXiv BibTeX convention).
+    private static func extractPrimaryCategory(from publication: CDPublication) -> String? {
+        publication.fields["primaryclass"]
+    }
+
+    /// Extract all arXiv categories from BibTeX fields.
+    ///
+    /// Returns the primary category plus any cross-listed categories from `categories` field.
+    private static func extractCategories(from publication: CDPublication) -> [String] {
+        var result: [String] = []
+
+        // Add primary category first
+        if let primary = publication.fields["primaryclass"], !primary.isEmpty {
+            result.append(primary)
+        }
+
+        // Add additional categories from categories field (comma-separated)
+        if let categoriesField = publication.fields["categories"] {
+            let additional = categoriesField
+                .components(separatedBy: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty && !result.contains($0) }
+            result.append(contentsOf: additional)
+        }
+
+        return result
     }
 }
 

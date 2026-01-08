@@ -46,14 +46,21 @@ public actor ArXivSource: SourcePlugin {
 
         await rateLimiter.waitIfNeeded()
 
+        // Build the arXiv API query from user query
+        let apiQuery = buildAPIQuery(from: query)
+
+        // Determine sort order based on query type
+        let sortBy = query.hasPrefix("cat:") ? "submittedDate" : "relevance"
+        let sortOrder = "descending"
+
         // Build URL
         var components = URLComponents(string: baseURL)!
         components.queryItems = [
-            URLQueryItem(name: "search_query", value: "all:\(query)"),
+            URLQueryItem(name: "search_query", value: apiQuery),
             URLQueryItem(name: "start", value: "0"),
             URLQueryItem(name: "max_results", value: "\(maxResults)"),
-            URLQueryItem(name: "sortBy", value: "relevance"),
-            URLQueryItem(name: "sortOrder", value: "descending"),
+            URLQueryItem(name: "sortBy", value: sortBy),
+            URLQueryItem(name: "sortOrder", value: sortOrder),
         ]
 
         guard let url = components.url else {
@@ -77,12 +84,186 @@ public actor ArXivSource: SourcePlugin {
         return try parseAtomFeed(data)
     }
 
+    // MARK: - Query Building
+
+    /// Build an arXiv API query from a user-friendly query string.
+    ///
+    /// Supports the following field prefixes:
+    /// - `cat:cs.LG` - Category search
+    /// - `au:Author` - Author search
+    /// - `ti:Title` - Title search
+    /// - `abs:Abstract` - Abstract search
+    /// - `id:2301.12345` - arXiv ID search
+    /// - Plain text - All fields search
+    ///
+    /// Multiple terms can be combined with AND/OR.
+    private func buildAPIQuery(from query: String) -> String {
+        // If query already contains arXiv API syntax, use it directly
+        if isRawAPIQuery(query) {
+            return query
+        }
+
+        // Handle field prefixes
+        let fieldMappings: [(prefix: String, apiField: String)] = [
+            ("cat:", "cat:"),
+            ("category:", "cat:"),
+            ("au:", "au:"),
+            ("author:", "au:"),
+            ("ti:", "ti:"),
+            ("title:", "ti:"),
+            ("abs:", "abs:"),
+            ("abstract:", "abs:"),
+            ("id:", "id:"),
+            ("arxiv:", "id:"),
+        ]
+
+        // Check for field prefix at start
+        for (prefix, apiField) in fieldMappings {
+            if query.lowercased().hasPrefix(prefix) {
+                let value = String(query.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+                // Handle quoted values
+                let cleanValue = value.replacingOccurrences(of: "\"", with: "")
+                // Wrap multi-word values in quotes for phrase search
+                if cleanValue.contains(" ") && !cleanValue.contains(" AND ") && !cleanValue.contains(" OR ") {
+                    return "\(apiField)\"\(cleanValue)\""
+                }
+                return "\(apiField)\(cleanValue)"
+            }
+        }
+
+        // Check for combined queries (field1:value1 AND field2:value2)
+        let andParts = query.components(separatedBy: " AND ")
+        if andParts.count > 1 {
+            let transformedParts = andParts.map { transformSingleTerm($0.trimmingCharacters(in: .whitespaces)) }
+            return transformedParts.joined(separator: " AND ")
+        }
+
+        let orParts = query.components(separatedBy: " OR ")
+        if orParts.count > 1 {
+            let transformedParts = orParts.map { transformSingleTerm($0.trimmingCharacters(in: .whitespaces)) }
+            return transformedParts.joined(separator: " OR ")
+        }
+
+        // Plain text query - search all fields
+        return "all:\(query)"
+    }
+
+    /// Transform a single term that might have a field prefix.
+    private func transformSingleTerm(_ term: String) -> String {
+        let fieldMappings: [(prefix: String, apiField: String)] = [
+            ("cat:", "cat:"),
+            ("category:", "cat:"),
+            ("au:", "au:"),
+            ("author:", "au:"),
+            ("ti:", "ti:"),
+            ("title:", "ti:"),
+            ("abs:", "abs:"),
+            ("abstract:", "abs:"),
+            ("id:", "id:"),
+            ("arxiv:", "id:"),
+        ]
+
+        for (prefix, apiField) in fieldMappings {
+            if term.lowercased().hasPrefix(prefix) {
+                let value = String(term.dropFirst(prefix.count)).trimmingCharacters(in: .whitespaces)
+                let cleanValue = value.replacingOccurrences(of: "\"", with: "")
+                if cleanValue.contains(" ") {
+                    return "\(apiField)\"\(cleanValue)\""
+                }
+                return "\(apiField)\(cleanValue)"
+            }
+        }
+
+        // No prefix - treat as all fields
+        return "all:\(term)"
+    }
+
+    /// Check if query is already in raw arXiv API format.
+    private func isRawAPIQuery(_ query: String) -> Bool {
+        let apiPrefixes = ["all:", "ti:", "au:", "abs:", "co:", "jr:", "cat:", "rn:", "id:", "submittedDate:"]
+        return apiPrefixes.contains { query.hasPrefix($0) }
+    }
+
     public func fetchBibTeX(for result: SearchResult) async throws -> BibTeXEntry {
         Logger.sources.entering()
         defer { Logger.sources.exiting() }
 
-        // arXiv doesn't have a direct BibTeX endpoint, so we construct it
+        // Try to fetch from arXiv's BibTeX endpoint
+        if let arxivID = result.arxivID {
+            do {
+                return try await fetchBibTeXFromEndpoint(arxivID: arxivID, result: result)
+            } catch {
+                Logger.sources.warningCapture("Failed to fetch BibTeX from arXiv endpoint: \(error.localizedDescription), falling back to constructed entry", category: "sources")
+            }
+        }
+
+        // Fall back to constructed entry
         return constructBibTeXEntry(from: result)
+    }
+
+    /// Fetch BibTeX directly from arXiv's /bibtex/{id} endpoint.
+    private func fetchBibTeXFromEndpoint(arxivID: String, result: SearchResult) async throws -> BibTeXEntry {
+        await rateLimiter.waitIfNeeded()
+
+        // Strip version suffix if present for cleaner URL (arXiv redirects)
+        let cleanID = arxivID.replacingOccurrences(of: #"v\d+$"#, with: "", options: .regularExpression)
+
+        guard let url = URL(string: "https://arxiv.org/bibtex/\(cleanID)") else {
+            throw SourceError.invalidRequest("Invalid arXiv BibTeX URL")
+        }
+
+        Logger.network.httpRequest("GET", url: url)
+
+        let (data, response) = try await session.data(from: url)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
+
+        guard httpResponse.statusCode == 200 else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        guard let bibtexString = String(data: data, encoding: .utf8) else {
+            throw SourceError.parseError("Invalid BibTeX encoding")
+        }
+
+        // Parse the BibTeX
+        let parser = BibTeXParser()
+        let items = try parser.parse(bibtexString)
+
+        // Find the first entry
+        guard let firstItem = items.first,
+              case .entry(let entry) = firstItem else {
+            // If parsing fails, fall back to constructed entry
+            return constructBibTeXEntry(from: result)
+        }
+
+        // Normalize and add any missing fields from result
+        var fields = entry.fields
+
+        // Ensure we have the arXiv-specific fields
+        fields["eprint"] = arxivID
+        fields["archiveprefix"] = "arXiv"
+
+        // Add primaryclass if we have it from the search result
+        if let primaryCategory = result.primaryCategory, fields["primaryclass"] == nil {
+            fields["primaryclass"] = primaryCategory
+        }
+
+        // Add abstract if we have it and the BibTeX doesn't
+        if let abstract = result.abstract, fields["abstract"] == nil {
+            fields["abstract"] = abstract
+        }
+
+        return BibTeXEntry(
+            citeKey: entry.citeKey,
+            entryType: entry.entryType,
+            fields: fields,
+            rawBibTeX: bibtexString
+        )
     }
 
     public nonisolated func normalize(_ entry: BibTeXEntry) -> BibTeXEntry {
@@ -128,6 +309,10 @@ public actor ArXivSource: SourcePlugin {
         if let arxivID = result.arxivID {
             fields["eprint"] = arxivID
             fields["archiveprefix"] = "arXiv"
+        }
+        // Add primaryclass from category (arXiv convention)
+        if let primaryCategory = result.primaryCategory {
+            fields["primaryclass"] = primaryCategory
         }
         if let url = result.webURL {
             fields["url"] = url.absoluteString
@@ -180,6 +365,8 @@ private class ArXivAtomParser: NSObject, XMLParserDelegate {
     private var currentText: String = ""
     private var currentAuthors: [String] = []
     private var currentLinks: [String: String] = [:]
+    private var currentCategories: [String] = []
+    private var currentPrimaryCategory: String?
 
     struct EntryData {
         var id: String = ""
@@ -211,6 +398,8 @@ private class ArXivAtomParser: NSObject, XMLParserDelegate {
             currentEntry = EntryData()
             currentAuthors = []
             currentLinks = [:]
+            currentCategories = []
+            currentPrimaryCategory = nil
         } else if elementName == "link", let href = attributeDict["href"] {
             let rel = attributeDict["rel"] ?? "alternate"
             let type = attributeDict["type"] ?? ""
@@ -218,6 +407,17 @@ private class ArXivAtomParser: NSObject, XMLParserDelegate {
                 currentLinks["web"] = href
             } else if type == "application/pdf" {
                 currentLinks["pdf"] = href
+            }
+        } else if elementName == "arxiv:primary_category", let term = attributeDict["term"] {
+            // Primary category: <arxiv:primary_category term="cs.LG"/>
+            currentPrimaryCategory = term
+            if !currentCategories.contains(term) {
+                currentCategories.append(term)
+            }
+        } else if elementName == "category", let term = attributeDict["term"] {
+            // Additional categories: <category term="stat.ML"/>
+            if !currentCategories.contains(term) {
+                currentCategories.append(term)
             }
         }
     }
@@ -245,6 +445,11 @@ private class ArXivAtomParser: NSObject, XMLParserDelegate {
                 pdfLinks.append(PDFLink(url: pdfURL, type: .preprint, sourceID: "arxiv"))
             }
 
+            // Determine primary category: use explicit primary_category, else first category, else extract from old-style ID
+            let primaryCat = currentPrimaryCategory
+                ?? currentCategories.first
+                ?? (arxivID.flatMap { extractCategoryFromOldID($0) })
+
             let result = SearchResult(
                 id: arxivID ?? entry.id,
                 sourceID: "arxiv",
@@ -255,6 +460,8 @@ private class ArXivAtomParser: NSObject, XMLParserDelegate {
                 abstract: entry.summary,
                 doi: entry.doi,
                 arxivID: arxivID,
+                primaryCategory: primaryCat,
+                categories: currentCategories.isEmpty ? nil : currentCategories,
                 pdfLinks: pdfLinks,
                 webURL: currentLinks["web"].flatMap { URL(string: $0) }
             )
@@ -279,6 +486,14 @@ private class ArXivAtomParser: NSObject, XMLParserDelegate {
                 break
             }
         }
+    }
+
+    /// Extract category from old-style arXiv ID (e.g., "hep-th/9901001" → "hep-th")
+    private func extractCategoryFromOldID(_ arxivID: String) -> String? {
+        if arxivID.contains("/") {
+            return arxivID.components(separatedBy: "/").first
+        }
+        return nil
     }
 
     private func extractArXivID(from idURL: String) -> String? {
