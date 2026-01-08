@@ -20,6 +20,11 @@ struct SidebarView: View {
 
     @Environment(LibraryManager.self) private var libraryManager
 
+    // MARK: - Observed Objects
+
+    /// Observe SmartSearchRepository to refresh when smart searches change
+    @ObservedObject private var smartSearchRepository = SmartSearchRepository.shared
+
     // MARK: - State
 
     @State private var expandedLibraries: Set<UUID> = []
@@ -75,18 +80,21 @@ struct SidebarView: View {
         .sheet(isPresented: $showingNewSmartSearch) {
             if let library = selectedLibrary {
                 SmartSearchEditorView(smartSearch: nil, library: library) {
-                    // Refresh handled by Core Data observation
+                    // Reload all smart searches to update sidebar
+                    smartSearchRepository.loadSmartSearches(for: nil)
                 }
             }
         }
         .sheet(item: $editingSmartSearch) { smartSearch in
             SmartSearchEditorView(smartSearch: smartSearch, library: smartSearch.library) {
-                // Refresh handled by Core Data observation
+                // Reload all smart searches to update sidebar
+                smartSearchRepository.loadSmartSearches(for: nil)
             }
         }
         .sheet(isPresented: $showingNewInboxFeed) {
             SmartSearchEditorView(smartSearch: nil, library: nil, defaultFeedsToInbox: true) {
-                // Refresh handled by Core Data observation
+                // Reload all smart searches to update sidebar
+                smartSearchRepository.loadSmartSearches(for: nil)
             }
         }
         .sheet(isPresented: $showingNewLibrary) {
@@ -122,6 +130,8 @@ struct SidebarView: View {
             if expandedLibraries.isEmpty, let firstLibrary = libraryManager.libraries.first {
                 expandedLibraries.insert(firstLibrary.id)
             }
+            // Load all smart searches (not filtered by library) for sidebar display
+            smartSearchRepository.loadSmartSearches(for: nil)
         }
         .onReceive(NotificationCenter.default.publisher(for: .readStatusDidChange)) { _ in
             // Force re-render to update unread counts
@@ -172,9 +182,10 @@ struct SidebarView: View {
             }
             .tag(SidebarSection.unread(library))
 
-            // Smart Searches for this library
-            if let smartSearches = library.smartSearches as? Set<CDSmartSearch>, !smartSearches.isEmpty {
-                ForEach(Array(smartSearches).sorted(by: { $0.name < $1.name }), id: \.id) { smartSearch in
+            // Smart Searches for this library (use repository for change observation)
+            let librarySmartSearches = smartSearchRepository.smartSearches.filter { $0.library?.id == library.id }
+            if !librarySmartSearches.isEmpty {
+                ForEach(librarySmartSearches.sorted(by: { $0.name < $1.name }), id: \.id) { smartSearch in
                     SmartSearchRow(smartSearch: smartSearch, count: resultCount(for: smartSearch))
                         .tag(SidebarSection.smartSearch(smartSearch))
                         .contextMenu {

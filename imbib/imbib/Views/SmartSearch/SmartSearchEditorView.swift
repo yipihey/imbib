@@ -26,6 +26,7 @@ struct SmartSearchEditorView: View {
 
     @State private var name: String = ""
     @State private var query: String = ""
+    @State private var queryBuilderState = QueryBuilderState()
     @State private var selectedSourceIDs: Set<String> = []
     @State private var availableSources: [SourceMetadata] = []
 
@@ -62,10 +63,15 @@ struct SmartSearchEditorView: View {
                         TextField("", text: $name, prompt: Text("My papers").foregroundColor(.secondary))
                             .textFieldStyle(.roundedBorder)
                     }
-                    LabeledContent("query:") {
-                        TextField("", text: $query, prompt: Text("author: Rubin, Vera").foregroundColor(.secondary))
-                            .textFieldStyle(.roundedBorder)
-                    }
+                }
+
+                Section("Query") {
+                    QueryBuilderView(state: $queryBuilderState, rawQuery: $query)
+                        .onChange(of: queryBuilderState.source) { _, newSource in
+                            // Update selected sources to match query builder source
+                            let sourceID = newSource == .arXiv ? "arxiv" : "ads"
+                            selectedSourceIDs = [sourceID]
+                        }
                 }
 
                 Section("Sources") {
@@ -134,7 +140,7 @@ struct SmartSearchEditorView: View {
                     Button("Save") {
                         saveSmartSearch()
                     }
-                    .disabled(name.isEmpty || query.isEmpty)
+                    .disabled(name.isEmpty || (query.isEmpty && queryBuilderState.generateQuery().isEmpty))
                 }
             }
             .task {
@@ -153,6 +159,11 @@ struct SmartSearchEditorView: View {
             query = smartSearch.query
             selectedSourceIDs = Set(smartSearch.sources)
 
+            // Parse existing query into query builder
+            // Detect source from selected sources
+            let source: QuerySource = smartSearch.sources.contains("ads") ? .ads : .arXiv
+            queryBuilderState = QueryBuilderState.parse(query: smartSearch.query, source: source)
+
             // Load inbox settings
             feedsToInbox = smartSearch.feedsToInbox
             autoRefreshEnabled = smartSearch.autoRefreshEnabled
@@ -167,13 +178,15 @@ struct SmartSearchEditorView: View {
     // MARK: - Save
 
     private func saveSmartSearch() {
+        // Use generated query if raw query is empty
+        let finalQuery = query.isEmpty ? queryBuilderState.generateQuery() : query
         let sourceIDs = Array(selectedSourceIDs)
 
         if let smartSearch {
             SmartSearchRepository.shared.update(
                 smartSearch,
                 name: name,
-                query: query,
+                query: finalQuery,
                 sourceIDs: sourceIDs
             )
 
@@ -190,7 +203,7 @@ struct SmartSearchEditorView: View {
         } else {
             let newSearch = SmartSearchRepository.shared.create(
                 name: name,
-                query: query,
+                query: finalQuery,
                 sourceIDs: sourceIDs,
                 library: library
             )
