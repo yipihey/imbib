@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "libraries": [
+    {
+      "name": "My Library",
+      "isDefault": true,
+      "smartSearches": [
+        {
+          "name": "Recent Astrophysics",
+          "query": "cat:astro-ph.*",
+          "sourceIDs": ["arxiv"],
+          "feedsToInbox": true,
+          "autoRefreshEnabled": true,
+          "refreshIntervalSeconds": 21600
+        },
+        {
+          "name": "Exoplanets",
+          "query": "abs:exoplanet OR abs:\"extrasolar planet\"",
+          "sourceIDs": ["ads"],
+          "feedsToInbox": false
+        },
+        {
+          "name": "Machine Learning in Astronomy",
+          "query": "abs:\"machine learning\" AND abs:astronomy",
+          "sourceIDs": ["arxiv", "ads"]
+        },
+        {
+          "name": "Gravitational Waves",
+          "query": "abs:\"gravitational wave\" OR abs:LIGO",
+          "sourceIDs": ["ads"]
+        }
+      ],
+      "collections": [
+        { "name": "To Read" },
+        { "name": "Favorites" },
+        { "name": "Work in Progress" }
+      ]
+    }
+  ]
+}

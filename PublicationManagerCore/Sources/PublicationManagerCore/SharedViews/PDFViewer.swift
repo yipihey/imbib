@@ -565,6 +565,53 @@ public struct PDFViewerWithControls: View {
         .onDisappear {
             savePositionImmediately()
         }
+        // Keyboard navigation from menu/notifications
+        #if os(macOS)
+        .onReceive(NotificationCenter.default.publisher(for: .pdfPageDown)) { _ in
+            pageDown()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pdfPageUp)) { _ in
+            pageUp()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pdfZoomIn)) { _ in
+            zoomIn()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pdfZoomOut)) { _ in
+            zoomOut()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pdfActualSize)) { _ in
+            resetZoom()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pdfFitToWindow)) { _ in
+            fitToWindow()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .pdfGoToPage)) { _ in
+            // Future: show go-to-page dialog
+        }
+        #endif
+    }
+
+    // MARK: - Page Navigation
+
+    private func pageDown() {
+        // Move forward approximately one screen (~10 pages for continuous scroll, or 1 page)
+        let newPage = min(currentPage + 1, totalPages)
+        if newPage != currentPage {
+            currentPage = newPage
+        }
+    }
+
+    private func pageUp() {
+        // Move back approximately one screen
+        let newPage = max(currentPage - 1, 1)
+        if newPage != currentPage {
+            currentPage = newPage
+        }
+    }
+
+    private func fitToWindow() {
+        // Reset to auto-scale (scaleFactor 1.0 with autoScales = true gives fit behavior)
+        scaleFactor = 1.0
     }
 
     // MARK: - Reading Position

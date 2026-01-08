@@ -73,6 +73,7 @@ targets:
         excludes:
           - "**/ShareExtension/**"
       - path: imbib/Resources/Assets.xcassets
+      - path: imbib/Resources/DefaultLibrarySet.json
     dependencies:
       - package: PublicationManagerCore
       - target: imbib-iOS-ShareExtension

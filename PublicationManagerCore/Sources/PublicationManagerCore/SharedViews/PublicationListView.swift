@@ -514,7 +514,202 @@ public struct PublicationListView: View {
                 Task { await onDelete(idsToDelete) }
             }
         }
+        // Keyboard navigation handlers from menu/notifications
+        .onReceive(NotificationCenter.default.publisher(for: .navigateNextPaper)) { _ in
+            navigateToNext()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .navigatePreviousPaper)) { _ in
+            navigateToPrevious()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateFirstPaper)) { _ in
+            navigateToFirst()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateLastPaper)) { _ in
+            navigateToLast()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateNextUnread)) { _ in
+            navigateToNextUnread()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .navigatePreviousUnread)) { _ in
+            navigateToPreviousUnread()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .openSelectedPaper)) { _ in
+            openSelectedPaper()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
+            toggleReadOnSelected()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .markAllAsRead)) { _ in
+            markAllAsRead()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleUnreadFilter)) { _ in
+            if !disableUnreadFilter {
+                showUnreadOnly.toggle()
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .deleteSelectedPapers)) { _ in
+            deleteSelected()
+        }
         #endif
+    }
+
+    // MARK: - Keyboard Navigation
+
+    /// Navigate to next paper in the filtered list
+    private func navigateToNext() {
+        let rows = filteredRowData
+        guard !rows.isEmpty else { return }
+
+        if let currentID = selection.first,
+           let currentIndex = rows.firstIndex(where: { $0.id == currentID }) {
+            let nextIndex = min(currentIndex + 1, rows.count - 1)
+            selection = [rows[nextIndex].id]
+        } else {
+            // No selection, select first
+            selection = [rows[0].id]
+        }
+    }
+
+    /// Navigate to previous paper in the filtered list
+    private func navigateToPrevious() {
+        let rows = filteredRowData
+        guard !rows.isEmpty else { return }
+
+        if let currentID = selection.first,
+           let currentIndex = rows.firstIndex(where: { $0.id == currentID }) {
+            let prevIndex = max(currentIndex - 1, 0)
+            selection = [rows[prevIndex].id]
+        } else {
+            // No selection, select first
+            selection = [rows[0].id]
+        }
+    }
+
+    /// Navigate to first paper
+    private func navigateToFirst() {
+        let rows = filteredRowData
+        guard !rows.isEmpty else { return }
+        selection = [rows[0].id]
+    }
+
+    /// Navigate to last paper
+    private func navigateToLast() {
+        let rows = filteredRowData
+        guard !rows.isEmpty else { return }
+        selection = [rows[rows.count - 1].id]
+    }
+
+    /// Navigate to next unread paper
+    private func navigateToNextUnread() {
+        let rows = filteredRowData
+        guard !rows.isEmpty else { return }
+
+        let startIndex: Int
+        if let currentID = selection.first,
+           let currentIndex = rows.firstIndex(where: { $0.id == currentID }) {
+            startIndex = currentIndex + 1
+        } else {
+            startIndex = 0
+        }
+
+        // Search from current position to end
+        for i in startIndex..<rows.count {
+            if !rows[i].isRead {
+                selection = [rows[i].id]
+                return
+            }
+        }
+
+        // Wrap around: search from beginning to current position
+        for i in 0..<startIndex {
+            if !rows[i].isRead {
+                selection = [rows[i].id]
+                return
+            }
+        }
+    }
+
+    /// Navigate to previous unread paper
+    private func navigateToPreviousUnread() {
+        let rows = filteredRowData
+        guard !rows.isEmpty else { return }
+
+        let startIndex: Int
+        if let currentID = selection.first,
+           let currentIndex = rows.firstIndex(where: { $0.id == currentID }) {
+            startIndex = currentIndex - 1
+        } else {
+            startIndex = rows.count - 1
+        }
+
+        // Search backwards from current position
+        for i in stride(from: startIndex, through: 0, by: -1) {
+            if !rows[i].isRead {
+                selection = [rows[i].id]
+                return
+            }
+        }
+
+        // Wrap around: search backwards from end
+        for i in stride(from: rows.count - 1, through: max(0, startIndex + 1), by: -1) {
+            if !rows[i].isRead {
+                selection = [rows[i].id]
+                return
+            }
+        }
+    }
+
+    /// Open selected paper (show PDF tab)
+    private func openSelectedPaper() {
+        guard let firstID = selection.first,
+              let publication = publications.first(where: { $0.id == firstID }),
+              !publication.isDeleted,
+              publication.managedObjectContext != nil,
+              let onOpenPDF = onOpenPDF else { return }
+
+        onOpenPDF(publication)
+    }
+
+    /// Toggle read status on selected papers
+    private func toggleReadOnSelected() {
+        guard let onToggleRead = onToggleRead else { return }
+
+        for id in selection {
+            if let publication = publications.first(where: { $0.id == id }),
+               !publication.isDeleted,
+               publication.managedObjectContext != nil {
+                Task {
+                    await onToggleRead(publication)
+                }
+            }
+        }
+    }
+
+    /// Mark all visible papers as read
+    private func markAllAsRead() {
+        guard let onToggleRead = onToggleRead else { return }
+
+        for rowData in filteredRowData {
+            if !rowData.isRead,
+               let publication = publications.first(where: { $0.id == rowData.id }),
+               !publication.isDeleted,
+               publication.managedObjectContext != nil {
+                Task {
+                    await onToggleRead(publication)
+                }
+            }
+        }
+    }
+
+    /// Delete selected papers
+    private func deleteSelected() {
+        guard let onDelete = onDelete, !selection.isEmpty else { return }
+
+        let idsToDelete = selection
+        // Clear selection immediately before deletion
+        selection.removeAll()
+        selectedPublication = nil
+        Task { await onDelete(idsToDelete) }
     }
 
     // MARK: - Context Menu

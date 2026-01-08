@@ -110,6 +110,18 @@ struct DetailView: View {
             // Auto-mark as read after brief delay (Apple Mail style)
             await autoMarkAsRead()
         }
+        // Keyboard shortcuts for tab switching (Cmd+4/5/6, Cmd+R for Notes)
+        .onReceive(NotificationCenter.default.publisher(for: .showPDFTab)) { _ in
+            selectedTab = .pdf
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showBibTeXTab)) { _ in
+            selectedTab = .bibtex
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .showNotesTab)) { _ in
+            if canEdit {
+                selectedTab = .notes
+            }
+        }
     }
 
     // MARK: - Auto-Mark as Read

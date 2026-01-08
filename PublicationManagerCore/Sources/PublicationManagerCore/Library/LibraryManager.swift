@@ -47,10 +47,17 @@ public final class LibraryManager {
         self.persistenceController = persistenceController
         loadLibraries()
 
-        // Create default library if none exist (first run)
+        // Load default library set if none exist (first run)
         if libraries.isEmpty {
-            Logger.library.infoCapture("No libraries found, creating default library", category: "library")
-            _ = createLibrary(name: "My Library")
+            Logger.library.infoCapture("No libraries found, loading default set", category: "library")
+            do {
+                try DefaultLibrarySetManager.shared.loadDefaultSet()
+                loadLibraries()  // Reload after import
+            } catch {
+                // Fallback: create empty library if default set fails
+                Logger.library.warningCapture("Failed to load default set, creating fallback library: \(error.localizedDescription)", category: "library")
+                _ = createLibrary(name: "My Library")
+            }
         }
     }
 

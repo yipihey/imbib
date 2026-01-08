@@ -8,6 +8,7 @@
 import SwiftUI
 import PublicationManagerCore
 import OSLog
+import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
 #endif
@@ -25,9 +26,21 @@ struct imbibApp: App {
     @State private var settingsViewModel: SettingsViewModel
     @State private var shareExtensionHandler: ShareExtensionHandler?
 
+    /// Development mode: edit the bundled default library set
+    private let isEditingDefaultSet: Bool
+
     // MARK: - Initialization
 
     init() {
+        // Check for development mode flag
+        #if os(macOS)
+        isEditingDefaultSet = CommandLine.arguments.contains("--edit-default-set")
+        if isEditingDefaultSet {
+            appLogger.info("Running in edit-default-set mode")
+        }
+        #else
+        isEditingDefaultSet = false
+        #endif
         appLogger.info("imbib app initializing...")
 
         // Use shared credential manager singleton for persistence
@@ -126,6 +139,12 @@ struct imbibApp: App {
         }
         .keyboardShortcut("c", modifiers: [.command, .shift])
         .defaultSize(width: 800, height: 400)
+
+        Window("Keyboard Shortcuts", id: "keyboard-shortcuts") {
+            KeyboardShortcutsView()
+        }
+        .keyboardShortcut("/", modifiers: .command)
+        .defaultSize(width: 450, height: 700)
         #endif
     }
 
@@ -197,7 +216,24 @@ private func updateDockBadge(_ count: Int) {
 struct AppCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
+    /// Check if running in edit-default-set development mode
+    private var isEditingDefaultSet: Bool {
+        CommandLine.arguments.contains("--edit-default-set")
+    }
+
     var body: some Commands {
+        // Development mode: Export default set
+        if isEditingDefaultSet {
+            CommandGroup(before: .newItem) {
+                Button("Export as Default Library Set...") {
+                    exportDefaultLibrarySet()
+                }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
+
+                Divider()
+            }
+        }
+
         // File menu
         CommandGroup(after: .newItem) {
             Button("Import BibTeX...") {
@@ -211,26 +247,6 @@ struct AppCommands: Commands {
             .keyboardShortcut("e", modifiers: [.command, .shift])
         }
 
-        // View menu
-        CommandGroup(after: .sidebar) {
-            Button("Show Library") {
-                NotificationCenter.default.post(name: .showLibrary, object: nil)
-            }
-            .keyboardShortcut("1", modifiers: .command)
-
-            Button("Show Search") {
-                NotificationCenter.default.post(name: .showSearch, object: nil)
-            }
-            .keyboardShortcut("2", modifiers: .command)
-
-            Divider()
-
-            Button("Show Console") {
-                openWindow(id: "console")
-            }
-            .keyboardShortcut("c", modifiers: [.command, .shift])
-        }
-
         // Edit menu - context-aware pasteboard commands
         // When a text field has focus, use system clipboard; otherwise, use publication clipboard
         CommandGroup(replacing: .pasteboard) {
@@ -242,6 +258,16 @@ struct AppCommands: Commands {
                 }
             }
             .keyboardShortcut("c", modifiers: .command)
+
+            Button("Copy as Citation") {
+                NotificationCenter.default.post(name: .copyAsCitation, object: nil)
+            }
+            .keyboardShortcut("c", modifiers: [.command, .shift])
+
+            Button("Copy DOI/URL") {
+                NotificationCenter.default.post(name: .copyIdentifier, object: nil)
+            }
+            .keyboardShortcut("c", modifiers: [.command, .option])
 
             Button("Cut") {
                 if isTextFieldFocused() {
@@ -274,10 +300,239 @@ struct AppCommands: Commands {
 
             Divider()
 
+            // Find submenu
+            Menu("Find") {
+                Button("Focus Search") {
+                    NotificationCenter.default.post(name: .focusSearch, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: .command)
+            }
+        }
+
+        // View menu
+        CommandGroup(after: .sidebar) {
+            Button("Show Library") {
+                NotificationCenter.default.post(name: .showLibrary, object: nil)
+            }
+            .keyboardShortcut("1", modifiers: .command)
+
+            Button("Show Search") {
+                NotificationCenter.default.post(name: .showSearch, object: nil)
+            }
+            .keyboardShortcut("2", modifiers: .command)
+
+            Button("Show Inbox") {
+                NotificationCenter.default.post(name: .showInbox, object: nil)
+            }
+            .keyboardShortcut("3", modifiers: .command)
+
+            Divider()
+
+            Button("Show PDF Tab") {
+                NotificationCenter.default.post(name: .showPDFTab, object: nil)
+            }
+            .keyboardShortcut("4", modifiers: .command)
+
+            Button("Show BibTeX Tab") {
+                NotificationCenter.default.post(name: .showBibTeXTab, object: nil)
+            }
+            .keyboardShortcut("5", modifiers: .command)
+
+            Button("Show Notes Tab") {
+                NotificationCenter.default.post(name: .showNotesTab, object: nil)
+            }
+            .keyboardShortcut("6", modifiers: .command)
+
+            Divider()
+
+            Button("Toggle Detail Pane") {
+                NotificationCenter.default.post(name: .toggleDetailPane, object: nil)
+            }
+            .keyboardShortcut("0", modifiers: .command)
+
+            Button("Toggle Sidebar") {
+                NotificationCenter.default.post(name: .toggleSidebar, object: nil)
+            }
+            .keyboardShortcut("s", modifiers: [.control, .command])
+
+            Divider()
+
+            Button("Focus Sidebar") {
+                NotificationCenter.default.post(name: .focusSidebar, object: nil)
+            }
+            .keyboardShortcut("1", modifiers: [.command, .option])
+
+            Button("Focus List") {
+                NotificationCenter.default.post(name: .focusList, object: nil)
+            }
+            .keyboardShortcut("2", modifiers: [.command, .option])
+
+            Button("Focus Detail") {
+                NotificationCenter.default.post(name: .focusDetail, object: nil)
+            }
+            .keyboardShortcut("3", modifiers: [.command, .option])
+
+            Divider()
+
+            Button("Show Console") {
+                openWindow(id: "console")
+            }
+            .keyboardShortcut("c", modifiers: [.command, .shift])
+        }
+
+        // Paper menu (new)
+        CommandMenu("Paper") {
+            Button("Open PDF") {
+                NotificationCenter.default.post(name: .openSelectedPaper, object: nil)
+            }
+            .keyboardShortcut(.return, modifiers: [])
+
+            Button("Open Notes") {
+                NotificationCenter.default.post(name: .showNotesTab, object: nil)
+            }
+            .keyboardShortcut("r", modifiers: .command)
+
+            Button("Open References") {
+                NotificationCenter.default.post(name: .openReferences, object: nil)
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+
+            Divider()
+
             Button("Toggle Read/Unread") {
                 NotificationCenter.default.post(name: .toggleReadStatus, object: nil)
             }
             .keyboardShortcut("u", modifiers: [.command, .shift])
+
+            Button("Mark All as Read") {
+                NotificationCenter.default.post(name: .markAllAsRead, object: nil)
+            }
+            .keyboardShortcut("u", modifiers: [.command, .option])
+
+            Divider()
+
+            Button("Archive to Library") {
+                NotificationCenter.default.post(name: .archiveToLibrary, object: nil)
+            }
+            .keyboardShortcut("a", modifiers: [.control, .command])
+
+            Button("Dismiss from Inbox") {
+                NotificationCenter.default.post(name: .dismissFromInbox, object: nil)
+            }
+            .keyboardShortcut("j", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Move to Collection...") {
+                NotificationCenter.default.post(name: .moveToCollection, object: nil)
+            }
+            .keyboardShortcut("m", modifiers: [.control, .command])
+
+            Button("Add to Collection...") {
+                NotificationCenter.default.post(name: .addToCollection, object: nil)
+            }
+            .keyboardShortcut("l", modifiers: .command)
+
+            Button("Remove from Collection") {
+                NotificationCenter.default.post(name: .removeFromCollection, object: nil)
+            }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
+
+            Divider()
+
+            Button("Share...") {
+                NotificationCenter.default.post(name: .sharePapers, object: nil)
+            }
+            .keyboardShortcut("f", modifiers: [.command, .shift])
+
+            Button("Delete") {
+                NotificationCenter.default.post(name: .deleteSelectedPapers, object: nil)
+            }
+            .keyboardShortcut(.delete, modifiers: .command)
+        }
+
+        // Go menu (new)
+        CommandMenu("Go") {
+            Button("Next Paper") {
+                NotificationCenter.default.post(name: .navigateNextPaper, object: nil)
+            }
+            .keyboardShortcut(.downArrow, modifiers: [])
+
+            Button("Previous Paper") {
+                NotificationCenter.default.post(name: .navigatePreviousPaper, object: nil)
+            }
+            .keyboardShortcut(.upArrow, modifiers: [])
+
+            Button("First Paper") {
+                NotificationCenter.default.post(name: .navigateFirstPaper, object: nil)
+            }
+            .keyboardShortcut(.upArrow, modifiers: .command)
+
+            Button("Last Paper") {
+                NotificationCenter.default.post(name: .navigateLastPaper, object: nil)
+            }
+            .keyboardShortcut(.downArrow, modifiers: .command)
+
+            Divider()
+
+            Button("Next Unread") {
+                NotificationCenter.default.post(name: .navigateNextUnread, object: nil)
+            }
+            .keyboardShortcut(.downArrow, modifiers: .option)
+
+            Button("Previous Unread") {
+                NotificationCenter.default.post(name: .navigatePreviousUnread, object: nil)
+            }
+            .keyboardShortcut(.upArrow, modifiers: .option)
+
+            Divider()
+
+            Button("Go to Page...") {
+                NotificationCenter.default.post(name: .pdfGoToPage, object: nil)
+            }
+            .keyboardShortcut("g", modifiers: .command)
+        }
+
+        // Window menu additions
+        CommandGroup(after: .windowArrangement) {
+            Divider()
+
+            Button("Refresh") {
+                NotificationCenter.default.post(name: .refreshData, object: nil)
+            }
+            .keyboardShortcut("n", modifiers: [.command, .shift])
+
+            Button("Toggle Unread Filter") {
+                NotificationCenter.default.post(name: .toggleUnreadFilter, object: nil)
+            }
+            .keyboardShortcut("\\", modifiers: .command)
+
+            Button("Toggle PDF Filter") {
+                NotificationCenter.default.post(name: .togglePDFFilter, object: nil)
+            }
+            .keyboardShortcut("\\", modifiers: [.command, .shift])
+        }
+
+        // Help menu
+        CommandGroup(replacing: .help) {
+            Button("imbib Help") {
+                if let url = URL(string: "https://github.com/imbib/imbib") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+
+            Button("Keyboard Shortcuts") {
+                openWindow(id: "keyboard-shortcuts")
+            }
+            .keyboardShortcut("/", modifiers: .command)
+
+            Divider()
+
+            Button("Release Notes") {
+                if let url = URL(string: "https://github.com/imbib/imbib/releases") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
         }
     }
 
@@ -289,6 +544,44 @@ struct AppCommands: Commands {
         }
         // NSTextView is used by TextEditor, TextField, and other text controls
         return firstResponder is NSTextView
+    }
+
+    /// Export current libraries as a default library set (development mode)
+    private func exportDefaultLibrarySet() {
+        #if os(macOS)
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.json]
+        panel.nameFieldStringValue = "DefaultLibrarySet.json"
+        panel.message = "Export current libraries as the default set for new users"
+        panel.prompt = "Export"
+
+        if panel.runModal() == .OK, let url = panel.url {
+            Task { @MainActor in
+                do {
+                    try DefaultLibrarySetManager.shared.exportCurrentAsDefaultSet(to: url)
+                    appLogger.info("Exported default library set to: \(url.lastPathComponent)")
+
+                    // Show success alert
+                    let alert = NSAlert()
+                    alert.messageText = "Export Successful"
+                    alert.informativeText = "Default library set exported to \(url.lastPathComponent)"
+                    alert.alertStyle = .informational
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                } catch {
+                    appLogger.error("Failed to export default library set: \(error.localizedDescription)")
+
+                    // Show error alert
+                    let alert = NSAlert()
+                    alert.messageText = "Export Failed"
+                    alert.informativeText = error.localizedDescription
+                    alert.alertStyle = .critical
+                    alert.addButton(withTitle: "OK")
+                    alert.runModal()
+                }
+            }
+        }
+        #endif
     }
 }
 

@@ -145,6 +145,26 @@ struct IOSContentView: View {
                 selectedPublication = nil
             }
         }
+        // iOS Keyboard Shortcuts (for external keyboards on iPad)
+        .onReceive(NotificationCenter.default.publisher(for: .showInbox)) { _ in
+            if let inboxLibrary = InboxManager.shared.inboxLibrary {
+                selectedSection = .inbox
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
+            if let pub = selectedPublication {
+                Task {
+                    await libraryViewModel.toggleReadStatus(pub)
+                }
+            }
+        }
+        // Add keyboard shortcut buttons for accessibility (hidden visually but accessible via keyboard)
+        .background {
+            KeyboardShortcutButtons(
+                showImportPicker: $showImportPicker,
+                showExportPicker: $showExportPicker
+            )
+        }
     }
 
     // MARK: - Content List
@@ -614,6 +634,82 @@ struct IOSSourceChip: View {
 }
 
 // MARK: - Preview
+
+// MARK: - iOS Keyboard Shortcut Buttons
+
+/// Hidden buttons that provide keyboard shortcuts on iPad with external keyboard.
+/// These are invisible but respond to keyboard shortcuts.
+struct KeyboardShortcutButtons: View {
+    @Binding var showImportPicker: Bool
+    @Binding var showExportPicker: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Import (Cmd+I)
+            Button("Import") {
+                showImportPicker = true
+            }
+            .keyboardShortcut("i", modifiers: .command)
+
+            // Export (Cmd+Shift+E)
+            Button("Export") {
+                showExportPicker = true
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+
+            // Show Library (Cmd+1)
+            Button("Library") {
+                NotificationCenter.default.post(name: .showLibrary, object: nil)
+            }
+            .keyboardShortcut("1", modifiers: .command)
+
+            // Show Search (Cmd+2)
+            Button("Search") {
+                NotificationCenter.default.post(name: .showSearch, object: nil)
+            }
+            .keyboardShortcut("2", modifiers: .command)
+
+            // Show Inbox (Cmd+3)
+            Button("Inbox") {
+                NotificationCenter.default.post(name: .showInbox, object: nil)
+            }
+            .keyboardShortcut("3", modifiers: .command)
+
+            // Toggle Read/Unread (Cmd+Shift+U)
+            Button("Toggle Read") {
+                NotificationCenter.default.post(name: .toggleReadStatus, object: nil)
+            }
+            .keyboardShortcut("u", modifiers: [.command, .shift])
+
+            // Open Notes (Cmd+R) - if a publication is selected
+            Button("Notes") {
+                NotificationCenter.default.post(name: .showNotesTab, object: nil)
+            }
+            .keyboardShortcut("r", modifiers: .command)
+
+            // PDF Tab (Cmd+4)
+            Button("PDF") {
+                NotificationCenter.default.post(name: .showPDFTab, object: nil)
+            }
+            .keyboardShortcut("4", modifiers: .command)
+
+            // BibTeX Tab (Cmd+5)
+            Button("BibTeX") {
+                NotificationCenter.default.post(name: .showBibTeXTab, object: nil)
+            }
+            .keyboardShortcut("5", modifiers: .command)
+
+            // Notes Tab (Cmd+6)
+            Button("Notes Tab") {
+                NotificationCenter.default.post(name: .showNotesTab, object: nil)
+            }
+            .keyboardShortcut("6", modifiers: .command)
+        }
+        .frame(width: 0, height: 0)
+        .opacity(0)
+        .accessibilityHidden(true)
+    }
+}
 
 #Preview {
     IOSContentView()
