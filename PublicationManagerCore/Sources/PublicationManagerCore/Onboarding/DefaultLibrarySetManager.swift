@@ -118,7 +118,7 @@ public final class DefaultLibrarySetManager {
                     smartSearch.order = Int16(ssIndex)
                     smartSearch.feedsToInbox = defaultSS.feedsToInbox ?? false
                     smartSearch.autoRefreshEnabled = defaultSS.autoRefreshEnabled ?? false
-                    smartSearch.refreshIntervalSeconds = Int32(defaultSS.refreshIntervalSeconds ?? 21600)
+                    smartSearch.refreshIntervalSeconds = Int32(defaultSS.refreshIntervalSeconds ?? 86400)
 
                     // Create result collection for smart search (ADR-016)
                     let resultCollection = CDCollection(context: context)

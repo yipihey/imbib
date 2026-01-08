@@ -34,7 +34,7 @@ struct SmartSearchEditorView: View {
     // Inbox options
     @State private var feedsToInbox: Bool = false
     @State private var autoRefreshEnabled: Bool = false
-    @State private var refreshInterval: RefreshIntervalPreset = .sixHours
+    @State private var refreshInterval: RefreshIntervalPreset = .daily
 
     // MARK: - Initialization
 
@@ -168,7 +168,7 @@ struct SmartSearchEditorView: View {
             // Load inbox settings
             feedsToInbox = smartSearch.feedsToInbox
             autoRefreshEnabled = smartSearch.autoRefreshEnabled
-            refreshInterval = RefreshIntervalPreset(rawValue: smartSearch.refreshIntervalSeconds) ?? .sixHours
+            refreshInterval = RefreshIntervalPreset(rawValue: smartSearch.refreshIntervalSeconds) ?? .daily
         } else {
             // Apply defaults for new smart search
             feedsToInbox = defaultFeedsToInbox

@@ -65,6 +65,10 @@ public extension Logger {
     static let viewModels = Logger(subsystem: subsystem, category: "viewmodels")
     static let navigation = Logger(subsystem: subsystem, category: "navigation")
 
+    // MARK: - Performance
+
+    static let performance = Logger(subsystem: subsystem, category: "performance")
+
     // MARK: - Share Extension
 
     static let shareExtension = Logger(subsystem: subsystem, category: "shareext")
@@ -170,4 +174,37 @@ public extension Logger {
         }
         infoCapture(message, category: "pdfbrowser")
     }
+}
+
+// MARK: - Performance Timing
+
+public extension Logger {
+
+    /// Log a performance timing measurement
+    func timing(_ operation: String, milliseconds: Double, count: Int? = nil) {
+        let ms = String(format: "%.1f", milliseconds)
+        if let count = count {
+            infoCapture("⏱ \(operation): \(ms)ms (\(count) items)", category: "performance")
+        } else {
+            infoCapture("⏱ \(operation): \(ms)ms", category: "performance")
+        }
+    }
+}
+
+/// Measure execution time of a synchronous block
+public func measureTime<T>(_ operation: String, count: Int? = nil, _ block: () -> T) -> T {
+    let start = CFAbsoluteTimeGetCurrent()
+    let result = block()
+    let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+    Logger.performance.timing(operation, milliseconds: elapsed, count: count)
+    return result
+}
+
+/// Measure execution time of an async block
+public func measureTimeAsync<T>(_ operation: String, count: Int? = nil, _ block: () async -> T) async -> T {
+    let start = CFAbsoluteTimeGetCurrent()
+    let result = await block()
+    let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+    Logger.performance.timing(operation, milliseconds: elapsed, count: count)
+    return result
 }

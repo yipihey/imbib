@@ -29,9 +29,12 @@ public actor SmartSearchProvider {
     private let sourceManager: SourceManager
     private let repository: PublicationRepository
     private weak var resultCollection: CDCollection?
+    private weak var smartSearchEntity: CDSmartSearch?
 
     private var lastFetched: Date?
     private var _isLoading = false
+    /// Refresh interval in seconds (from smart search config)
+    private let refreshIntervalSeconds: Int32
 
     // MARK: - Initialization
 
@@ -43,7 +46,9 @@ public actor SmartSearchProvider {
         maxResults: Int16 = 50,
         sourceManager: SourceManager,
         repository: PublicationRepository,
-        resultCollection: CDCollection?
+        resultCollection: CDCollection?,
+        refreshIntervalSeconds: Int32 = 86400,  // Default: daily
+        lastExecuted: Date? = nil
     ) {
         self.id = id
         self.name = name
@@ -53,6 +58,9 @@ public actor SmartSearchProvider {
         self.sourceManager = sourceManager
         self.repository = repository
         self.resultCollection = resultCollection
+        self.refreshIntervalSeconds = refreshIntervalSeconds
+        self.lastFetched = lastExecuted  // Initialize from persisted value
+        self.smartSearchEntity = nil
     }
 
     /// Create from a Core Data smart search entity
@@ -65,6 +73,11 @@ public actor SmartSearchProvider {
         self.sourceManager = sourceManager
         self.repository = repository
         self.resultCollection = entity.resultCollection
+        self.smartSearchEntity = entity
+        self.refreshIntervalSeconds = entity.refreshIntervalSeconds
+        // CRITICAL: Initialize lastFetched from persisted dateLastExecuted
+        // This prevents unnecessary refresh on app restart
+        self.lastFetched = entity.dateLastExecuted
     }
 
     // MARK: - State
@@ -90,10 +103,13 @@ public actor SmartSearchProvider {
     ///
     /// This method:
     /// 1. Executes the search query against configured sources
-    /// 2. Deduplicates results against existing library publications
-    /// 3. Creates new CDPublication entities for new results
-    /// 4. Adds all results (new and existing) to the result collection
+    /// 2. Deduplicates results against existing library publications (batch query)
+    /// 3. Creates new CDPublication entities for new results (batch create)
+    /// 4. Adds all results (new and existing) to the result collection (batch add)
+    ///
+    /// Uses batch Core Data operations for performance: 2-3 saves instead of 100+.
     public func refresh() async throws {
+        let startTime = CFAbsoluteTimeGetCurrent()
         Logger.smartSearch.infoCapture("Executing smart search '\(name)': \(query)", category: "smartsearch")
         _isLoading = true
         defer { _isLoading = false }
@@ -115,36 +131,54 @@ public actor SmartSearchProvider {
 
         // Execute the search
         do {
+            let searchStart = CFAbsoluteTimeGetCurrent()
             let results = try await sourceManager.search(
                 query: query,
                 options: options
             )
+            let searchTime = (CFAbsoluteTimeGetCurrent() - searchStart) * 1000
 
             // Limit results (SourceManager already limits, but ensure consistency)
             let limitedResults = Array(results.prefix(Int(currentMaxResults)))
 
-            Logger.smartSearch.infoCapture("Smart search '\(name)' returned \(results.count) results (limited to \(currentMaxResults))", category: "smartsearch")
+            Logger.smartSearch.infoCapture(
+                "Smart search '\(name)' returned \(results.count) results in \(String(format: "%.0f", searchTime))ms",
+                category: "smartsearch"
+            )
 
-            // Auto-import results to collection
-            var importedCount = 0
-            var existingCount = 0
+            // BATCH OPTIMIZATION: Find existing publications in single query
+            let findStart = CFAbsoluteTimeGetCurrent()
+            let existingMap = await repository.findExistingByIdentifiers(limitedResults)
+            let findTime = (CFAbsoluteTimeGetCurrent() - findStart) * 1000
 
-            for result in limitedResults {
-                // Check for existing publication by identifiers
-                if let existing = await repository.findByIdentifiers(result) {
-                    // Add existing publication to this collection
-                    await repository.addToCollection(existing, collection: collection)
-                    existingCount += 1
-                } else {
-                    // Create new publication and add to collection
-                    let publication = await repository.createFromSearchResult(result)
-                    await repository.addToCollection(publication, collection: collection)
-                    importedCount += 1
-                }
+            // Separate new vs existing results
+            let existingPubs = limitedResults.compactMap { existingMap[$0.id] }
+            let newResults = limitedResults.filter { existingMap[$0.id] == nil }
+
+            // BATCH: Add existing publications to collection (single save)
+            let addStart = CFAbsoluteTimeGetCurrent()
+            if !existingPubs.isEmpty {
+                await repository.addToCollection(existingPubs, collection: collection)
             }
+            let addTime = (CFAbsoluteTimeGetCurrent() - addStart) * 1000
+
+            // BATCH: Create new publications and add to collection (single save)
+            let createStart = CFAbsoluteTimeGetCurrent()
+            if !newResults.isEmpty {
+                _ = await repository.createFromSearchResults(newResults, collection: collection)
+            }
+            let createTime = (CFAbsoluteTimeGetCurrent() - createStart) * 1000
 
             lastFetched = Date()
-            Logger.smartSearch.infoCapture("Smart search '\(name)': imported \(importedCount) new, linked \(existingCount) existing", category: "smartsearch")
+            let totalTime = (CFAbsoluteTimeGetCurrent() - startTime) * 1000
+
+            Logger.smartSearch.infoCapture(
+                "⏱ Smart search '\(name)' complete: \(newResults.count) new, \(existingPubs.count) existing " +
+                "in \(String(format: "%.0f", totalTime))ms " +
+                "(search=\(String(format: "%.0f", searchTime))ms, find=\(String(format: "%.0f", findTime))ms, " +
+                "add=\(String(format: "%.0f", addTime))ms, create=\(String(format: "%.0f", createTime))ms)",
+                category: "performance"
+            )
 
         } catch {
             Logger.smartSearch.errorCapture("Smart search '\(name)' failed: \(error.localizedDescription)", category: "smartsearch")
@@ -167,10 +201,12 @@ public actor SmartSearchProvider {
         return Date().timeIntervalSince(lastFetched)
     }
 
-    /// Whether cached results are stale (>1 hour old)
+    /// Whether cached results are stale (exceeds configured refresh interval)
     public var isStale: Bool {
         guard let elapsed = timeSinceLastFetch else { return true }
-        return elapsed > 3600  // 1 hour
+        // Use configured interval (minimum 15 minutes to prevent excessive API calls)
+        let intervalSeconds = max(TimeInterval(refreshIntervalSeconds), 900)
+        return elapsed > intervalSeconds
     }
 
     /// Clear the result collection (removes publications only in this collection)
@@ -283,6 +319,7 @@ public final class SmartSearchRepository: ObservableObject {
         smartSearch.query = query
         smartSearch.sources = sourceIDs
         smartSearch.dateCreated = Date()
+        smartSearch.dateLastExecuted = Date()  // Prevent immediate refresh on startup
         smartSearch.library = targetLibrary
         smartSearch.maxResults = effectiveMaxResults
 

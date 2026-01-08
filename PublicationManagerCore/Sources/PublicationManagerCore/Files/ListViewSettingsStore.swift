@@ -53,6 +53,18 @@ public actor ListViewSettingsStore {
         return loaded
     }
 
+    /// Load settings synchronously for initial state (bypasses actor isolation).
+    ///
+    /// Use this for `@State` initialization to avoid first-render with defaults.
+    /// For subsequent access, use the async `settings` property.
+    public nonisolated static func loadSettingsSync() -> ListViewSettings {
+        guard let data = UserDefaults.standard.data(forKey: "listViewSettings"),
+              let settings = try? JSONDecoder().decode(ListViewSettings.self, from: data) else {
+            return .default
+        }
+        return settings
+    }
+
     /// Update all settings at once
     public func update(_ settings: ListViewSettings) {
         saveSettings(settings)

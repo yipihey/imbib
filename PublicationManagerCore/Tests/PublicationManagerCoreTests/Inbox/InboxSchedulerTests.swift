@@ -401,7 +401,7 @@ final class InboxSchedulerTests: XCTestCase {
     }
 
     func testSchedulerConfiguration_defaultRefreshInterval() {
-        XCTAssertEqual(InboxScheduler.defaultRefreshInterval, 6 * 60 * 60)  // 6 hours
+        XCTAssertEqual(InboxScheduler.defaultRefreshInterval, 24 * 60 * 60)  // Daily
     }
 
     func testSchedulerConfiguration_minimumRefreshInterval() {

@@ -42,8 +42,8 @@ public actor InboxScheduler {
     /// Minimum check interval (1 minute) - how often we check if any feed is due
     public static let checkInterval: TimeInterval = 60
 
-    /// Default refresh interval (6 hours) for feeds without explicit setting
-    public static let defaultRefreshInterval: TimeInterval = 6 * 60 * 60
+    /// Default refresh interval (24 hours) for feeds without explicit setting
+    public static let defaultRefreshInterval: TimeInterval = 24 * 60 * 60
 
     /// Minimum allowed refresh interval (15 minutes)
     public static let minimumRefreshInterval: TimeInterval = 15 * 60
@@ -146,18 +146,23 @@ public actor InboxScheduler {
         return await performCheckCycle()
     }
 
-    /// Refresh a specific feed immediately.
+    /// Refresh a specific feed immediately with high priority.
     ///
-    /// - Returns: Number of new papers fetched
+    /// This queues the feed with high priority, which will be processed next
+    /// in the staggered refresh queue.
+    ///
+    /// - Returns: Number of new papers fetched (0 since actual count is async)
     @discardableResult
     public func refreshFeed(_ smartSearch: CDSmartSearch) async throws -> Int {
         Logger.inbox.infoCapture("Manual refresh of feed: \(smartSearch.name)", category: "scheduler")
 
-        let count = try await paperFetchService.fetchForInbox(smartSearch: smartSearch)
+        // Queue with high priority for immediate processing
+        await SmartSearchRefreshService.shared.queueRefresh(smartSearch, priority: .high)
         lastRefreshTimes[smartSearch.id] = Date()
-        totalPapersFetched += count
 
-        return count
+        // Return 0 since actual papers are fetched asynchronously
+        // UI will update via notification when refresh completes
+        return 0
     }
 
     // MARK: - Status
@@ -273,41 +278,20 @@ public actor InboxScheduler {
             category: "inbox"
         )
 
-        // Refresh each due feed
-        var totalNew = 0
+        // Queue all due feeds for staggered background refresh
+        // This returns immediately - refreshes happen in background via SmartSearchRefreshService
         for feed in dueFeeds {
-            do {
-                let count = try await paperFetchService.fetchForInbox(smartSearch: feed)
-                lastRefreshTimes[feed.id] = Date()
-                totalNew += count
-
-                Logger.inbox.debugCapture(
-                    "Refreshed feed '\(feed.name)': \(count) new papers",
-                    category: "inbox"
-                )
-            } catch {
-                Logger.inbox.errorCapture(
-                    "Failed to refresh feed '\(feed.name)': \(error.localizedDescription)",
-                    category: "inbox"
-                )
-            }
+            await SmartSearchRefreshService.shared.queueRefresh(feed, priority: .low)
+            lastRefreshTimes[feed.id] = Date()
         }
 
-        totalPapersFetched += totalNew
+        Logger.inbox.infoCapture(
+            "Queued \(dueFeeds.count) feeds for staggered background refresh",
+            category: "inbox"
+        )
 
-        if totalNew > 0 {
-            Logger.inbox.infoCapture(
-                "Inbox refresh complete: \(totalNew) new papers from \(dueFeeds.count) feeds",
-                category: "inbox"
-            )
-
-            // Post notification for UI updates
-            await MainActor.run {
-                NotificationCenter.default.post(name: .inboxUnreadCountChanged, object: nil)
-            }
-        }
-
-        return totalNew
+        // Return count of queued feeds (actual papers will be fetched asynchronously)
+        return dueFeeds.count
     }
 
     /// Fetch all smart searches configured to feed the Inbox.

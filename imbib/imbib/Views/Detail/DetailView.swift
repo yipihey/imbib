@@ -68,35 +68,81 @@ struct DetailView: View {
     /// Primary initializer for CDPublication (ADR-016: all papers are CDPublication)
     /// Returns nil if the publication has been deleted
     init?(publication: CDPublication, libraryID: UUID) {
+        let start = CFAbsoluteTimeGetCurrent()
         // Guard against deleted Core Data objects
         guard let localPaper = LocalPaper(publication: publication, libraryID: libraryID) else {
             return nil
         }
         self.paper = localPaper
         self.publication = publication
+        let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        logger.info("⏱ DetailView.init: \(elapsed, format: .fixed(precision: 1))ms")
     }
 
     // MARK: - Body
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            InfoTab(paper: paper, publication: publication)
-                .tabItem { Label("Info", systemImage: "info.circle") }
-                .tag(DetailTab.info)
+        let bodyStart = CFAbsoluteTimeGetCurrent()
+        let _ = logger.info("⏱ DetailView.body START")
+        let _ = print("⏱ DetailView.body START for \(paper.title.prefix(30))")
 
-            BibTeXTab(paper: paper, publication: publication)
-                .tabItem { Label("BibTeX", systemImage: "chevron.left.forwardslash.chevron.right") }
-                .tag(DetailTab.bibtex)
+        // OPTIMIZATION: Add id() modifiers for stable view identity per publication.
+        // This prevents SwiftUI from doing expensive diffing when switching papers.
+        let pubID = publication?.id
 
-            PDFTab(paper: paper, publication: publication, selectedTab: $selectedTab)
-                .tabItem { Label("PDF", systemImage: "doc.richtext") }
-                .tag(DetailTab.pdf)
+        return TabView(selection: $selectedTab) {
+            // OPTIMIZATION: Lazy tab construction - only render the selected tab.
+            // Previously all 4 tabs were created upfront even when not visible.
+            Group {
+                if selectedTab == .info {
+                    InfoTab(paper: paper, publication: publication)
+                        .onAppear {
+                            let elapsed = (CFAbsoluteTimeGetCurrent() - bodyStart) * 1000
+                            logger.info("⏱ DetailView.body → InfoTab.onAppear: \(elapsed, format: .fixed(precision: 1))ms")
+                        }
+                } else {
+                    // Placeholder for non-selected tab
+                    Color.clear
+                }
+            }
+            .id(pubID)  // Stable identity per publication
+            .tabItem { Label("Info", systemImage: "info.circle") }
+            .tag(DetailTab.info)
+
+            Group {
+                if selectedTab == .bibtex {
+                    BibTeXTab(paper: paper, publication: publication)
+                } else {
+                    Color.clear
+                }
+            }
+            .id(pubID)
+            .tabItem { Label("BibTeX", systemImage: "chevron.left.forwardslash.chevron.right") }
+            .tag(DetailTab.bibtex)
+
+            Group {
+                if selectedTab == .pdf {
+                    PDFTab(paper: paper, publication: publication, selectedTab: $selectedTab)
+                } else {
+                    Color.clear
+                }
+            }
+            .id(pubID)
+            .tabItem { Label("PDF", systemImage: "doc.richtext") }
+            .tag(DetailTab.pdf)
 
             // Notes tab only for persistent papers
             if canEdit, let pub = publication {
-                NotesTab(publication: pub)
-                    .tabItem { Label("Notes", systemImage: "note.text") }
-                    .tag(DetailTab.notes)
+                Group {
+                    if selectedTab == .notes {
+                        NotesTab(publication: pub)
+                    } else {
+                        Color.clear
+                    }
+                }
+                .id(pubID)
+                .tabItem { Label("Notes", systemImage: "note.text") }
+                .tag(DetailTab.notes)
             }
         }
         .navigationTitle(paper.title)
@@ -229,6 +275,8 @@ enum DetailTab: String, CaseIterable {
 
 // MARK: - Info Tab
 
+private let infoTabLogger = Logger(subsystem: "com.imbib.app", category: "infotab")
+
 struct InfoTab: View {
     let paper: any PaperRepresentable
     let publication: CDPublication?
@@ -257,8 +305,13 @@ struct InfoTab: View {
     // Refresh trigger for attachments section
     @State private var attachmentsRefreshID = UUID()
 
+    // Timing for body evaluation
+    @State private var bodyStartTime: CFAbsoluteTime = 0
+
     var body: some View {
-        ScrollViewReader { proxy in
+        let bodyStart = CFAbsoluteTimeGetCurrent()
+
+        return ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     // MARK: - Email-Style Header
@@ -275,8 +328,13 @@ struct InfoTab: View {
 
                     // MARK: - Abstract (Body)
                     if let abstract = paper.abstract, !abstract.isEmpty {
+                        let parseStart = CFAbsoluteTimeGetCurrent()
+                        let parsedAbstract = ScientificTextParser.text(abstract)
+                        let parseElapsed = (CFAbsoluteTimeGetCurrent() - parseStart) * 1000
+                        let _ = infoTabLogger.info("⏱ ScientificTextParser: \(parseElapsed, format: .fixed(precision: 1))ms (\(abstract.count) chars)")
+
                         infoSection("Abstract") {
-                            ScientificTextParser.text(abstract)
+                            parsedAbstract
                                 .textSelection(.enabled)
                         }
                         Divider()
@@ -284,7 +342,11 @@ struct InfoTab: View {
 
                     // MARK: - PDF Sources
                     if let pub = publication {
+                        let sourcesStart = CFAbsoluteTimeGetCurrent()
                         let sources = collectPDFSources(for: pub)
+                        let sourcesElapsed = (CFAbsoluteTimeGetCurrent() - sourcesStart) * 1000
+                        let _ = infoTabLogger.info("⏱ collectPDFSources: \(sourcesElapsed, format: .fixed(precision: 1))ms (\(sources.count) sources)")
+
                         if !sources.isEmpty {
                             pdfSourcesSection(sources, publication: pub)
                             Divider()
@@ -293,7 +355,12 @@ struct InfoTab: View {
 
                     // MARK: - Attachments Section with Drop Target
                     if let pub = publication {
-                        attachmentsSectionWithDrop(pub)
+                        let attachStart = CFAbsoluteTimeGetCurrent()
+                        let attachView = attachmentsSectionWithDrop(pub)
+                        let attachElapsed = (CFAbsoluteTimeGetCurrent() - attachStart) * 1000
+                        let _ = infoTabLogger.info("⏱ attachmentsSectionWithDrop: \(attachElapsed, format: .fixed(precision: 1))ms")
+
+                        attachView
                             .id(attachmentsRefreshID)
                         Divider()
                     }
@@ -310,6 +377,10 @@ struct InfoTab: View {
             .onChange(of: paper.id, initial: true) { _, _ in
                 proxy.scrollTo("top", anchor: .top)
             }
+        }
+        .onAppear {
+            let elapsed = (CFAbsoluteTimeGetCurrent() - bodyStart) * 1000
+            infoTabLogger.info("⏱ InfoTab.body onAppear: \(elapsed, format: .fixed(precision: 1))ms total")
         }
         .confirmationDialog(
             "Delete Attachment?",
@@ -766,6 +837,11 @@ struct InfoTab: View {
     }
 
     private func getFileSizeString(for file: CDLinkedFile) -> String {
+        let start = CFAbsoluteTimeGetCurrent()
+        defer {
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            infoTabLogger.info("⏱ getFileSizeString (disk I/O): \(elapsed, format: .fixed(precision: 1))ms for \(file.filename)")
+        }
         if let size = getFileSize(for: file) {
             return ByteCountFormatter.string(fromByteCount: size, countStyle: .file)
         }
@@ -1122,6 +1198,12 @@ struct BibTeXTab: View {
     }
 
     private func loadBibTeX() {
+        let start = CFAbsoluteTimeGetCurrent()
+        defer {
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            Logger.performance.info("⏱ loadBibTeX: \(elapsed, format: .fixed(precision: 1))ms")
+        }
+
         isLoading = true
         bibtexContent = generateBibTeX()
         isLoading = false
@@ -1310,6 +1392,9 @@ struct PDFTab: View {
     // MARK: - Actions
 
     private func resetAndCheckPDF() {
+        let start = CFAbsoluteTimeGetCurrent()
+        Logger.performance.info("⏱ resetAndCheckPDF: started")
+
         checkPDFTask?.cancel()
 
         linkedFile = nil
@@ -1328,6 +1413,8 @@ struct PDFTab: View {
             if let firstPDF = linkedFiles.first(where: { $0.isPDF }) ?? linkedFiles.first {
                 await MainActor.run {
                     linkedFile = firstPDF
+                    let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+                    Logger.performance.info("⏱ resetAndCheckPDF: \(elapsed, format: .fixed(precision: 1))ms (found local PDF)")
                 }
                 return
             }
@@ -1341,8 +1428,12 @@ struct PDFTab: View {
             // Auto-download if setting enabled AND remote PDF available
             let settings = await PDFSettingsStore.shared.settings
             if settings.autoDownloadEnabled && hasRemote {
+                Logger.performance.info("⏱ resetAndCheckPDF: auto-downloading PDF...")
                 await downloadPDF()
             }
+
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            Logger.performance.info("⏱ resetAndCheckPDF: \(elapsed, format: .fixed(precision: 1))ms (autoDownload=\(settings.autoDownloadEnabled))")
         }
     }
 

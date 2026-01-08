@@ -85,7 +85,11 @@ public struct QueryBuilderView: View {
                         .font(.system(.body, design: .monospaced))
                         .textFieldStyle(.plain)
                         .padding(8)
+                        #if os(macOS)
                         .background(Color(nsColor: .textBackgroundColor))
+                        #else
+                        .background(Color(.systemBackground))
+                        #endif
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                         .onSubmit {
                             parseRawQuery()
@@ -223,7 +227,11 @@ struct QueryTermRow: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
+            #if os(macOS)
             .background(Color(nsColor: .textBackgroundColor))
+            #else
+            .background(Color(.systemBackground))
+            #endif
             .clipShape(RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)

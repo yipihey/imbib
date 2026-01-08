@@ -83,6 +83,13 @@ struct imbibApp: App {
             await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
             appLogger.info("BrowserURLProviders registered")
 
+            // Configure staggered smart search refresh service (before InboxCoordinator)
+            await SmartSearchRefreshService.shared.configure(
+                sourceManager: sourceManager,
+                repository: repository
+            )
+            appLogger.info("SmartSearchRefreshService configured")
+
             // Start background enrichment coordinator
             await EnrichmentCoordinator.shared.start()
             appLogger.info("EnrichmentCoordinator started")

@@ -189,12 +189,20 @@ private struct ArXivCategoryChip: View {
                 .font(.caption)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 5)
+                #if os(macOS)
                 .background(isSelected ? Color.accentColor : Color(nsColor: .controlBackgroundColor))
+                #else
+                .background(isSelected ? Color.accentColor : Color(.secondarySystemBackground))
+                #endif
                 .foregroundStyle(isSelected ? .white : .primary)
                 .clipShape(Capsule())
                 .overlay(
                     Capsule()
+                        #if os(macOS)
                         .strokeBorder(Color(nsColor: .separatorColor), lineWidth: isSelected ? 0 : 1)
+                        #else
+                        .strokeBorder(Color(.separator), lineWidth: isSelected ? 0 : 1)
+                        #endif
                 )
         }
         .buttonStyle(.plain)

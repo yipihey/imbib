@@ -6,6 +6,40 @@
 //
 
 import SwiftUI
+import OSLog
+
+// MARK: - Filter Cache
+
+/// Cache key for memoizing filtered row data
+private struct FilterCacheKey: Equatable {
+    let rowDataVersion: Int
+    let showUnreadOnly: Bool
+    let disableUnreadFilter: Bool
+    let searchQuery: String
+    let sortOrder: LibrarySortOrder
+}
+
+/// Memoization cache for filtered row data.
+/// Uses a class to avoid @State changes that would trigger re-renders.
+private final class FilteredRowDataCache: ObservableObject {
+    private var cachedKey: FilterCacheKey?
+    private var cachedResult: [PublicationRowData]?
+
+    func getCached(for key: FilterCacheKey) -> [PublicationRowData]? {
+        guard cachedKey == key else { return nil }
+        return cachedResult
+    }
+
+    func cache(_ result: [PublicationRowData], for key: FilterCacheKey) {
+        cachedKey = key
+        cachedResult = result
+    }
+
+    func invalidate() {
+        cachedKey = nil
+        cachedResult = nil
+    }
+}
 
 /// Unified publication list view used by Library, Smart Search, and Ad-hoc Search.
 ///
@@ -126,16 +160,42 @@ public struct PublicationListView: View {
     /// Cached row data - rebuilt when publications change
     @State private var rowDataCache: [UUID: PublicationRowData] = [:]
 
+    /// Cached publication lookup - O(1) instead of O(n) linear scans
+    @State private var publicationsByID: [UUID: CDPublication] = [:]
+
     /// ID of row currently targeted by file drop
     @State private var dropTargetedRowID: UUID?
 
     /// List view settings for row customization
-    @State private var listViewSettings: ListViewSettings = .default
+    /// Uses synchronous load to avoid first-render with defaults
+    @State private var listViewSettings: ListViewSettings = ListViewSettingsStore.loadSettingsSync()
+
+    /// Debounce task for saving state (prevents rapid saves on fast selection changes)
+    @State private var saveStateTask: Task<Void, Never>?
+
+    /// Memoization cache for filtered row data (class reference to avoid state changes)
+    @StateObject private var filterCache = FilteredRowDataCache()
 
     // MARK: - Computed Properties
 
-    /// Filtered and sorted row data (safe value types)
+    /// Filtered and sorted row data - memoized to avoid repeated computation
     private var filteredRowData: [PublicationRowData] {
+        // Create cache key from all inputs
+        let cacheKey = FilterCacheKey(
+            rowDataVersion: rowDataCache.count,
+            showUnreadOnly: showUnreadOnly,
+            disableUnreadFilter: disableUnreadFilter,
+            searchQuery: searchQuery,
+            sortOrder: sortOrder
+        )
+
+        // Return cached result if inputs haven't changed
+        if let cached = filterCache.getCached(for: cacheKey) {
+            return cached
+        }
+
+        // Compute and cache
+        let start = CFAbsoluteTimeGetCurrent()
         var result = Array(rowDataCache.values)
 
         // Filter by unread (skip for Inbox where disableUnreadFilter is true)
@@ -154,7 +214,7 @@ public struct PublicationListView: View {
         }
 
         // Sort using data already in PublicationRowData - no CDPublication lookups needed
-        return result.sorted { lhs, rhs in
+        let sorted = result.sorted { lhs, rhs in
             switch sortOrder {
             case .dateAdded:
                 return lhs.dateAdded > rhs.dateAdded
@@ -170,6 +230,12 @@ public struct PublicationListView: View {
                 return lhs.citationCount > rhs.citationCount
             }
         }
+
+        let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        Logger.performance.infoCapture("⏱ filteredRowData: \(String(format: "%.1f", elapsed))ms (\(sorted.count) items)", category: "performance")
+
+        filterCache.cache(sorted, for: cacheKey)
+        return sorted
     }
 
     // MARK: - Initialization
@@ -281,62 +347,80 @@ public struct PublicationListView: View {
             }
         }
         .onChange(of: selection) { _, newValue in
-            // Apple Mail behavior: only update detail view on single selection
-            if newValue.count == 1 {
-                // Single selection - show this paper and trigger auto-mark-as-read
-                if let id = newValue.first,
-                   let pub = publications.first(where: { $0.id == id }),
-                   !pub.isDeleted,
-                   pub.managedObjectContext != nil {
-                    selectedPublication = pub
-                }
-            } else if newValue.isEmpty {
-                // No selection - clear detail view
+            // Update selection synchronously - the detail view defers its own update
+            if let firstID = newValue.first,
+               let publication = publicationsByID[firstID],
+               !publication.isDeleted,
+               publication.managedObjectContext != nil {
+                selectedPublication = publication
+            } else {
                 selectedPublication = nil
             }
-            // Multi-selection (2+): keep showing previous paper, don't auto-mark
 
-            // Save selection state
             if hasLoadedState {
-                Task { await saveState() }
+                debouncedSaveState()
             }
         }
         .onChange(of: sortOrder) { _, _ in
             if hasLoadedState {
-                Task { await saveState() }
+                debouncedSaveState()
             }
         }
         .onChange(of: showUnreadOnly) { _, _ in
             if hasLoadedState {
-                Task { await saveState() }
+                debouncedSaveState()
             }
         }
     }
 
     // MARK: - Row Data Management
 
-    /// Rebuild the row data cache from current publications.
-    /// This filters out any deleted objects and creates immutable snapshots.
+    /// Rebuild both caches from current publications.
+    /// - rowDataCache: [UUID: PublicationRowData] for display
+    /// - publicationsByID: [UUID: CDPublication] for O(1) mutation lookups
     private func rebuildRowData() {
-        var newCache: [UUID: PublicationRowData] = [:]
+        let start = CFAbsoluteTimeGetCurrent()
+        defer {
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            Logger.performance.info("⏱ rebuildRowData: \(elapsed, format: .fixed(precision: 1))ms (\(publications.count) items)")
+        }
+
+        var newRowCache: [UUID: PublicationRowData] = [:]
+        var newPubCache: [UUID: CDPublication] = [:]
+
         for pub in publications {
+            newPubCache[pub.id] = pub
             if let data = PublicationRowData(publication: pub) {
-                newCache[pub.id] = data
+                newRowCache[pub.id] = data
             }
         }
-        rowDataCache = newCache
+
+        rowDataCache = newRowCache
+        publicationsByID = newPubCache
+
+        // Invalidate filtered data cache - it will be recomputed on next access
+        filterCache.invalidate()
     }
 
     /// Update a single row in the cache (O(1) instead of full rebuild).
     /// Used when only one publication's read status changed.
     private func updateSingleRowData(for publicationID: UUID) {
-        guard let publication = publications.first(where: { $0.id == publicationID }),
+        let start = CFAbsoluteTimeGetCurrent()
+        defer {
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            Logger.performance.info("⏱ updateSingleRowData: \(elapsed, format: .fixed(precision: 2))ms")
+        }
+
+        guard let publication = publicationsByID[publicationID],
               !publication.isDeleted,
               publication.managedObjectContext != nil,
               let updatedData = PublicationRowData(publication: publication) else {
             return
         }
         rowDataCache[publicationID] = updatedData
+
+        // Invalidate filtered data cache - read status change may affect unread filter
+        filterCache.invalidate()
     }
 
     // MARK: - State Persistence
@@ -356,7 +440,7 @@ public struct PublicationListView: View {
 
             // Restore selection if publication still exists and is valid
             if let selectedID = state.selectedPublicationID,
-               let publication = publications.first(where: { $0.id == selectedID }),
+               let publication = publicationsByID[selectedID],  // O(1) lookup instead of O(n)
                !publication.isDeleted,
                publication.managedObjectContext != nil {
                 selection = [selectedID]
@@ -369,6 +453,12 @@ public struct PublicationListView: View {
     }
 
     private func saveState() async {
+        let start = CFAbsoluteTimeGetCurrent()
+        defer {
+            let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
+            Logger.performance.info("⏱ saveState: \(elapsed, format: .fixed(precision: 1))ms")
+        }
+
         guard let listID = listID else { return }
 
         let state = ListViewState(
@@ -380,6 +470,23 @@ public struct PublicationListView: View {
         )
 
         await ListViewStateStore.shared.save(state, for: listID)
+    }
+
+    /// Debounced save - waits 300ms before saving to avoid rapid saves during fast navigation
+    private func debouncedSaveState() {
+        // Cancel any pending save
+        saveStateTask?.cancel()
+
+        // Schedule new save with delay
+        saveStateTask = Task {
+            do {
+                // Wait 300ms before saving (allows rapid selection changes without I/O overhead)
+                try await Task.sleep(for: .milliseconds(300))
+                await saveState()
+            } catch {
+                // Task was cancelled - a new selection happened, skip this save
+            }
+        }
     }
 
     // MARK: - Inline Toolbar
@@ -459,47 +566,23 @@ public struct PublicationListView: View {
                 data: rowData,
                 settings: listViewSettings,
                 onToggleRead: onToggleRead != nil ? {
-                    // Look up CDPublication for mutation
-                    if let pub = publications.first(where: { $0.id == rowData.id }) {
-                        Task {
-                            await onToggleRead?(pub)
-                        }
+                    if let pub = publicationsByID[rowData.id] {
+                        Task { await onToggleRead?(pub) }
                     }
                 } : nil,
                 onCategoryTap: onCategoryTap
             )
             .tag(rowData.id)
-            #if os(iOS)
-            // iOS: Explicit tap gesture for row selection (List selection doesn't auto-navigate)
-            .contentShape(Rectangle())
-            .onTapGesture {
-                selection = [rowData.id]
-            }
-            #endif
-            // File drop support for attaching files to publications
-            .onDrop(of: FileDropHandler.acceptedTypes, isTargeted: Binding(
-                get: { dropTargetedRowID == rowData.id },
-                set: { isTargeted in
-                    if isTargeted {
-                        dropTargetedRowID = rowData.id
-                    } else if dropTargetedRowID == rowData.id {
-                        dropTargetedRowID = nil
-                    }
-                }
-            )) { providers in
-                handleFileDrop(providers: providers, for: rowData.id)
-            }
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(dropTargetedRowID == rowData.id ? Color.accentColor : Color.clear, lineWidth: 2)
-            )
         }
+        // OPTIMIZATION: Disable selection animations for instant visual feedback
+        .animation(nil, value: selection)
+        .transaction { $0.animation = nil }
         .contextMenu(forSelectionType: UUID.self) { ids in
             contextMenuItems(for: ids)
         } primaryAction: { ids in
-            // Double-click to open PDF
+            // Double-click to open PDF - O(1) lookup
             if let first = ids.first,
-               let publication = publications.first(where: { $0.id == first }),
+               let publication = publicationsByID[first],
                let onOpenPDF = onOpenPDF {
                 onOpenPDF(publication)
             }
@@ -662,7 +745,7 @@ public struct PublicationListView: View {
     /// Open selected paper (show PDF tab)
     private func openSelectedPaper() {
         guard let firstID = selection.first,
-              let publication = publications.first(where: { $0.id == firstID }),
+              let publication = publicationsByID[firstID],  // O(1) lookup
               !publication.isDeleted,
               publication.managedObjectContext != nil,
               let onOpenPDF = onOpenPDF else { return }
@@ -675,7 +758,7 @@ public struct PublicationListView: View {
         guard let onToggleRead = onToggleRead else { return }
 
         for id in selection {
-            if let publication = publications.first(where: { $0.id == id }),
+            if let publication = publicationsByID[id],  // O(1) lookup
                !publication.isDeleted,
                publication.managedObjectContext != nil {
                 Task {
@@ -691,7 +774,7 @@ public struct PublicationListView: View {
 
         for rowData in filteredRowData {
             if !rowData.isRead,
-               let publication = publications.first(where: { $0.id == rowData.id }),
+               let publication = publicationsByID[rowData.id],  // O(1) lookup
                !publication.isDeleted,
                publication.managedObjectContext != nil {
                 Task {
@@ -720,7 +803,7 @@ public struct PublicationListView: View {
         if let onOpenPDF = onOpenPDF {
             Button("Open PDF") {
                 if let first = ids.first,
-                   let publication = publications.first(where: { $0.id == first }) {
+                   let publication = publicationsByID[first] {  // O(1) lookup
                     onOpenPDF(publication)
                 }
             }
@@ -862,9 +945,9 @@ public struct PublicationListView: View {
             Divider()
 
             if let onMuteAuthor = onMuteAuthor {
-                // Get first author of first selected publication
+                // Get first author of first selected publication - O(1) lookup
                 if let first = ids.first,
-                   let publication = publications.first(where: { $0.id == first }),
+                   let publication = publicationsByID[first],
                    let firstAuthor = publication.sortedAuthors.first {
                     let authorName = firstAuthor.displayName
                     Button("Mute Author: \(authorName)") {
@@ -875,7 +958,7 @@ public struct PublicationListView: View {
 
             if let onMutePaper = onMutePaper {
                 if let first = ids.first,
-                   let publication = publications.first(where: { $0.id == first }) {
+                   let publication = publicationsByID[first] {  // O(1) lookup
                     Button("Mute This Paper") {
                         onMutePaper(publication)
                     }
@@ -929,7 +1012,7 @@ public struct PublicationListView: View {
     /// Handle file drop on a publication row
     private func handleFileDrop(providers: [NSItemProvider], for publicationID: UUID) -> Bool {
         guard let onFileDrop = onFileDrop,
-              let publication = publications.first(where: { $0.id == publicationID }),
+              let publication = publicationsByID[publicationID],  // O(1) lookup
               !publication.isDeleted,
               publication.managedObjectContext != nil else {
             return false

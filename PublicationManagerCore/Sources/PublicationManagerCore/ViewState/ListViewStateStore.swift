@@ -8,6 +8,15 @@
 import Foundation
 import OSLog
 
+// MARK: - Performance Timing
+
+private let timingLogger = Logger(subsystem: "com.imbib.PublicationManagerCore", category: "timing")
+
+/// Log timing message using OSLog (public for visibility in log stream)
+private func logTiming(_ message: String) {
+    timingLogger.info("\(message, privacy: .public)")
+}
+
 // MARK: - List View ID
 
 /// Identifies a specific list view for state persistence
@@ -88,6 +97,7 @@ public actor ListViewStateStore {
 
     public init(userDefaults: UserDefaults = .standard) {
         self.userDefaults = userDefaults
+        logTiming("⏱ ListViewStateStore initialized")
     }
 
     // MARK: - Public Interface
@@ -119,19 +129,32 @@ public actor ListViewStateStore {
 
     /// Save state for a list view
     public func save(_ state: ListViewState, for listID: ListViewID) {
+        logTiming("⏱ ListViewStateStore.save() CALLED for \(listID.storageKey)")
         let cacheKey = listID.storageKey
+        let cacheStart = CFAbsoluteTimeGetCurrent()
 
-        // Update cache
+        // Update cache immediately (synchronous, fast)
         cache[cacheKey] = state
 
-        // Persist to UserDefaults
+        let cacheTime = (CFAbsoluteTimeGetCurrent() - cacheStart) * 1000
+
+        // Persist to UserDefaults on background queue (async, slower disk I/O)
         let key = keyPrefix + cacheKey
-        do {
-            let data = try JSONEncoder().encode(state)
-            userDefaults.set(data, forKey: key)
-            Logger.viewModels.debugCapture("Saved list view state for \(cacheKey): sort=\(state.sortOrder), selected=\(state.selectedPublicationID?.uuidString ?? "none")", category: "viewstate")
-        } catch {
-            Logger.viewModels.warningCapture("Failed to encode list view state: \(error.localizedDescription)", category: "viewstate")
+        let defaults = userDefaults
+        Task.detached(priority: .background) {
+            let diskStart = CFAbsoluteTimeGetCurrent()
+            do {
+                let data = try JSONEncoder().encode(state)
+                defaults.set(data, forKey: key)
+                let diskTime = (CFAbsoluteTimeGetCurrent() - diskStart) * 1000
+                // Log to imbib Console window with timing
+                await Logger.viewModels.debugCapture(
+                    "⏱ ListViewStateStore.save: cache=\(String(format: "%.2f", cacheTime))ms, disk=\(String(format: "%.2f", diskTime))ms for \(cacheKey): sort=\(state.sortOrder), selected=\(state.selectedPublicationID?.uuidString ?? "none")",
+                    category: "viewstate"
+                )
+            } catch {
+                await Logger.viewModels.warningCapture("Failed to encode list view state: \(error.localizedDescription)", category: "viewstate")
+            }
         }
     }
 
@@ -139,11 +162,16 @@ public actor ListViewStateStore {
 
     /// Update just the selection
     public func updateSelection(_ publicationID: UUID?, for listID: ListViewID) {
+        let start = CFAbsoluteTimeGetCurrent()
         var state = get(for: listID) ?? ListViewState()
         state.selectedPublicationID = publicationID
         state.lastVisitedDate = Date()
+        let getTime = (CFAbsoluteTimeGetCurrent() - start) * 1000
         save(state, for: listID)
+        let totalTime = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        logTiming("⏱ ListViewStateStore.updateSelection: get=\(String(format: "%.2f", getTime))ms, total=\(String(format: "%.2f", totalTime))ms")
     }
+
 
     /// Update just the sort order
     public func updateSortOrder(_ sortOrder: String, ascending: Bool, for listID: ListViewID) {

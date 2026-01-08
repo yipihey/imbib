@@ -19,14 +19,61 @@ import SwiftUI
 /// - `\textbf{...}` → bold
 /// - `\textit{...}`, `\emph{...}` → italic
 /// - Greek letters: `\alpha`, `\beta`, `\phi`, etc. → Unicode equivalents
+///
+/// Performance: Results are cached using NSCache. Repeated parses of the same text
+/// are near-instant after the first parse.
 public struct ScientificTextParser {
 
-    /// Parse scientific text and return an AttributedString with proper formatting
+    // MARK: - Cache
+
+    /// Wrapper class to store AttributedString in NSCache (requires reference type)
+    private final class CachedAttributedString {
+        let value: AttributedString
+        init(_ value: AttributedString) { self.value = value }
+    }
+
+    /// Cache for parsed results (thread-safe, auto-evicts under memory pressure)
+    private static let cache: NSCache<NSString, CachedAttributedString> = {
+        let cache = NSCache<NSString, CachedAttributedString>()
+        cache.countLimit = 500  // Max 500 entries
+        return cache
+    }()
+
+    /// Clear the parse cache (useful for testing or memory warnings)
+    public static func clearCache() {
+        cache.removeAllObjects()
+    }
+
+    // MARK: - Public Interface
+
+    /// Parse scientific text and return an AttributedString with proper formatting.
+    /// Results are cached for performance.
     public static func parse(_ text: String) -> AttributedString {
+        // Empty strings don't need parsing
+        guard !text.isEmpty else { return AttributedString() }
+
+        let key = text as NSString
+
+        // Check cache first
+        if let cached = cache.object(forKey: key) {
+            return cached.value
+        }
+
+        // Parse and cache
+        let result = parseUncached(text)
+        cache.setObject(CachedAttributedString(result), forKey: key)
+        return result
+    }
+
+    /// Parse without caching (internal implementation)
+    private static func parseUncached(_ text: String) -> AttributedString {
         var result = AttributedString()
         var remaining = text
 
-        // First pass: decode HTML entities
+        // First pass: parse MathML (inline-formula, mml:math tags)
+        remaining = MathMLParser.parse(remaining)
+
+        // Second pass: decode HTML entities and LaTeX symbols
         remaining = decodeHTMLEntities(remaining)
 
         // Parse the text into segments
@@ -111,8 +158,29 @@ public struct ScientificTextParser {
         // Replace LaTeX Greek letters with Unicode
         result = replaceGreekLetters(result)
 
+        // Strip LaTeX font commands without braces (e.g., \rm, \it, \bf)
+        result = stripFontCommands(result)
+
         // Strip standalone LaTeX braces (not preceded by ^ or _)
         result = stripStandaloneBraces(result)
+        return result
+    }
+
+    /// Strip LaTeX font-switching commands without braces
+    private static func stripFontCommands(_ text: String) -> String {
+        var result = text
+        // Common font commands used in subscripts/superscripts
+        // These switch font for subsequent text without braces
+        let fontCommands = [
+            "\\rm ", "\\it ", "\\bf ", "\\sf ", "\\tt ",
+            "\\rm{", "\\it{", "\\bf{", "\\sf{", "\\tt{",
+            "\\textrm ", "\\textit ", "\\textbf ",
+        ]
+        for cmd in fontCommands {
+            // Replace with space (for space-terminated) or just remove (for brace-terminated)
+            let replacement = cmd.hasSuffix(" ") ? "" : ""
+            result = result.replacingOccurrences(of: cmd, with: replacement)
+        }
         return result
     }
 
@@ -144,13 +212,20 @@ public struct ScientificTextParser {
             ("\\infty", "∞"), ("\\partial", "∂"), ("\\nabla", "∇"),
             ("\\pm", "±"), ("\\mp", "∓"), ("\\times", "×"), ("\\div", "÷"),
             ("\\cdot", "·"), ("\\leq", "≤"), ("\\geq", "≥"), ("\\neq", "≠"),
-            ("\\approx", "≈"), ("\\equiv", "≡"), ("\\sim", "∼"),
+            ("\\approx", "≈"), ("\\equiv", "≡"), ("\\sim", "∼"), ("\\simeq", "≃"),
             ("\\propto", "∝"), ("\\sum", "∑"), ("\\prod", "∏"), ("\\int", "∫"),
             ("\\sqrt", "√"), ("\\forall", "∀"), ("\\exists", "∃"),
             ("\\in", "∈"), ("\\notin", "∉"), ("\\subset", "⊂"), ("\\supset", "⊃"),
             ("\\cup", "∪"), ("\\cap", "∩"), ("\\emptyset", "∅"),
             ("\\rightarrow", "→"), ("\\leftarrow", "←"), ("\\Rightarrow", "⇒"),
             ("\\Leftarrow", "⇐"), ("\\leftrightarrow", "↔"), ("\\Leftrightarrow", "⇔"),
+            // Script/special letters
+            ("\\ell", "ℓ"), ("\\hbar", "ℏ"), ("\\Re", "ℜ"), ("\\Im", "ℑ"),
+            ("\\aleph", "ℵ"), ("\\wp", "℘"),
+            // Additional operators
+            ("\\ll", "≪"), ("\\gg", "≫"), ("\\lesssim", "≲"), ("\\gtrsim", "≳"),
+            ("\\asymp", "≍"), ("\\dagger", "†"), ("\\ddagger", "‡"),
+            ("\\prime", "′"), ("\\circ", "∘"), ("\\bullet", "•"),
         ]
 
         for (latex, unicode) in greekLower + greekUpper + mathSymbols {
@@ -165,6 +240,7 @@ public struct ScientificTextParser {
     private static func stripStandaloneBraces(_ text: String) -> String {
         var result = ""
         var i = text.startIndex
+        var insideSpecialBrace = false  // Track if we're inside ^{...} or _{...}
 
         while i < text.endIndex {
             let char = text[i]
@@ -183,6 +259,7 @@ public struct ScientificTextParser {
                 if isPrecededBySpecial {
                     // Keep the brace - it's part of ^{...} or _{...}
                     result.append(char)
+                    insideSpecialBrace = true
                 } else {
                     // Find closing brace and extract content
                     if let closeIndex = text[i...].firstIndex(of: "}") {
@@ -197,11 +274,12 @@ public struct ScientificTextParser {
                     }
                 }
             } else if char == "}" {
-                // Check if we should keep this closing brace
-                // (it's part of ^{...} or _{...} that we preserved)
-                // We need to track if we're inside a special brace or not
-                // For simplicity, just skip standalone closing braces
-                // This might leave some edge cases but handles the common case
+                if insideSpecialBrace {
+                    // Keep the closing brace - it's part of ^{...} or _{...}
+                    result.append(char)
+                    insideSpecialBrace = false
+                }
+                // Standalone closing braces are skipped
             } else {
                 result.append(char)
             }

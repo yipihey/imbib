@@ -882,7 +882,7 @@ public final class PersistenceController: @unchecked Sendable {
         refreshIntervalSeconds.name = "refreshIntervalSeconds"
         refreshIntervalSeconds.attributeType = .integer32AttributeType
         refreshIntervalSeconds.isOptional = false
-        refreshIntervalSeconds.defaultValue = Int32(6 * 60 * 60)  // Default: 6 hours
+        refreshIntervalSeconds.defaultValue = Int32(24 * 60 * 60)  // Default: Daily
         properties.append(refreshIntervalSeconds)
 
         let lastFetchCount = NSAttributeDescription()

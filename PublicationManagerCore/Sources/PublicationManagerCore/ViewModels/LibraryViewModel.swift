@@ -21,6 +21,9 @@ public final class LibraryViewModel {
     /// Raw Core Data publications
     public private(set) var publications: [CDPublication] = []
 
+    /// Fast lookup by ID (populated during loadPublications)
+    public private(set) var publicationsByID: [UUID: CDPublication] = [:]
+
     /// LocalPaper wrappers for unified view layer
     public private(set) var papers: [LocalPaper] = []
 
@@ -66,12 +69,29 @@ public final class LibraryViewModel {
         let sortKey = sortOrder.sortKey
         publications = await repository.fetchAll(sortedBy: sortKey, ascending: sortAscending)
 
+        // Build ID lookup cache for O(1) access
+        publicationsByID = Dictionary(uniqueKeysWithValues: publications.map { ($0.id, $0) })
+
         // Create LocalPaper wrappers for unified view layer
         papers = LocalPaper.from(publications: publications, libraryID: libraryID)
 
         Logger.viewModels.infoCapture("Loaded \(self.publications.count) publications", category: "library")
 
         isLoading = false
+    }
+
+    // MARK: - Lookup
+
+    /// Fast O(1) lookup of publication by ID.
+    ///
+    /// Returns nil if no publication with that ID exists or if the object was deleted.
+    public func publication(for id: UUID) -> CDPublication? {
+        guard let pub = publicationsByID[id],
+              !pub.isDeleted,
+              pub.managedObjectContext != nil else {
+            return nil
+        }
+        return pub
     }
 
     // MARK: - Search
@@ -83,6 +103,7 @@ public final class LibraryViewModel {
             } else {
                 isLoading = true
                 publications = await repository.search(query: searchQuery)
+                publicationsByID = Dictionary(uniqueKeysWithValues: publications.map { ($0.id, $0) })
                 papers = LocalPaper.from(publications: publications, libraryID: libraryID)
                 isLoading = false
             }

@@ -41,7 +41,20 @@ extension UUID: Transferable {
 /// This view accepts `PublicationRowData` (a value type) instead of `CDPublication`
 /// directly. This eliminates crashes during bulk deletion where Core Data objects
 /// become invalid while SwiftUI is still rendering.
-public struct MailStylePublicationRow: View {
+///
+/// ## Performance
+///
+/// This view conforms to `Equatable` to prevent unnecessary re-renders when parent
+/// views rebuild. SwiftUI compares only `data` and `settings` - closures are ignored
+/// since they don't affect visual output.
+public struct MailStylePublicationRow: View, Equatable {
+
+    // MARK: - Equatable
+
+    public static func == (lhs: MailStylePublicationRow, rhs: MailStylePublicationRow) -> Bool {
+        // Only compare data and settings - closures don't affect visual output
+        lhs.data == rhs.data && lhs.settings == rhs.settings
+    }
 
     // MARK: - Properties
 
@@ -146,15 +159,9 @@ public struct MailStylePublicationRow: View {
                         .lineLimit(1)
                 }
 
-                // Row 2.75: Category chips (conditional)
-                if settings.showCategories && !data.categories.isEmpty {
-                    CategoryChipsRow(
-                        categories: data.categories,
-                        primaryCategory: data.primaryCategory,
-                        maxVisible: 3,
-                        onCategoryTap: onCategoryTap
-                    )
-                }
+                // Row 2.75: Category chips disabled for performance
+                // CategoryChipsRow creates multiple views per row which impacts scroll performance
+                // Categories are still visible in the detail view
 
                 // Row 3: Attachment indicator + Abstract preview (conditional)
                 if (settings.showAttachmentIndicator && data.hasPDF) || settings.abstractLineLimit > 0 {
@@ -166,7 +173,9 @@ public struct MailStylePublicationRow: View {
                         }
 
                         if settings.abstractLineLimit > 0, let abstract = data.abstract, !abstract.isEmpty {
-                            ScientificTextParser.text(abstract)
+                            // PERFORMANCE: Plain text with truncation - ScientificTextParser
+                            // is only used in detail view where formatting matters
+                            Text(String(abstract.prefix(300)))
                                 .font(MailStyleTokens.abstractFont)
                                 .foregroundStyle(MailStyleTokens.secondaryTextColor)
                                 .lineLimit(settings.abstractLineLimit)

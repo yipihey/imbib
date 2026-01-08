@@ -480,8 +480,17 @@ public struct PDFViewerWithControls: View {
     @State private var isLoading = true
     @State private var currentPage = 1
     @State private var totalPages = 0
-    @State private var scaleFactor: CGFloat = 1.0
+    /// Global zoom level - persists across paper switches via UserDefaults
+    @AppStorage("global_pdf_zoom_level") private var scaleFactor: Double = 1.0
     @State private var saveTask: Task<Void, Never>?
+
+    /// CGFloat binding for ControlledPDFKitView compatibility
+    private var scaleFactorBinding: Binding<CGFloat> {
+        Binding(
+            get: { CGFloat(scaleFactor) },
+            set: { scaleFactor = Double($0) }
+        )
+    }
 
     // Search state
     @State private var searchQuery: String = ""
@@ -541,7 +550,7 @@ public struct PDFViewerWithControls: View {
                     ControlledPDFKitView(
                         document: document,
                         currentPage: $currentPage,
-                        scaleFactor: $scaleFactor
+                        scaleFactor: scaleFactorBinding
                     )
                 } else {
                     errorView(.documentNotLoaded)
@@ -617,22 +626,15 @@ public struct PDFViewerWithControls: View {
     // MARK: - Reading Position
 
     private func loadSavedPosition() async {
-        // Load global zoom first (applies even without publication ID)
-        let globalZoom = await ReadingPositionStore.shared.globalZoomLevel
-        await MainActor.run {
-            if globalZoom >= 0.25 && globalZoom <= 4.0 {
-                scaleFactor = globalZoom
-            }
-        }
-
-        // Load per-publication page number
+        // Note: Global zoom is handled automatically by @AppStorage
+        // Only need to load per-publication page number
         guard let pubID = publicationID else { return }
         if let position = await ReadingPositionStore.shared.get(for: pubID) {
             await MainActor.run {
                 if position.pageNumber >= 1 && position.pageNumber <= totalPages {
                     currentPage = position.pageNumber
                 }
-                Logger.files.debugCapture("Restored reading position: page \(position.pageNumber), zoom \(Int(globalZoom * 100))%", category: "pdf")
+                Logger.files.debugCapture("Restored reading position: page \(position.pageNumber), zoom \(Int(scaleFactor * 100))%", category: "pdf")
             }
         }
     }
@@ -640,6 +642,10 @@ public struct PDFViewerWithControls: View {
     private func schedulePositionSave() {
         // Cancel existing save task
         saveTask?.cancel()
+
+        // Note: Global zoom is saved automatically by @AppStorage
+        // Only schedule save for per-publication page number
+        guard publicationID != nil else { return }
 
         // Schedule debounced save (500ms delay)
         saveTask = Task {
@@ -650,6 +656,7 @@ public struct PDFViewerWithControls: View {
     }
 
     private func savePositionImmediately() {
+        guard publicationID != nil else { return }
         saveTask?.cancel()
         Task {
             await savePosition()
@@ -657,14 +664,12 @@ public struct PDFViewerWithControls: View {
     }
 
     private func savePosition() async {
-        // Save global zoom (always, even without publication ID)
-        await ReadingPositionStore.shared.setGlobalZoom(scaleFactor)
-
-        // Save per-publication page number
+        // Note: Global zoom is saved automatically by @AppStorage
+        // Only save per-publication page number
         guard let pubID = publicationID else { return }
         let position = ReadingPosition(
             pageNumber: currentPage,
-            zoomLevel: scaleFactor,  // kept for struct compatibility but not used on load
+            zoomLevel: CGFloat(scaleFactor),
             lastReadDate: Date()
         )
         await ReadingPositionStore.shared.save(position, for: pubID)

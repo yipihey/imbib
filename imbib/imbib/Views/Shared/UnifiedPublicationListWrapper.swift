@@ -85,6 +85,9 @@ struct UnifiedPublicationListWrapper: View {
     @State private var provider: SmartSearchProvider?
     @StateObject private var dropHandler = FileDropHandler()
 
+    /// Whether a background refresh is in progress (for subtle UI indicator)
+    @State private var isBackgroundRefreshing = false
+
     // State for duplicate file alert
     @State private var showDuplicateAlert = false
     @State private var duplicateFilename = ""
@@ -160,10 +163,12 @@ struct UnifiedPublicationListWrapper: View {
             .onKeyPress(.init("s")) { handleStarKey() }
             .task(id: source.id) {
                 filterMode = initialFilterMode
+                // Always show cached results immediately (instant)
                 refreshPublicationsList()
-                // Auto-refresh smart search if empty
-                if case .smartSearch = source, publications.isEmpty {
-                    await refreshFromNetwork()
+
+                // For smart searches, queue high-priority background refresh if stale
+                if case .smartSearch(let smartSearch) = source {
+                    await queueBackgroundRefreshIfNeeded(smartSearch)
                 }
             }
             .onChange(of: filterMode) { _, _ in
@@ -186,6 +191,16 @@ struct UnifiedPublicationListWrapper: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .selectAllPublications)) { _ in
                 selectAllPublications()
+            }
+            // Listen for background smart search refresh completion
+            .onReceive(NotificationCenter.default.publisher(for: .smartSearchRefreshCompleted)) { notification in
+                if case .smartSearch(let smartSearch) = source,
+                   let completedID = notification.object as? UUID,
+                   completedID == smartSearch.id {
+                    logger.info("Background refresh completed for '\(smartSearch.name)', refreshing UI")
+                    isBackgroundRefreshing = false
+                    refreshPublicationsList()
+                }
             }
             // Inbox triage notifications (for menu access)
             .onReceive(NotificationCenter.default.publisher(for: .inboxArchive)) { _ in
@@ -339,11 +354,20 @@ struct UnifiedPublicationListWrapper: View {
             }
         }
 
-        // Refresh button (both sources)
+        // Refresh button (both sources) with background refresh indicator
         ToolbarItem(placement: .automatic) {
             if isLoading {
                 ProgressView()
                     .controlSize(.small)
+            } else if isBackgroundRefreshing {
+                // Subtle indicator for background refresh (non-blocking)
+                HStack(spacing: 4) {
+                    ProgressView()
+                        .controlSize(.mini)
+                    Text("Refreshing...")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             } else {
                 Button {
                     Task { await refreshFromNetwork() }
@@ -438,6 +462,44 @@ struct UnifiedPublicationListWrapper: View {
         }
 
         isLoading = false
+    }
+
+    /// Queue a background refresh for the smart search if needed (stale or empty).
+    ///
+    /// This does NOT block the UI - cached results are shown immediately while
+    /// the refresh happens in the background via SmartSearchRefreshService.
+    private func queueBackgroundRefreshIfNeeded(_ smartSearch: CDSmartSearch) async {
+        // Get provider to check staleness
+        let cachedProvider = await SmartSearchProviderCache.shared.getOrCreate(
+            for: smartSearch,
+            sourceManager: searchViewModel.sourceManager,
+            repository: libraryViewModel.repository
+        )
+        provider = cachedProvider
+
+        // Check if refresh is needed (stale or empty)
+        let isStale = await cachedProvider.isStale
+        let isEmpty = publications.isEmpty
+
+        if isStale || isEmpty {
+            logger.info("Smart search '\(smartSearch.name)' needs refresh (stale: \(isStale), empty: \(isEmpty))")
+
+            // Check if already being refreshed
+            let alreadyRefreshing = await SmartSearchRefreshService.shared.isRefreshing(smartSearch.id)
+            let alreadyQueued = await SmartSearchRefreshService.shared.isQueued(smartSearch.id)
+
+            if alreadyRefreshing || alreadyQueued {
+                logger.debug("Smart search '\(smartSearch.name)' already refreshing/queued")
+                isBackgroundRefreshing = alreadyRefreshing
+            } else {
+                // Queue with high priority since it's the currently visible smart search
+                isBackgroundRefreshing = true
+                await SmartSearchRefreshService.shared.queueRefresh(smartSearch, priority: .high)
+                logger.info("Queued high-priority background refresh for '\(smartSearch.name)'")
+            }
+        } else {
+            logger.debug("Smart search '\(smartSearch.name)' is fresh, no refresh needed")
+        }
     }
 
     // MARK: - Notification Handlers

@@ -492,7 +492,7 @@ struct IOSSmartSearchEditorSheet: View {
     // Inbox feed options (like macOS)
     @State private var feedsToInbox: Bool = false
     @State private var autoRefreshEnabled: Bool = false
-    @State private var refreshInterval: RefreshIntervalPreset = .sixHours
+    @State private var refreshInterval: RefreshIntervalPreset = .daily
 
     // arXiv field-specific search
     @State private var arxivSearchField: ArXivSearchField = .all
@@ -740,7 +740,7 @@ struct IOSSmartSearchEditorSheet: View {
             // Load inbox settings
             feedsToInbox = smartSearch.feedsToInbox
             autoRefreshEnabled = smartSearch.autoRefreshEnabled
-            refreshInterval = RefreshIntervalPreset(rawValue: smartSearch.refreshIntervalSeconds) ?? .sixHours
+            refreshInterval = RefreshIntervalPreset(rawValue: smartSearch.refreshIntervalSeconds) ?? .daily
 
             // Parse arXiv field-specific queries
             let existingQuery = smartSearch.query

@@ -667,6 +667,239 @@ public actor PublicationRepository {
         }
     }
 
+    // MARK: - Batch Operations (Performance Optimization)
+
+    /// Find existing publications by identifiers in a single batch query.
+    ///
+    /// Much more efficient than calling `findByIdentifiers()` in a loop.
+    /// Returns a dictionary mapping SearchResult.id to existing CDPublication.
+    ///
+    /// - Parameter results: Search results to check for existing publications
+    /// - Returns: Dictionary mapping result IDs to existing publications
+    public func findExistingByIdentifiers(_ results: [SearchResult]) async -> [String: CDPublication] {
+        guard !results.isEmpty else { return [:] }
+
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            var existing: [String: CDPublication] = [:]
+
+            // Collect all identifiers for batch query
+            let dois = results.compactMap { $0.doi }.filter { !$0.isEmpty }
+            let arxivIDs = results.compactMap { $0.arxivID }.filter { !$0.isEmpty }
+            let bibcodes = results.compactMap { $0.bibcode }.filter { !$0.isEmpty }
+            let ssIDs = results.compactMap { $0.semanticScholarID }.filter { !$0.isEmpty }
+            let oaIDs = results.compactMap { $0.openAlexID }.filter { !$0.isEmpty }
+
+            // Build compound predicate for all identifiers
+            var predicates: [NSPredicate] = []
+
+            if !dois.isEmpty {
+                predicates.append(NSPredicate(format: "doi IN[c] %@", dois))
+            }
+            if !arxivIDs.isEmpty {
+                // Normalize arXiv IDs for lookup
+                let normalizedArxivs = arxivIDs.map { IdentifierExtractor.normalizeArXivID($0) }
+                predicates.append(NSPredicate(format: "arxivIDNormalized IN %@", normalizedArxivs))
+            }
+            if !bibcodes.isEmpty {
+                let normalizedBibcodes = bibcodes.map { $0.uppercased().trimmingCharacters(in: .whitespaces) }
+                predicates.append(NSPredicate(format: "bibcodeNormalized IN %@", normalizedBibcodes))
+            }
+            if !ssIDs.isEmpty {
+                predicates.append(NSPredicate(format: "semanticScholarID IN %@", ssIDs))
+            }
+            if !oaIDs.isEmpty {
+                predicates.append(NSPredicate(format: "openAlexID IN %@", oaIDs))
+            }
+
+            guard !predicates.isEmpty else { return [:] }
+
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            request.predicate = NSCompoundPredicate(orPredicateWithSubpredicates: predicates)
+
+            do {
+                let found = try context.fetch(request)
+
+                // Map found publications back to result IDs
+                for pub in found {
+                    for result in results {
+                        // Check each identifier type
+                        if let doi = result.doi, !doi.isEmpty,
+                           let pubDOI = pub.doi, pubDOI.lowercased() == doi.lowercased() {
+                            existing[result.id] = pub
+                            continue
+                        }
+                        if let arxiv = result.arxivID, !arxiv.isEmpty,
+                           let pubArxiv = pub.arxivIDNormalized,
+                           pubArxiv == IdentifierExtractor.normalizeArXivID(arxiv) {
+                            existing[result.id] = pub
+                            continue
+                        }
+                        if let bibcode = result.bibcode, !bibcode.isEmpty,
+                           let pubBibcode = pub.bibcodeNormalized,
+                           pubBibcode == bibcode.uppercased().trimmingCharacters(in: .whitespaces) {
+                            existing[result.id] = pub
+                            continue
+                        }
+                        if let ssID = result.semanticScholarID, !ssID.isEmpty,
+                           pub.semanticScholarID == ssID {
+                            existing[result.id] = pub
+                            continue
+                        }
+                        if let oaID = result.openAlexID, !oaID.isEmpty,
+                           pub.openAlexID == oaID {
+                            existing[result.id] = pub
+                            continue
+                        }
+                    }
+                }
+
+                Logger.persistence.debugCapture(
+                    "Batch find: \(results.count) results → \(found.count) DB matches → \(existing.count) mapped",
+                    category: "batch"
+                )
+            } catch {
+                Logger.persistence.errorCapture("Batch find failed: \(error.localizedDescription)", category: "batch")
+            }
+
+            return existing
+        }
+    }
+
+    /// Create multiple publications from search results in a single batch.
+    ///
+    /// Much more efficient than calling `createFromSearchResult()` in a loop.
+    /// Performs a single Core Data save for all entries.
+    ///
+    /// - Parameters:
+    ///   - results: Search results to create publications from
+    ///   - collection: Optional collection to add all publications to
+    /// - Returns: Array of created CDPublication entities
+    @discardableResult
+    public func createFromSearchResults(
+        _ results: [SearchResult],
+        collection: CDCollection? = nil
+    ) async -> [CDPublication] {
+        guard !results.isEmpty else { return [] }
+
+        Logger.persistence.infoCapture("Batch creating \(results.count) publications", category: "batch")
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            // Fetch existing cite keys once for uniqueness check
+            let existingKeys = self.fetchCiteKeysSync(context: context)
+            var usedKeys = existingKeys
+            var created: [CDPublication] = []
+
+            for result in results {
+                let publication = CDPublication(context: context)
+                publication.id = UUID()
+                publication.dateAdded = Date()
+                publication.dateModified = Date()
+
+                // Generate unique cite key
+                let citeKey = self.generateCiteKey(for: result, existingKeys: usedKeys)
+                publication.citeKey = citeKey
+                usedKeys.insert(citeKey)
+
+                // Set entry type (default to article)
+                publication.entryType = "article"
+
+                // Core fields
+                publication.title = result.title
+                if let year = result.year {
+                    publication.year = Int16(year)
+                }
+                publication.abstract = result.abstract
+                publication.doi = result.doi
+
+                // Build fields dictionary
+                var fields: [String: String] = [:]
+                if !result.authors.isEmpty {
+                    fields["author"] = result.authors.joined(separator: " and ")
+                }
+                if let venue = result.venue {
+                    fields["journal"] = venue
+                }
+                if let doi = result.doi {
+                    fields["doi"] = doi
+                }
+                if let arxivID = result.arxivID {
+                    fields["eprint"] = arxivID
+                    fields["archiveprefix"] = "arXiv"
+                }
+                if let bibcode = result.bibcode {
+                    fields["bibcode"] = bibcode
+                }
+                if let pmid = result.pmid {
+                    fields["pmid"] = pmid
+                }
+                publication.fields = fields
+
+                // ADR-016: Online source metadata
+                publication.originalSourceID = result.sourceID
+                publication.webURL = result.webURL?.absoluteString
+                publication.semanticScholarID = result.semanticScholarID
+                publication.openAlexID = result.openAlexID
+
+                // Store PDF links as JSON
+                if !result.pdfLinks.isEmpty {
+                    publication.pdfLinks = result.pdfLinks
+                }
+
+                // Generate and store BibTeX
+                let entry = publication.toBibTeXEntry()
+                publication.rawBibTeX = BibTeXExporter().export([entry])
+
+                // Add to collection if provided (no save yet)
+                if let collection {
+                    publication.addToCollection(collection)
+                }
+
+                created.append(publication)
+            }
+
+            // Single save for all entries
+            self.persistenceController.save()
+
+            Logger.persistence.infoCapture(
+                "Batch created \(created.count) publications (single save)",
+                category: "batch"
+            )
+
+            return created
+        }
+    }
+
+    /// Add multiple publications to a collection in a single batch.
+    ///
+    /// Much more efficient than calling `addToCollection()` in a loop.
+    /// Performs a single Core Data save for all entries.
+    ///
+    /// - Parameters:
+    ///   - publications: Publications to add
+    ///   - collection: Collection to add them to
+    public func addToCollection(_ publications: [CDPublication], collection: CDCollection) async {
+        guard !publications.isEmpty else { return }
+
+        let context = persistenceController.viewContext
+
+        await context.perform {
+            for pub in publications {
+                pub.addToCollection(collection)
+            }
+
+            // Single save for all additions
+            self.persistenceController.save()
+
+            Logger.persistence.debugCapture(
+                "Batch added \(publications.count) publications to collection '\(collection.name ?? "unnamed")'",
+                category: "batch"
+            )
+        }
+    }
+
     // MARK: - RIS Import Operations
 
     /// Create a new publication from RIS entry

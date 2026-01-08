@@ -22,10 +22,47 @@ struct ContentView: View {
     // MARK: - State
 
     @State private var selectedSection: SidebarSection? = nil
-    @State private var selectedPublication: CDPublication?
+    /// Store publication ID instead of Core Data object to prevent unnecessary view rebuilds
+    /// when selected publication's properties change (e.g., isRead, title)
+    @State private var selectedPublicationID: UUID?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showImportPreview = false
     @State private var importFileURL: URL?
+
+    // MARK: - Derived Selection
+
+    /// The publication ID that the detail view should display.
+    /// Updated asynchronously after selection to allow list to feel responsive.
+    @State private var displayedPublicationID: UUID?
+
+    /// Derive the selected publication for the detail view.
+    private var displayedPublication: CDPublication? {
+        guard let id = displayedPublicationID else { return nil }
+        return libraryViewModel.publication(for: id)
+    }
+
+    /// Create a binding that maps UUID to CDPublication for list views.
+    /// Updates list selection immediately, defers detail view for responsive feel.
+    private var selectedPublicationBinding: Binding<CDPublication?> {
+        Binding(
+            get: {
+                guard let id = selectedPublicationID else { return nil }
+                return libraryViewModel.publication(for: id)
+            },
+            set: { newPublication in
+                let newID = newPublication?.id
+                // Update list selection immediately for instant visual feedback
+                selectedPublicationID = newID
+
+                // Defer detail view update - user sees selection change first,
+                // then detail view catches up (feels more responsive)
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(50))
+                    displayedPublicationID = newID
+                }
+            }
+        )
+    }
 
     // MARK: - Body
 
@@ -36,6 +73,11 @@ struct ContentView: View {
             contentList
         } detail: {
             detailView
+                // OPTIMIZATION: Force view replacement instead of diffing
+                // id() tells SwiftUI this is a completely new view, skip expensive diff
+                .id(displayedPublicationID)
+                // OPTIMIZATION: Disable NavigationSplitView transition animations
+                .transaction { $0.animation = nil }
         }
         .onReceive(NotificationCenter.default.publisher(for: .showLibrary)) { notification in
             // Select the first library if available
@@ -73,12 +115,17 @@ struct ContentView: View {
         .onChange(of: selectedSection) { _, _ in
             // ADR-016: All sections now use CDPublication
             // Clear selection when switching sections
-            selectedPublication = nil
+            selectedPublicationID = nil
+            displayedPublicationID = nil
         }
-        .onChange(of: selectedPublication) { _, newValue in
+        .onChange(of: selectedPublicationID) { _, newID in
             // Clear selection if publication was deleted
-            if let pub = newValue, (pub.isDeleted || pub.managedObjectContext == nil) {
-                selectedPublication = nil
+            if let id = newID {
+                // Check if the publication still exists and is valid
+                if libraryViewModel.publication(for: id) == nil {
+                    selectedPublicationID = nil
+                    displayedPublicationID = nil
+                }
             }
         }
     }
@@ -93,7 +140,7 @@ struct ContentView: View {
             if let inboxLibrary = InboxManager.shared.inboxLibrary {
                 UnifiedPublicationListWrapper(
                     source: .library(inboxLibrary),
-                    selectedPublication: $selectedPublication
+                    selectedPublication: selectedPublicationBinding
                 )
             } else {
                 ContentUnavailableView(
@@ -107,33 +154,33 @@ struct ContentView: View {
             // Show papers from a specific inbox feed (same as smart search)
             UnifiedPublicationListWrapper(
                 source: .smartSearch(smartSearch),
-                selectedPublication: $selectedPublication
+                selectedPublication: selectedPublicationBinding
             )
 
         case .library(let library):
             UnifiedPublicationListWrapper(
                 source: .library(library),
-                selectedPublication: $selectedPublication
+                selectedPublication: selectedPublicationBinding
             )
 
         case .unread(let library):
             UnifiedPublicationListWrapper(
                 source: .library(library),
-                selectedPublication: $selectedPublication,
+                selectedPublication: selectedPublicationBinding,
                 initialFilterMode: .unread
             )
 
         case .search:
-            SearchResultsListView(selectedPublication: $selectedPublication)
+            SearchResultsListView(selectedPublication: selectedPublicationBinding)
 
         case .smartSearch(let smartSearch):
             UnifiedPublicationListWrapper(
                 source: .smartSearch(smartSearch),
-                selectedPublication: $selectedPublication
+                selectedPublication: selectedPublicationBinding
             )
 
         case .collection(let collection):
-            CollectionListView(collection: collection, selection: $selectedPublication)
+            CollectionListView(collection: collection, selection: selectedPublicationBinding)
 
         case .none:
             ContentUnavailableView(
@@ -150,7 +197,8 @@ struct ContentView: View {
     private var detailView: some View {
         // Guard against deleted Core Data objects - check isDeleted and managedObjectContext
         // DetailView.init is failable and returns nil for deleted publications
-        if let publication = selectedPublication,
+        // Uses displayedPublication (deferred) instead of immediate selection for smoother UX
+        if let publication = displayedPublication,
            !publication.isDeleted,
            publication.managedObjectContext != nil,
            let libraryID = selectedLibraryID,

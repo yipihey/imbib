@@ -73,6 +73,30 @@ All business logic, models, view models, and shared views live in Core.
 - Typealiases: `PlatformImage`, `PlatformColor`
 - See `005-swiftui-frontend.md`, `006-ios-file-handling.md`
 
+### iOS Feature Parity Checklist
+When adding features to macOS, check iOS parity:
+
+| Location | macOS | iOS |
+|----------|-------|-----|
+| Detail views | `imbib/Views/Detail/` | `imbib-iOS/Views/Detail/` |
+| Main detail | `DetailView.swift` | `IOSDetailView.swift` |
+| Sidebar | `SidebarView.swift` | `IOSSidebarView.swift` |
+| Settings | `SettingsView.swift` | `IOSSettingsView.swift` |
+
+**Shared components in Core** (use these for parity):
+- `PDFViewerWithControls` - Embedded PDF with navigation/zoom
+- `BibTeXEditor` - Syntax-highlighted editor
+- `PublicationListView` - Unified paper list with context menus
+- `MailStylePublicationRow` - Email-style paper display
+- `ScientificTextParser` - LaTeX/MathML rendering
+
+**Common platform gotchas**:
+- `Color(nsColor: .controlBackgroundColor)` → `Color(.secondarySystemBackground)`
+- `Color(nsColor: .textBackgroundColor)` → `Color(.systemBackground)`
+- `Color(nsColor: .separatorColor)` → `Color(.separator)`
+- `NSViewRepresentable` → `UIViewRepresentable`
+- Notes stored in `publication.fields["note"]`, not a `notes` property
+
 ### Sync & Conflict Resolution
 - CloudKit for cross-device sync
 - Field-level timestamps for scalar merge (last-writer-wins per field)
