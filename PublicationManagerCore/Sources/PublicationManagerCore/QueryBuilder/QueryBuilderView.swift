@@ -15,6 +15,7 @@ public struct QueryBuilderView: View {
     @Binding var rawQuery: String
     @State private var isRawQueryExpanded = false
     @State private var isManuallyEditing = false
+    @State private var isSyncing = false  // Prevents feedback loop when syncing
 
     public init(state: Binding<QueryBuilderState>, rawQuery: Binding<String>) {
         self._state = state
@@ -89,7 +90,10 @@ public struct QueryBuilderView: View {
                             parseRawQuery()
                         }
                         .onChange(of: rawQuery) { _, _ in
-                            isManuallyEditing = true
+                            // Only mark as manually editing if this isn't a programmatic sync
+                            if !isSyncing {
+                                isManuallyEditing = true
+                            }
                         }
 
                     Text("Edit directly or use the builder above")
@@ -115,7 +119,9 @@ public struct QueryBuilderView: View {
 
     private func syncRawQuery() {
         guard !isManuallyEditing else { return }
+        isSyncing = true
         rawQuery = state.generateQuery()
+        isSyncing = false
     }
 
     private func parseRawQuery() {
