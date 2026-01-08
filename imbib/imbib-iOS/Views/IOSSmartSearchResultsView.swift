@@ -67,6 +67,14 @@ struct SmartSearchResultsView: View {
             onImport: nil,
             onOpenPDF: { publication in
                 openPDF(for: publication)
+            },
+            onCategoryTap: { category in
+                // Navigate to search with category query
+                NotificationCenter.default.post(
+                    name: .searchCategory,
+                    object: nil,
+                    userInfo: ["category": category]
+                )
             }
         )
         .navigationTitle(smartSearch.name)

@@ -113,6 +113,9 @@ public struct PublicationListView: View {
     /// Called when mute paper is requested (by DOI or bibcode)
     public var onMutePaper: ((CDPublication) -> Void)?
 
+    /// Called when a category chip is tapped (e.g., to search for that category)
+    public var onCategoryTap: ((String) -> Void)?
+
     // MARK: - Internal State
 
     @State private var searchQuery: String = ""
@@ -199,7 +202,9 @@ public struct PublicationListView: View {
         onDismiss: ((Set<UUID>) async -> Void)? = nil,
         onToggleStar: ((Set<UUID>) async -> Void)? = nil,
         onMuteAuthor: ((String) -> Void)? = nil,
-        onMutePaper: ((CDPublication) -> Void)? = nil
+        onMutePaper: ((CDPublication) -> Void)? = nil,
+        // Category tap callback
+        onCategoryTap: ((String) -> Void)? = nil
     ) {
         self.publications = publications
         self._selection = selection
@@ -229,6 +234,8 @@ public struct PublicationListView: View {
         self.onToggleStar = onToggleStar
         self.onMuteAuthor = onMuteAuthor
         self.onMutePaper = onMutePaper
+        // Category tap
+        self.onCategoryTap = onCategoryTap
     }
 
     // MARK: - Body
@@ -458,7 +465,8 @@ public struct PublicationListView: View {
                             await onToggleRead?(pub)
                         }
                     }
-                } : nil
+                } : nil,
+                onCategoryTap: onCategoryTap
             )
             .tag(rowData.id)
             #if os(iOS)

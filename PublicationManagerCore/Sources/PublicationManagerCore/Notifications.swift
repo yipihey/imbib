@@ -63,4 +63,9 @@ public extension Notification.Name {
 
     /// Toggle star/flag on selected inbox items (S key)
     static let inboxToggleStar = Notification.Name("inboxToggleStar")
+
+    // MARK: - Category Search
+
+    /// Search for papers in a specific arXiv category (userInfo["category"] = String)
+    static let searchCategory = Notification.Name("searchCategory")
 }

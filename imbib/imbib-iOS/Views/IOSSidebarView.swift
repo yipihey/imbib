@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PublicationManagerCore
+import os
 
 /// iOS sidebar with library navigation, smart searches, and collections.
 ///
@@ -28,6 +29,7 @@ struct IOSSidebarView: View {
     @State private var showNewLibrarySheet = false
     @State private var showNewSmartSearchSheet = false
     @State private var showNewCollectionSheet = false
+    @State private var showArXivCategoryBrowser = false
     @State private var selectedLibraryForAction: CDLibrary?
     @State private var editingSmartSearch: CDSmartSearch?
     @State private var refreshID = UUID()  // Used to force list refresh
@@ -88,6 +90,15 @@ struct IOSSidebarView: View {
                                 }
                             }
                         }
+
+                        Divider()
+
+                        // arXiv category browser
+                        Button {
+                            showArXivCategoryBrowser = true
+                        } label: {
+                            Label("Browse arXiv Categories", systemImage: "list.bullet.rectangle")
+                        }
                     } label: {
                         Image(systemName: "plus")
                     }
@@ -134,6 +145,12 @@ struct IOSSidebarView: View {
                 onSaved: { _ in
                     editingSmartSearch = nil
                 }
+            )
+        }
+        .sheet(isPresented: $showArXivCategoryBrowser) {
+            IOSArXivCategoryBrowserSheet(
+                isPresented: $showArXivCategoryBrowser,
+                library: selectedLibraryForAction ?? libraryManager.libraries.first(where: { !$0.isInbox })
             )
         }
         .onChange(of: selection) { _, newValue in
@@ -418,39 +435,86 @@ struct NewCollectionSheet: View {
     }
 }
 
+// MARK: - arXiv Search Field Enum
+
+/// Search field options for arXiv queries
+enum ArXivSearchField: String, CaseIterable, Identifiable {
+    case all = "all"
+    case title = "ti"
+    case author = "au"
+    case abstract = "abs"
+    case category = "cat"
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .all: return "All Fields"
+        case .title: return "Title"
+        case .author: return "Author"
+        case .abstract: return "Abstract"
+        case .category: return "Category"
+        }
+    }
+
+    var helpText: String {
+        switch self {
+        case .all: return "Search across all fields"
+        case .title: return "Search in paper titles"
+        case .author: return "Search by author name"
+        case .abstract: return "Search in abstracts"
+        case .category: return "Filter by arXiv category (e.g., cs.LG)"
+        }
+    }
+}
+
 // MARK: - iOS Smart Search Editor Sheet
 
 struct IOSSmartSearchEditorSheet: View {
     @Binding var isPresented: Bool
     let library: CDLibrary?
     let smartSearch: CDSmartSearch?  // nil for create, non-nil for edit
+    let defaultFeedsToInbox: Bool
     let onSaved: ((CDSmartSearch) -> Void)?
 
     @Environment(SettingsViewModel.self) private var settingsViewModel
+    @Environment(SearchViewModel.self) private var searchViewModel
 
     @State private var name = ""
     @State private var query = ""
-    @State private var sourceID = "ads"
     @State private var maxResults: Int = 100
     @State private var credentialStatus: [SourceCredentialInfo] = []
 
+    // Multi-source selection (like macOS)
+    @State private var selectedSourceIDs: Set<String> = []
+    @State private var availableSources: [SourceMetadata] = []
+
+    // Inbox feed options (like macOS)
+    @State private var feedsToInbox: Bool = false
+    @State private var autoRefreshEnabled: Bool = false
+    @State private var refreshInterval: RefreshIntervalPreset = .sixHours
+
+    // arXiv field-specific search
+    @State private var arxivSearchField: ArXivSearchField = .all
+    @State private var arxivCategory: String = ""
+    @State private var showCategoryPicker = false
+
     private var isEditing: Bool { smartSearch != nil }
 
-    /// Check if selected source requires credentials that are missing
-    private var selectedSourceNeedsCredentials: Bool {
-        guard let info = credentialStatus.first(where: { $0.sourceID == sourceID }) else {
-            return false
-        }
-        return info.status == .missing
+    /// Check if arXiv is one of the selected sources
+    private var hasArXivSelected: Bool {
+        selectedSourceIDs.contains("arxiv") || selectedSourceIDs.isEmpty
     }
 
-    /// Get warning message for missing credentials
-    private var credentialWarningMessage: String? {
-        guard let info = credentialStatus.first(where: { $0.sourceID == sourceID }),
-              info.status == .missing else {
-            return nil
-        }
-        return "\(info.sourceName) requires an API key. Configure it in Settings to use this source."
+    /// Get warning messages for missing credentials
+    private var credentialWarnings: [String] {
+        let selectedIDs = selectedSourceIDs.isEmpty
+            ? Set(availableSources.map { $0.id })
+            : selectedSourceIDs
+
+        return credentialStatus
+            .filter { selectedIDs.contains($0.sourceID) && $0.status == .missing }
+            .map { "\($0.sourceName) requires an API key." }
     }
 
     // Convenience initializer for creating new smart search
@@ -458,14 +522,22 @@ struct IOSSmartSearchEditorSheet: View {
         self._isPresented = isPresented
         self.library = library
         self.smartSearch = nil
+        self.defaultFeedsToInbox = false
         self.onSaved = onCreated
     }
 
-    // Full initializer for editing
-    init(isPresented: Binding<Bool>, library: CDLibrary?, smartSearch: CDSmartSearch?, onSaved: ((CDSmartSearch) -> Void)? = nil) {
+    // Full initializer for editing or creating with defaults
+    init(
+        isPresented: Binding<Bool>,
+        library: CDLibrary?,
+        smartSearch: CDSmartSearch? = nil,
+        defaultFeedsToInbox: Bool = false,
+        onSaved: ((CDSmartSearch) -> Void)? = nil
+    ) {
         self._isPresented = isPresented
         self.library = library
         self.smartSearch = smartSearch
+        self.defaultFeedsToInbox = defaultFeedsToInbox
         self.onSaved = onSaved
     }
 
@@ -476,28 +548,120 @@ struct IOSSmartSearchEditorSheet: View {
                     TextField("Smart Search Name", text: $name)
                 }
 
-                Section("Query") {
-                    TextField("Search Query", text: $query)
-                        .autocapitalization(.none)
-                }
+                // Multi-source selection (matching macOS)
+                Section("Sources") {
+                    Toggle("All Sources", isOn: Binding(
+                        get: { selectedSourceIDs.isEmpty },
+                        set: { useAll in
+                            if useAll {
+                                selectedSourceIDs.removeAll()
+                            } else {
+                                // Select all sources so user can deselect unwanted ones
+                                selectedSourceIDs = Set(availableSources.map { $0.id })
+                            }
+                        }
+                    ))
 
-                Section("Source") {
-                    Picker("Source", selection: $sourceID) {
-                        Text("ADS").tag("ads")
-                        Text("arXiv").tag("arxiv")
-                        Text("Crossref").tag("crossref")
-                        Text("Semantic Scholar").tag("semanticscholar")
+                    ForEach(availableSources, id: \.id) { source in
+                        Toggle(source.name, isOn: Binding(
+                            get: { selectedSourceIDs.contains(source.id) },
+                            set: { isSelected in
+                                if isSelected {
+                                    selectedSourceIDs.insert(source.id)
+                                } else {
+                                    selectedSourceIDs.remove(source.id)
+                                }
+                            }
+                        ))
                     }
 
-                    // Warning if source requires missing credentials
-                    if let warning = credentialWarningMessage {
+                    // Warning if sources require missing credentials
+                    if !credentialWarnings.isEmpty {
                         Label {
-                            Text(warning)
-                                .font(.caption)
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(credentialWarnings, id: \.self) { warning in
+                                    Text(warning)
+                                        .font(.caption)
+                                }
+                                Text("Configure API keys in Settings.")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                         } icon: {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
                         }
+                    }
+                }
+
+                // Query section with arXiv field selector
+                Section {
+                    // Show arXiv field selector when arXiv is one of the selected sources
+                    if hasArXivSelected {
+                        Picker("arXiv Field", selection: $arxivSearchField) {
+                            ForEach(ArXivSearchField.allCases) { field in
+                                Text(field.displayName).tag(field)
+                            }
+                        }
+
+                        // Category picker for category field
+                        if arxivSearchField == .category {
+                            Button {
+                                showCategoryPicker = true
+                            } label: {
+                                HStack {
+                                    Text("Category")
+                                    Spacer()
+                                    if arxivCategory.isEmpty {
+                                        Text("Select...")
+                                            .foregroundStyle(.secondary)
+                                    } else {
+                                        Text(arxivCategory)
+                                            .foregroundStyle(.primary)
+                                    }
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .foregroundStyle(.primary)
+                        }
+
+                        // Help text for arXiv field
+                        Text(arxivSearchField.helpText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    // Query text field (always shown unless category-only)
+                    if !(hasArXivSelected && arxivSearchField == .category) {
+                        TextField("Search Query", text: $query)
+                            .autocapitalization(.none)
+                    }
+                } header: {
+                    Text("Query")
+                }
+
+                // Inbox feed options (matching macOS)
+                Section {
+                    Toggle("Feed to Inbox", isOn: $feedsToInbox)
+
+                    if feedsToInbox {
+                        Toggle("Auto-Refresh", isOn: $autoRefreshEnabled)
+
+                        if autoRefreshEnabled {
+                            Picker("Refresh Interval", selection: $refreshInterval) {
+                                ForEach(RefreshIntervalPreset.allCases, id: \.self) { preset in
+                                    Text(preset.displayName).tag(preset)
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Inbox")
+                } footer: {
+                    if feedsToInbox {
+                        Text("Papers from this search will be added to your Inbox for triage.")
                     }
                 }
 
@@ -517,39 +681,115 @@ struct IOSSmartSearchEditorSheet: View {
                     Button(isEditing ? "Save" : "Create") {
                         saveSmartSearch()
                     }
-                    .disabled(name.isEmpty || query.isEmpty)
+                    .disabled(name.isEmpty || !hasValidQuery)
                 }
             }
-            .onAppear {
-                loadExistingValues()
-            }
             .task {
-                // Load credential status to show warnings
-                await settingsViewModel.loadCredentialStatus()
-                credentialStatus = settingsViewModel.sourceCredentials
+                await loadData()
+            }
+            .sheet(isPresented: $showCategoryPicker) {
+                IOSArXivCategoryPickerSheet(
+                    selectedCategory: $arxivCategory,
+                    isPresented: $showCategoryPicker
+                )
             }
         }
     }
 
-    private func loadExistingValues() {
+    /// Check if the query is valid (non-empty query or selected category)
+    private var hasValidQuery: Bool {
+        if hasArXivSelected && arxivSearchField == .category {
+            return !arxivCategory.isEmpty
+        }
+        return !query.isEmpty
+    }
+
+    /// Build the final query with field prefix for arXiv
+    private var finalQuery: String {
+        if hasArXivSelected && arxivSearchField != .all {
+            switch arxivSearchField {
+            case .all:
+                return query
+            case .title:
+                return "ti:\(query)"
+            case .author:
+                return "au:\(query)"
+            case .abstract:
+                return "abs:\(query)"
+            case .category:
+                return "cat:\(arxivCategory)"
+            }
+        }
+        return query
+    }
+
+    private func loadData() async {
+        // Load available sources
+        availableSources = await searchViewModel.availableSources
+
+        // Load credential status to show warnings
+        await settingsViewModel.loadCredentialStatus()
+        credentialStatus = settingsViewModel.sourceCredentials
+
+        // Load existing values if editing
         if let smartSearch {
             name = smartSearch.name
-            query = smartSearch.query
-            sourceID = smartSearch.sources.first ?? "ads"
+            selectedSourceIDs = Set(smartSearch.sources)
             maxResults = Int(smartSearch.maxResults)
+
+            // Load inbox settings
+            feedsToInbox = smartSearch.feedsToInbox
+            autoRefreshEnabled = smartSearch.autoRefreshEnabled
+            refreshInterval = RefreshIntervalPreset(rawValue: smartSearch.refreshIntervalSeconds) ?? .sixHours
+
+            // Parse arXiv field-specific queries
+            let existingQuery = smartSearch.query
+            if smartSearch.sources.contains("arxiv") || smartSearch.sources.isEmpty {
+                if existingQuery.hasPrefix("ti:") {
+                    arxivSearchField = .title
+                    query = String(existingQuery.dropFirst(3))
+                } else if existingQuery.hasPrefix("au:") {
+                    arxivSearchField = .author
+                    query = String(existingQuery.dropFirst(3))
+                } else if existingQuery.hasPrefix("abs:") {
+                    arxivSearchField = .abstract
+                    query = String(existingQuery.dropFirst(4))
+                } else if existingQuery.hasPrefix("cat:") {
+                    arxivSearchField = .category
+                    arxivCategory = String(existingQuery.dropFirst(4))
+                } else {
+                    arxivSearchField = .all
+                    query = existingQuery
+                }
+            } else {
+                query = existingQuery
+            }
+        } else {
+            // Apply defaults for new smart search
+            feedsToInbox = defaultFeedsToInbox
+            autoRefreshEnabled = defaultFeedsToInbox  // Auto-refresh on by default for inbox feeds
         }
     }
 
     private func saveSmartSearch() {
+        let queryToSave = finalQuery
+        let sourceIDs = Array(selectedSourceIDs)
+
         if let smartSearch {
             // Update existing
             SmartSearchRepository.shared.update(
                 smartSearch,
                 name: name,
-                query: query,
-                sourceIDs: [sourceID]
+                query: queryToSave,
+                sourceIDs: sourceIDs
             )
             smartSearch.maxResults = Int16(maxResults)
+
+            // Update inbox settings
+            smartSearch.feedsToInbox = feedsToInbox
+            smartSearch.autoRefreshEnabled = autoRefreshEnabled
+            smartSearch.refreshIntervalSeconds = refreshInterval.seconds
+
             try? smartSearch.managedObjectContext?.save()
 
             // Invalidate cache so results refresh
@@ -560,16 +800,153 @@ struct IOSSmartSearchEditorSheet: View {
             isPresented = false
             onSaved?(smartSearch)
         } else if let library {
-            // Create new
+            // Create new smart search
             let newSearch = SmartSearchRepository.shared.create(
                 name: name,
-                query: query,
-                sourceIDs: [sourceID],
+                query: queryToSave,
+                sourceIDs: sourceIDs,
                 library: library,
                 maxResults: Int16(maxResults)
             )
+
+            // Set inbox settings after creation
+            newSearch.feedsToInbox = feedsToInbox
+            newSearch.autoRefreshEnabled = autoRefreshEnabled
+            newSearch.refreshIntervalSeconds = refreshInterval.seconds
+            try? newSearch.managedObjectContext?.save()
+
             isPresented = false
             onSaved?(newSearch)
+        }
+    }
+}
+
+// MARK: - iOS arXiv Category Browser Sheet
+
+/// Sheet wrapper for ArXivCategoryBrowser on iOS.
+///
+/// Allows users to browse arXiv categories and create feeds to track new papers.
+struct IOSArXivCategoryBrowserSheet: View {
+    @Binding var isPresented: Bool
+    let library: CDLibrary?
+
+    var body: some View {
+        NavigationStack {
+            ArXivCategoryBrowser(
+                onFollow: { category, feedName in
+                    createCategoryFeed(category: category, name: feedName)
+                },
+                onDismiss: {
+                    isPresented = false
+                }
+            )
+            .navigationTitle("arXiv Categories")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        isPresented = false
+                    }
+                }
+            }
+        }
+    }
+
+    private func createCategoryFeed(category: ArXivCategory, name: String) {
+        guard let library else { return }
+
+        // Create smart search with category query
+        let smartSearch = SmartSearchRepository.shared.create(
+            name: name,
+            query: "cat:\(category.id)",
+            sourceIDs: ["arxiv"],
+            library: library,
+            maxResults: 100
+        )
+
+        // Set inbox feed settings
+        smartSearch.feedsToInbox = true
+        smartSearch.autoRefreshEnabled = true
+        smartSearch.refreshIntervalSeconds = 86400  // Daily refresh
+        try? smartSearch.managedObjectContext?.save()
+
+        // Log creation
+        os_log(.info, "Created arXiv category feed: %{public}@ for category %{public}@",
+               smartSearch.name, category.id)
+
+        isPresented = false
+    }
+}
+
+// MARK: - iOS arXiv Category Picker Sheet
+
+/// A simple category picker for selecting an arXiv category in smart search editor.
+struct IOSArXivCategoryPickerSheet: View {
+    @Binding var selectedCategory: String
+    @Binding var isPresented: Bool
+
+    @State private var searchText = ""
+
+    private var filteredCategories: [ArXivCategory] {
+        if searchText.isEmpty {
+            return ArXivCategories.all
+        }
+        let lowercased = searchText.lowercased()
+        return ArXivCategories.all.filter { category in
+            category.id.lowercased().contains(lowercased) ||
+            category.name.lowercased().contains(lowercased) ||
+            category.group.lowercased().contains(lowercased)
+        }
+    }
+
+    private var groupedCategories: [(String, [ArXivCategory])] {
+        Dictionary(grouping: filteredCategories) { $0.group }
+            .sorted { $0.key < $1.key }
+            .map { ($0.key, $0.value.sorted { $0.id < $1.id }) }
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(groupedCategories, id: \.0) { group, categories in
+                    Section(group) {
+                        ForEach(categories) { category in
+                            Button {
+                                selectedCategory = category.id
+                                isPresented = false
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(category.id)
+                                            .font(.headline)
+                                        Text(category.name)
+                                            .font(.subheadline)
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer()
+
+                                    if selectedCategory == category.id {
+                                        Image(systemName: "checkmark")
+                                            .foregroundStyle(.blue)
+                                    }
+                                }
+                            }
+                            .foregroundStyle(.primary)
+                        }
+                    }
+                }
+            }
+            .searchable(text: $searchText, prompt: "Search categories")
+            .navigationTitle("Select Category")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        isPresented = false
+                    }
+                }
+            }
         }
     }
 }

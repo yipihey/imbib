@@ -54,6 +54,9 @@ public struct MailStylePublicationRow: View {
     /// Action when toggle read/unread is requested
     public var onToggleRead: (() -> Void)?
 
+    /// Action when a category chip is tapped
+    public var onCategoryTap: ((String) -> Void)?
+
     // MARK: - Computed Properties
 
     private var isUnread: Bool { !data.isRead }
@@ -81,11 +84,13 @@ public struct MailStylePublicationRow: View {
     public init(
         data: PublicationRowData,
         settings: ListViewSettings = .default,
-        onToggleRead: (() -> Void)? = nil
+        onToggleRead: (() -> Void)? = nil,
+        onCategoryTap: ((String) -> Void)? = nil
     ) {
         self.data = data
         self.settings = settings
         self.onToggleRead = onToggleRead
+        self.onCategoryTap = onCategoryTap
     }
 
     // MARK: - Body
@@ -146,7 +151,8 @@ public struct MailStylePublicationRow: View {
                     CategoryChipsRow(
                         categories: data.categories,
                         primaryCategory: data.primaryCategory,
-                        maxVisible: 3
+                        maxVisible: 3,
+                        onCategoryTap: onCategoryTap
                     )
                 }
 

@@ -45,6 +45,15 @@ struct IOSSettingsView: View {
                     }
                 }
 
+                // Display Settings
+                Section("Display") {
+                    NavigationLink {
+                        ListViewSettingsView()
+                    } label: {
+                        Label("List View", systemImage: "list.bullet")
+                    }
+                }
+
                 // Developer Section
                 Section("Developer") {
                     Button {
@@ -384,6 +393,66 @@ struct SearchSettingsView: View {
             Task {
                 await viewModel.updateDefaultMaxResults(Int16(newValue))
             }
+        }
+    }
+}
+
+// MARK: - List View Settings
+
+struct ListViewSettingsView: View {
+    @State private var settings: ListViewSettings = .default
+
+    var body: some View {
+        List {
+            // Field Visibility
+            Section {
+                Toggle("Show Year", isOn: $settings.showYear)
+                Toggle("Show Title", isOn: $settings.showTitle)
+                Toggle("Show Venue", isOn: $settings.showVenue)
+                Toggle("Show Citation Count", isOn: $settings.showCitationCount)
+                Toggle("Show Unread Indicator", isOn: $settings.showUnreadIndicator)
+                Toggle("Show Attachment Indicator", isOn: $settings.showAttachmentIndicator)
+                Toggle("Show arXiv Categories", isOn: $settings.showCategories)
+            } header: {
+                Text("Field Visibility")
+            }
+
+            // Abstract Preview
+            Section {
+                Stepper(
+                    "Abstract Lines: \(settings.abstractLineLimit)",
+                    value: $settings.abstractLineLimit,
+                    in: 0...5
+                )
+            } header: {
+                Text("Abstract Preview")
+            } footer: {
+                Text("Number of abstract lines to show (0 to hide).")
+            }
+
+            // Row Density
+            Section {
+                Picker("Row Density", selection: $settings.rowDensity) {
+                    ForEach(RowDensity.allCases, id: \.self) { density in
+                        Text(density.displayName).tag(density)
+                    }
+                }
+            } header: {
+                Text("Density")
+            }
+        }
+        .navigationTitle("List View")
+        .task {
+            settings = await ListViewSettingsStore.shared.settings
+        }
+        .onChange(of: settings) { _, newSettings in
+            saveSettings(newSettings)
+        }
+    }
+
+    private func saveSettings(_ newSettings: ListViewSettings) {
+        Task {
+            await ListViewSettingsStore.shared.update(newSettings)
         }
     }
 }

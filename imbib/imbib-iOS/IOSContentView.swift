@@ -35,6 +35,9 @@ struct IOSContentView: View {
     // Settings
     @State private var showSettings = false
 
+    // Category search (for navigating from category chip tap)
+    @State private var pendingCategorySearch: String?
+
     // MARK: - Body
 
     var body: some View {
@@ -76,6 +79,13 @@ struct IOSContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .exportBibTeX)) { _ in
             showExportPicker = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .searchCategory)) { notification in
+            if let category = notification.userInfo?["category"] as? String {
+                // Navigate to search with the category query
+                pendingCategorySearch = "cat:\(category)"
+                selectedSection = .search
+            }
         }
         .fileImporter(
             isPresented: $showImportPicker,
@@ -163,7 +173,14 @@ struct IOSContentView: View {
             IOSLibraryListView(library: library, selection: $selectedPublication, showUnreadOnly: true)
 
         case .search:
-            IOSSearchView(selectedPublication: $selectedPublication)
+            IOSSearchView(
+                selectedPublication: $selectedPublication,
+                initialQuery: pendingCategorySearch
+            )
+            .onDisappear {
+                // Clear pending search when leaving search view
+                pendingCategorySearch = nil
+            }
 
         case .smartSearch(let smartSearch):
             SmartSearchResultsView(smartSearch: smartSearch, selectedPublication: $selectedPublication)
@@ -337,6 +354,14 @@ struct IOSLibraryListView: View {
             },
             onOpenPDF: { publication in
                 openPDF(for: publication)
+            },
+            onCategoryTap: { category in
+                // Navigate to search with category query
+                NotificationCenter.default.post(
+                    name: .searchCategory,
+                    object: nil,
+                    userInfo: ["category": category]
+                )
             }
         )
         .navigationTitle(library.displayName)
@@ -369,74 +394,173 @@ struct IOSLibraryListView: View {
     }
 }
 
-// MARK: - iOS Search View (placeholder)
+// MARK: - iOS Search View
 
 struct IOSSearchView: View {
     @Binding var selectedPublication: CDPublication?
+
+    /// Optional initial query (e.g., from category chip tap)
+    var initialQuery: String?
+
     @Environment(SearchViewModel.self) private var searchViewModel
     @Environment(LibraryManager.self) private var libraryManager
+    @Environment(LibraryViewModel.self) private var libraryViewModel
 
     @State private var searchText = ""
     @State private var multiSelection = Set<UUID>()
+    @State private var hasAppliedInitialQuery = false
+    @State private var availableSources: [SourceMetadata] = []
 
     var body: some View {
-        VStack {
+        VStack(spacing: 0) {
             // Search bar
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search...", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .submitLabel(.search)
-                    .onSubmit {
-                        performSearch()
-                    }
+            searchBar
+                .padding()
+                .background(.bar)
 
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
+            // Source filter chips
+            if !availableSources.isEmpty {
+                sourceFilterBar
+                    .padding(.horizontal)
+                    .padding(.vertical, 8)
             }
-            .padding()
-            .background(.bar)
+
+            Divider()
 
             // Results
-            if searchViewModel.isSearching {
-                ProgressView("Searching...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if searchViewModel.publications.isEmpty {
-                ContentUnavailableView(
-                    "Search Online",
-                    systemImage: "magnifyingglass",
-                    description: Text("Search arXiv, ADS, Crossref, and more")
-                )
-            } else {
-                List(searchViewModel.publications, id: \.id, selection: $multiSelection) { publication in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(publication.title ?? "Untitled")
-                            .font(.headline)
-                            .lineLimit(2)
-                        Text(publication.authorString)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                        if publication.year > 0 {
-                            Text(String(publication.year))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-                .listStyle(.plain)
-            }
+            resultsList
         }
         .navigationTitle("Search")
+        .toolbar {
+            // Send to Inbox button
+            ToolbarItem(placement: .topBarTrailing) {
+                if !multiSelection.isEmpty {
+                    Button {
+                        sendSelectedToInbox()
+                    } label: {
+                        Label("Send to Inbox", systemImage: "tray.and.arrow.down")
+                    }
+                }
+            }
+        }
+        .task {
+            availableSources = await searchViewModel.availableSources
+            // Ensure SearchViewModel has access to LibraryManager
+            searchViewModel.setLibraryManager(libraryManager)
+        }
+        .onAppear {
+            applyInitialQueryIfNeeded()
+        }
+        .onChange(of: initialQuery) { _, newValue in
+            if newValue != nil {
+                hasAppliedInitialQuery = false
+                applyInitialQueryIfNeeded()
+            }
+        }
+    }
+
+    // MARK: - Search Bar
+
+    private var searchBar: some View {
+        HStack {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Search...", text: $searchText)
+                .textFieldStyle(.plain)
+                .submitLabel(.search)
+                .onSubmit {
+                    performSearch()
+                }
+
+            if !searchText.isEmpty {
+                Button {
+                    searchText = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+
+            Button("Search") {
+                performSearch()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(searchText.isEmpty)
+        }
+    }
+
+    // MARK: - Source Filter Bar
+
+    private var sourceFilterBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(availableSources, id: \.id) { source in
+                    IOSSourceChip(
+                        source: source,
+                        isSelected: searchViewModel.selectedSourceIDs.contains(source.id)
+                    ) {
+                        searchViewModel.toggleSource(source.id)
+                    }
+                }
+
+                Divider()
+                    .frame(height: 20)
+
+                Button("All") {
+                    Task {
+                        await searchViewModel.selectAllSources()
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    // MARK: - Results List
+
+    @ViewBuilder
+    private var resultsList: some View {
+        if searchViewModel.isSearching {
+            ProgressView("Searching...")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if searchViewModel.publications.isEmpty {
+            ContentUnavailableView(
+                "Search Online",
+                systemImage: "magnifyingglass",
+                description: Text("Search arXiv, ADS, Crossref, and more")
+            )
+        } else {
+            List(searchViewModel.publications, id: \.id, selection: $multiSelection) { publication in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(publication.title ?? "Untitled")
+                        .font(.headline)
+                        .lineLimit(2)
+                    Text(publication.authorString)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+
+                    if publication.year > 0 {
+                        Text(String(publication.year))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+            .listStyle(.plain)
+        }
+    }
+
+    // MARK: - Actions
+
+    private func applyInitialQueryIfNeeded() {
+        guard !hasAppliedInitialQuery, let query = initialQuery, !query.isEmpty else { return }
+        hasAppliedInitialQuery = true
+        searchText = query
+        performSearch()
     }
 
     private func performSearch() {
@@ -445,6 +569,47 @@ struct IOSSearchView: View {
         Task {
             await searchViewModel.search()
         }
+    }
+
+    private func sendSelectedToInbox() {
+        guard !multiSelection.isEmpty else { return }
+
+        let inboxManager = InboxManager.shared
+
+        // Add selected publications to Inbox
+        for id in multiSelection {
+            if let publication = searchViewModel.publications.first(where: { $0.id == id }) {
+                inboxManager.addToInbox(publication)
+            }
+        }
+
+        // Clear selection after sending
+        multiSelection.removeAll()
+    }
+}
+
+// MARK: - iOS Source Chip
+
+struct IOSSourceChip: View {
+    let source: SourceMetadata
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: source.iconName)
+                    .font(.caption)
+                Text(source.name)
+                    .font(.caption)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(isSelected ? Color.accentColor : Color.gray.opacity(0.2))
+            .foregroundStyle(isSelected ? .white : .primary)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 
