@@ -146,8 +146,8 @@ struct SidebarView: View {
             // Load all smart searches (not filtered by library) for sidebar display
             smartSearchRepository.loadSmartSearches(for: nil)
 
-            // Check for SciX API key and load libraries if available
-            if let _ = await CredentialManager.shared.apiKey(for: "scix") {
+            // Check for ADS API key (SciX uses ADS API) and load libraries if available
+            if let _ = await CredentialManager.shared.apiKey(for: "ads") {
                 hasSciXAPIKey = true
                 // Load cached libraries from Core Data
                 scixRepository.loadLibraries()
