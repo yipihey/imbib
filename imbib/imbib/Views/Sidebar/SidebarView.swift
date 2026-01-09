@@ -15,6 +15,7 @@ struct SidebarView: View {
     // MARK: - Properties
 
     @Binding var selection: SidebarSection?
+    @Binding var expandedLibraries: Set<UUID>
 
     // MARK: - Environment
 
@@ -26,8 +27,6 @@ struct SidebarView: View {
     @ObservedObject private var smartSearchRepository = SmartSearchRepository.shared
 
     // MARK: - State
-
-    @State private var expandedLibraries: Set<UUID> = []
     @State private var showingNewSmartSearch = false
     @State private var editingSmartSearch: CDSmartSearch?
     @State private var showingNewSmartCollection = false
@@ -446,10 +445,16 @@ struct SidebarView: View {
                 HStack {
                     Label(feed.name, systemImage: "antenna.radiowaves.left.and.right")
                     Spacer()
-                    if feed.lastFetchCount > 0 {
-                        Text("\(feed.lastFetchCount)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                    // Show unread count for this feed
+                    let unreadCount = unreadCountForFeed(feed)
+                    if unreadCount > 0 {
+                        Text("\(unreadCount)")
+                            .font(.caption)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.accentColor)
+                            .foregroundStyle(.white)
+                            .clipShape(Capsule())
                     }
                 }
                 .tag(SidebarSection.inboxFeed(feed))
@@ -497,6 +502,15 @@ struct SidebarView: View {
     /// Get unread count for the Inbox
     private var inboxUnreadCount: Int {
         InboxManager.shared.unreadCount
+    }
+
+    /// Get unread count for a specific inbox feed
+    private func unreadCountForFeed(_ feed: CDSmartSearch) -> Int {
+        guard let collection = feed.resultCollection,
+              let publications = collection.publications else {
+            return 0
+        }
+        return publications.filter { !$0.isRead && !$0.isDeleted }.count
     }
 
     /// Refresh a specific inbox feed
@@ -992,6 +1006,6 @@ struct NewLibrarySheet: View {
 }
 
 #Preview {
-    SidebarView(selection: .constant(nil))
+    SidebarView(selection: .constant(nil), expandedLibraries: .constant([]))
         .environment(LibraryManager(persistenceController: .preview))
 }

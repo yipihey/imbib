@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import CoreData
 import PublicationManagerCore
 import OSLog
 
@@ -30,6 +31,10 @@ struct ContentView: View {
     @State private var importFileURL: URL?
     /// Selected detail tab - persisted across paper changes so PDF tab stays selected
     @State private var selectedDetailTab: DetailTab = .info
+    /// Expanded libraries in sidebar - passed as binding for persistence
+    @State private var expandedLibraries: Set<UUID> = []
+    /// Whether initial state restoration has completed
+    @State private var hasRestoredState = false
 
     // MARK: - Derived Selection
 
@@ -70,7 +75,7 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            SidebarView(selection: $selectedSection)
+            SidebarView(selection: $selectedSection, expandedLibraries: $expandedLibraries)
         } content: {
             contentList
         } detail: {
@@ -110,15 +115,23 @@ struct ContentView: View {
         }
         .task {
             await libraryViewModel.loadPublications()
+            // Restore app state after publications are loaded
+            await restoreAppState()
         }
         .onAppear {
             contentLogger.info("ContentView appeared - main window is visible")
         }
-        .onChange(of: selectedSection) { _, _ in
+        .onChange(of: selectedSection) { oldValue, newValue in
             // ADR-016: All sections now use CDPublication
             // Clear selection when switching sections
-            selectedPublicationID = nil
-            displayedPublicationID = nil
+            if oldValue != newValue {
+                selectedPublicationID = nil
+                displayedPublicationID = nil
+            }
+            // Save state when section changes
+            if hasRestoredState {
+                saveAppState()
+            }
         }
         .onChange(of: selectedPublicationID) { _, newID in
             // Clear selection if publication was deleted
@@ -129,7 +142,145 @@ struct ContentView: View {
                     displayedPublicationID = nil
                 }
             }
+            // Save state when publication changes
+            if hasRestoredState {
+                saveAppState()
+            }
         }
+        .onChange(of: selectedDetailTab) { _, _ in
+            if hasRestoredState {
+                saveAppState()
+            }
+        }
+        .onChange(of: expandedLibraries) { _, _ in
+            if hasRestoredState {
+                saveAppState()
+            }
+        }
+    }
+
+    // MARK: - State Persistence
+
+    /// Restore app state from persistent storage
+    private func restoreAppState() async {
+        let state = await AppStateStore.shared.state
+
+        // Restore expanded libraries first
+        expandedLibraries = state.expandedLibraries
+
+        // Restore detail tab
+        if let tab = DetailTab(rawValue: state.selectedDetailTab) {
+            selectedDetailTab = tab
+        }
+
+        // Restore sidebar selection
+        if let sidebarState = state.sidebarSelection {
+            selectedSection = sidebarSectionFrom(sidebarState)
+        }
+
+        // Restore selected publication (with small delay to let list load)
+        if let pubID = state.selectedPublicationID {
+            try? await Task.sleep(for: .milliseconds(100))
+            if libraryViewModel.publication(for: pubID) != nil {
+                selectedPublicationID = pubID
+                displayedPublicationID = pubID
+            }
+        }
+
+        hasRestoredState = true
+        contentLogger.info("Restored app state: section=\(String(describing: selectedSection)), paper=\(selectedPublicationID?.uuidString ?? "none")")
+    }
+
+    /// Save current app state to persistent storage
+    private func saveAppState() {
+        Task {
+            let state = AppState(
+                sidebarSelection: sidebarSelectionStateFrom(selectedSection),
+                selectedPublicationID: selectedPublicationID,
+                selectedDetailTab: selectedDetailTab.rawValue,
+                expandedLibraries: expandedLibraries
+            )
+            await AppStateStore.shared.save(state)
+        }
+    }
+
+    /// Convert SidebarSelectionState (serializable) to SidebarSection (with Core Data objects)
+    private func sidebarSectionFrom(_ state: SidebarSelectionState) -> SidebarSection? {
+        switch state {
+        case .inbox:
+            return .inbox
+
+        case .inboxFeed(let id):
+            if let smartSearch = findSmartSearch(by: id) {
+                return .inboxFeed(smartSearch)
+            }
+            return nil
+
+        case .library(let id):
+            if let library = libraryManager.libraries.first(where: { $0.id == id }) {
+                return .library(library)
+            }
+            return nil
+
+        case .unread(let id):
+            if let library = libraryManager.libraries.first(where: { $0.id == id }) {
+                return .unread(library)
+            }
+            return nil
+
+        case .search:
+            return .search
+
+        case .smartSearch(let id):
+            if let smartSearch = findSmartSearch(by: id) {
+                return .smartSearch(smartSearch)
+            }
+            return nil
+
+        case .collection(let id):
+            if let collection = findCollection(by: id) {
+                return .collection(collection)
+            }
+            return nil
+        }
+    }
+
+    /// Convert SidebarSection (with Core Data objects) to SidebarSelectionState (serializable UUIDs)
+    private func sidebarSelectionStateFrom(_ section: SidebarSection?) -> SidebarSelectionState? {
+        guard let section = section else { return nil }
+
+        switch section {
+        case .inbox:
+            return .inbox
+        case .inboxFeed(let smartSearch):
+            return .inboxFeed(smartSearch.id)
+        case .library(let library):
+            return .library(library.id)
+        case .unread(let library):
+            return .unread(library.id)
+        case .search:
+            return .search
+        case .smartSearch(let smartSearch):
+            return .smartSearch(smartSearch.id)
+        case .collection(let collection):
+            return .collection(collection.id)
+        }
+    }
+
+    /// Find a smart search by UUID
+    private func findSmartSearch(by id: UUID) -> CDSmartSearch? {
+        let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
+        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+        request.fetchLimit = 1
+        return try? PersistenceController.shared.viewContext.fetch(request).first
+    }
+
+    /// Find a collection by UUID
+    private func findCollection(by id: UUID) -> CDCollection? {
+        let request = NSFetchRequest<CDCollection>(entityName: "Collection")
+        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+        request.fetchLimit = 1
+        return try? PersistenceController.shared.viewContext.fetch(request).first
     }
 
     // MARK: - Content List

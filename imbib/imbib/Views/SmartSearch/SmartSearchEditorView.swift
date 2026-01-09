@@ -60,16 +60,12 @@ struct SmartSearchEditorView: View {
         NavigationStack {
             Form {
                 Section("Details") {
-                    LabeledContent("Name") {
-                        TextField("", text: $name, prompt: Text("My papers").foregroundColor(.secondary))
-                            .textFieldStyle(.roundedBorder)
-                    }
+                    TextField("Name", text: $name, prompt: Text("My papers"))
                 }
 
                 Section("Query") {
                     QueryBuilderView(state: $queryBuilderState, rawQuery: $query, isManuallyEditing: $isManuallyEditing)
                         .onChange(of: queryBuilderState.source) { _, newSource in
-                            // Update selected sources to match query builder source
                             let sourceID = newSource == .arXiv ? "arxiv" : "ads"
                             selectedSourceIDs = [sourceID]
                         }
@@ -82,25 +78,22 @@ struct SmartSearchEditorView: View {
                             if useAll {
                                 selectedSourceIDs.removeAll()
                             } else {
-                                // Select all sources so user can deselect unwanted ones
                                 selectedSourceIDs = Set(availableSources.map { $0.id })
                             }
                         }
                     ))
 
-                    if !availableSources.isEmpty {
-                        ForEach(availableSources, id: \.id) { source in
-                            Toggle(source.name, isOn: Binding(
-                                get: { selectedSourceIDs.contains(source.id) },
-                                set: { isSelected in
-                                    if isSelected {
-                                        selectedSourceIDs.insert(source.id)
-                                    } else {
-                                        selectedSourceIDs.remove(source.id)
-                                    }
+                    ForEach(availableSources, id: \.id) { source in
+                        Toggle(source.name, isOn: Binding(
+                            get: { selectedSourceIDs.contains(source.id) },
+                            set: { isSelected in
+                                if isSelected {
+                                    selectedSourceIDs.insert(source.id)
+                                } else {
+                                    selectedSourceIDs.remove(source.id)
                                 }
-                            ))
-                        }
+                            }
+                        ))
                     }
                 }
 
@@ -126,11 +119,7 @@ struct SmartSearchEditorView: View {
                     }
                 }
             }
-            .formStyle(.grouped)
             .navigationTitle(isEditing ? "Edit Smart Search" : "New Smart Search")
-            #if os(macOS)
-            .frame(minWidth: 500, minHeight: 600)
-            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -149,6 +138,9 @@ struct SmartSearchEditorView: View {
                 await loadData()
             }
         }
+        #if os(macOS)
+        .frame(minWidth: 450, idealWidth: 500, minHeight: 450, idealHeight: 550)
+        #endif
     }
 
     // MARK: - Data Loading

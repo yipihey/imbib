@@ -1272,6 +1272,8 @@ struct PDFTab: View {
 
     @Environment(LibraryManager.self) private var libraryManager
     @AppStorage("notesPosition") private var notesPositionRaw: String = "below"
+    @AppStorage("notesPanelSize") private var notesPanelSize: Double = 400  // ~60 chars at 13pt monospace
+    @AppStorage("notesPanelCollapsed") private var isNotesPanelCollapsed = false
     @State private var linkedFile: CDLinkedFile?
     @State private var isDownloading = false
     @State private var downloadError: Error?
@@ -1279,9 +1281,6 @@ struct PDFTab: View {
     @State private var checkPDFTask: Task<Void, Never>?
     @State private var showFileImporter = false
     @State private var isCheckingPDF = true  // Start in loading state
-
-    @State private var notesPanelSize: CGFloat = 400  // ~60 chars at 13pt monospace
-    @State private var isNotesPanelCollapsed = false
 
     private var notesPosition: NotesPosition {
         NotesPosition(rawValue: notesPositionRaw) ?? .below
@@ -1357,13 +1356,18 @@ struct PDFTab: View {
             }
         )
 
+        let sizeBinding = Binding<CGFloat>(
+            get: { CGFloat(notesPanelSize) },
+            set: { notesPanelSize = Double($0) }
+        )
+
         switch notesPosition {
         case .below:
             VStack(spacing: 0) {
                 pdfViewer
                 NotesPanel(
                     publication: pub,
-                    size: $notesPanelSize,
+                    size: sizeBinding,
                     isCollapsed: $isNotesPanelCollapsed,
                     orientation: .horizontal
                 )
@@ -1373,7 +1377,7 @@ struct PDFTab: View {
                 pdfViewer
                 NotesPanel(
                     publication: pub,
-                    size: $notesPanelSize,
+                    size: sizeBinding,
                     isCollapsed: $isNotesPanelCollapsed,
                     orientation: .verticalRight
                 )
@@ -1382,7 +1386,7 @@ struct PDFTab: View {
             HStack(spacing: 0) {
                 NotesPanel(
                     publication: pub,
-                    size: $notesPanelSize,
+                    size: sizeBinding,
                     isCollapsed: $isNotesPanelCollapsed,
                     orientation: .verticalLeft
                 )
@@ -1709,8 +1713,8 @@ struct NotesTab: View {
     @Environment(LibraryViewModel.self) private var viewModel
     @Environment(LibraryManager.self) private var libraryManager
     @AppStorage("notesPosition") private var notesPositionRaw: String = "below"
-    @State private var notesPanelSize: CGFloat = 400  // ~60 chars at 13pt monospace
-    @State private var isNotesPanelCollapsed = false
+    @AppStorage("notesPanelSize") private var notesPanelSize: Double = 400  // ~60 chars at 13pt monospace
+    @AppStorage("notesPanelCollapsed") private var isNotesPanelCollapsed = false
 
     private var notesPosition: NotesPosition {
         NotesPosition(rawValue: notesPositionRaw) ?? .below
@@ -1722,13 +1726,18 @@ struct NotesTab: View {
     }
 
     var body: some View {
+        let sizeBinding = Binding<CGFloat>(
+            get: { CGFloat(notesPanelSize) },
+            set: { notesPanelSize = Double($0) }
+        )
+
         switch notesPosition {
         case .below:
             VStack(spacing: 0) {
                 pdfViewerContent
                 NotesPanel(
                     publication: publication,
-                    size: $notesPanelSize,
+                    size: sizeBinding,
                     isCollapsed: $isNotesPanelCollapsed,
                     orientation: .horizontal
                 )
@@ -1738,7 +1747,7 @@ struct NotesTab: View {
                 pdfViewerContent
                 NotesPanel(
                     publication: publication,
-                    size: $notesPanelSize,
+                    size: sizeBinding,
                     isCollapsed: $isNotesPanelCollapsed,
                     orientation: .verticalRight
                 )
@@ -1747,7 +1756,7 @@ struct NotesTab: View {
             HStack(spacing: 0) {
                 NotesPanel(
                     publication: publication,
-                    size: $notesPanelSize,
+                    size: sizeBinding,
                     isCollapsed: $isNotesPanelCollapsed,
                     orientation: .verticalLeft
                 )

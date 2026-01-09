@@ -15,13 +15,19 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(url: "https://github.com/evgenyneu/keychain-swift", from: "20.0.0")
+        .package(url: "https://github.com/evgenyneu/keychain-swift", from: "20.0.0"),
+        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.0"),
+        .package(url: "https://github.com/mgriebling/SwiftMath", from: "1.7.0"),
+        .package(url: "https://github.com/appstefan/HighlightSwift", from: "1.0.0")
     ],
     targets: [
         .target(
             name: "PublicationManagerCore",
             dependencies: [
-                .product(name: "KeychainSwift", package: "keychain-swift")
+                .product(name: "KeychainSwift", package: "keychain-swift"),
+                .product(name: "MarkdownUI", package: "swift-markdown-ui"),
+                .product(name: "SwiftMath", package: "SwiftMath"),
+                .product(name: "HighlightSwift", package: "HighlightSwift")
             ],
             swiftSettings: [
                 .enableExperimentalFeature("StrictConcurrency")

@@ -117,9 +117,7 @@ struct IOSInfoTab: View {
             Text("Abstract")
                 .font(.headline)
 
-            ScientificTextParser.text(abstract)
-                .font(.body)
-                .foregroundStyle(.secondary)
+            AbstractRenderer(text: abstract, fontSize: 14, textColor: .secondary)
         }
     }
 
