@@ -66,10 +66,9 @@ struct SciXLibraryListView: View {
                     emptyStateDescription: "This SciX library is empty.",
                     listID: .scixLibrary(library.id),
                     onDelete: nil,  // SciX deletion handled via pending changes
-                    onCopyToLibrary: { ids, targetLibrary in
+                    onAddToLibrary: { ids, targetLibrary in
                         await copyToLocalLibrary(ids: ids, library: targetLibrary)
                     },
-                    onMoveToLibrary: nil,  // No moving from SciX
                     onAddToCollection: nil  // No local collections for SciX papers
                 )
             }
