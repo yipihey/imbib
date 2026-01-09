@@ -139,7 +139,15 @@ public actor SciXSyncManager {
             for paper in papers {
                 // Find or create publication
                 let publication = self.findOrCreatePublication(from: paper, in: context)
+                // Set relationship from both sides to ensure Core Data updates correctly
+                if publication.scixLibraries == nil {
+                    publication.scixLibraries = []
+                }
                 publication.scixLibraries?.insert(library)
+                if library.publications == nil {
+                    library.publications = []
+                }
+                library.publications?.insert(publication)
             }
 
             library.lastSyncDate = Date()

@@ -75,9 +75,21 @@ struct SciXLibraryListView: View {
         }
         .onAppear {
             loadPublications()
+            // Auto-refresh if library has no cached publications but should have some
+            if publications.isEmpty && library.documentCount > 0 {
+                Task {
+                    await refreshFromServer()
+                }
+            }
         }
         .onChange(of: library.id) {
             loadPublications()
+            // Auto-refresh when switching to a library with no cached publications
+            if publications.isEmpty && library.documentCount > 0 {
+                Task {
+                    await refreshFromServer()
+                }
+            }
         }
     }
 
