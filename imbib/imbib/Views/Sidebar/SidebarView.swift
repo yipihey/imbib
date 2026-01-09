@@ -43,6 +43,7 @@ struct SidebarView: View {
     @State private var refreshTrigger = UUID()  // Triggers re-render when read status changes
     @State private var renamingCollection: CDCollection?  // Collection being renamed inline
     @State private var showingNewInboxFeed = false
+    @State private var hasSciXAPIKey = false  // Whether SciX API key is configured
 
     // MARK: - Body
 
@@ -64,7 +65,8 @@ struct SidebarView: View {
                 }
 
                 // SciX Libraries Section (online collaborative libraries)
-                if !scixRepository.libraries.isEmpty {
+                // Only show if user has configured their SciX API key
+                if hasSciXAPIKey && !scixRepository.libraries.isEmpty {
                     Section("SciX Libraries") {
                         ForEach(scixRepository.libraries, id: \.id) { library in
                             scixLibraryRow(for: library)
@@ -143,6 +145,17 @@ struct SidebarView: View {
             }
             // Load all smart searches (not filtered by library) for sidebar display
             smartSearchRepository.loadSmartSearches(for: nil)
+
+            // Check for SciX API key and load libraries if available
+            if let _ = await CredentialManager.shared.apiKey(for: "scix") {
+                hasSciXAPIKey = true
+                // Load cached libraries from Core Data
+                scixRepository.loadLibraries()
+                // Optionally trigger a background refresh from server
+                Task.detached {
+                    try? await SciXSyncManager.shared.pullLibraries()
+                }
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .readStatusDidChange)) { _ in
             // Force re-render to update unread counts
