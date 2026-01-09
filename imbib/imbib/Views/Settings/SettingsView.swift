@@ -26,6 +26,10 @@ struct SettingsView: View {
                 .tabItem { Label("Viewing", systemImage: "eye") }
                 .tag(SettingsTab.viewing)
 
+            NotesSettingsTab()
+                .tabItem { Label("Notes", systemImage: "note.text") }
+                .tag(SettingsTab.notes)
+
             SourcesSettingsTab()
                 .tabItem { Label("Sources", systemImage: "globe") }
                 .tag(SettingsTab.sources)
@@ -51,6 +55,7 @@ struct SettingsView: View {
 enum SettingsTab: String, CaseIterable {
     case general
     case viewing
+    case notes
     case sources
     case pdf
     case inbox

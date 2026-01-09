@@ -274,6 +274,23 @@ enum DetailTab: String, CaseIterable {
     case notes
 }
 
+// MARK: - Notes Position
+
+/// Position of the notes panel relative to the PDF viewer.
+enum NotesPosition: String, CaseIterable {
+    case below = "below"
+    case right = "right"
+    case left = "left"
+
+    var label: String {
+        switch self {
+        case .below: return "Below PDF"
+        case .right: return "Right of PDF"
+        case .left: return "Left of PDF"
+        }
+    }
+}
+
 // MARK: - Info Tab
 
 private let infoTabLogger = Logger(subsystem: "com.imbib.app", category: "infotab")
@@ -330,12 +347,12 @@ struct InfoTab: View {
                     // MARK: - Abstract (Body)
                     if let abstract = paper.abstract, !abstract.isEmpty {
                         let parseStart = CFAbsoluteTimeGetCurrent()
-                        let parsedAbstract = ScientificTextParser.text(abstract)
+                        let abstractView = AbstractRenderer(text: abstract, fontSize: 14)
                         let parseElapsed = (CFAbsoluteTimeGetCurrent() - parseStart) * 1000
-                        let _ = infoTabLogger.info("⏱ ScientificTextParser: \(parseElapsed, format: .fixed(precision: 1))ms (\(abstract.count) chars)")
+                        let _ = infoTabLogger.info("⏱ AbstractRenderer: \(parseElapsed, format: .fixed(precision: 1))ms (\(abstract.count) chars)")
 
                         infoSection("Abstract") {
-                            parsedAbstract
+                            abstractView
                                 .textSelection(.enabled)
                         }
                         Divider()
@@ -458,8 +475,7 @@ struct InfoTab: View {
 
             // Subject: Title
             infoRow("Subject") {
-                ScientificTextParser.text(paper.title)
-                    .font(.headline)
+                AbstractRenderer(text: paper.title, fontSize: 16)
                     .textSelection(.enabled)
             }
 
@@ -1255,6 +1271,7 @@ struct PDFTab: View {
     @Binding var selectedTab: DetailTab
 
     @Environment(LibraryManager.self) private var libraryManager
+    @AppStorage("notesPosition") private var notesPositionRaw: String = "below"
     @State private var linkedFile: CDLinkedFile?
     @State private var isDownloading = false
     @State private var downloadError: Error?
@@ -1263,22 +1280,20 @@ struct PDFTab: View {
     @State private var showFileImporter = false
     @State private var isCheckingPDF = true  // Start in loading state
 
+    @State private var notesPanelSize: CGFloat = 400  // ~60 chars at 13pt monospace
+    @State private var isNotesPanelCollapsed = false
+
+    private var notesPosition: NotesPosition {
+        NotesPosition(rawValue: notesPositionRaw) ?? .below
+    }
+
     var body: some View {
         Group {
             // ADR-016: All papers are now CDPublication
             if let linked = linkedFile, let pub = publication {
-                // Has linked PDF file → show viewer
-                PDFViewerWithControls(
-                    linkedFile: linked,
-                    library: libraryManager.activeLibrary,
-                    publicationID: pub.id,
-                    onCorruptPDF: { corruptFile in
-                        Task {
-                            await handleCorruptPDF(corruptFile)
-                        }
-                    }
-                )
-                .id(pub.id)  // Force view recreation when paper changes to reset @State
+                // Has linked PDF file → show viewer with notes panel
+                pdfWithNotesPanel(linked: linked, pub: pub)
+                    .id(pub.id)  // Force view recreation when paper changes to reset @State
             } else if isCheckingPDF {
                 // Loading state while checking for PDFs
                 ProgressView("Checking for PDF...")
@@ -1323,6 +1338,55 @@ struct PDFTab: View {
             if let objectID = notification.object as? NSManagedObjectID,
                objectID == publication?.objectID {
                 resetAndCheckPDF()
+            }
+        }
+    }
+
+    // MARK: - PDF with Notes Panel
+
+    @ViewBuilder
+    private func pdfWithNotesPanel(linked: CDLinkedFile, pub: CDPublication) -> some View {
+        let pdfViewer = PDFViewerWithControls(
+            linkedFile: linked,
+            library: libraryManager.activeLibrary,
+            publicationID: pub.id,
+            onCorruptPDF: { corruptFile in
+                Task {
+                    await handleCorruptPDF(corruptFile)
+                }
+            }
+        )
+
+        switch notesPosition {
+        case .below:
+            VStack(spacing: 0) {
+                pdfViewer
+                NotesPanel(
+                    publication: pub,
+                    size: $notesPanelSize,
+                    isCollapsed: $isNotesPanelCollapsed,
+                    orientation: .horizontal
+                )
+            }
+        case .right:
+            HStack(spacing: 0) {
+                pdfViewer
+                NotesPanel(
+                    publication: pub,
+                    size: $notesPanelSize,
+                    isCollapsed: $isNotesPanelCollapsed,
+                    orientation: .verticalRight
+                )
+            }
+        case .left:
+            HStack(spacing: 0) {
+                NotesPanel(
+                    publication: pub,
+                    size: $notesPanelSize,
+                    isCollapsed: $isNotesPanelCollapsed,
+                    orientation: .verticalLeft
+                )
+                pdfViewer
             }
         }
     }
@@ -1643,28 +1707,527 @@ struct NotesTab: View {
     let publication: CDPublication
 
     @Environment(LibraryViewModel.self) private var viewModel
-    @State private var notes: String = ""
-    @State private var saveTask: Task<Void, Never>?
+    @Environment(LibraryManager.self) private var libraryManager
+    @AppStorage("notesPosition") private var notesPositionRaw: String = "below"
+    @State private var notesPanelSize: CGFloat = 400  // ~60 chars at 13pt monospace
+    @State private var isNotesPanelCollapsed = false
+
+    private var notesPosition: NotesPosition {
+        NotesPosition(rawValue: notesPositionRaw) ?? .below
+    }
+
+    // Find linked PDF for this publication
+    private var linkedFile: CDLinkedFile? {
+        publication.linkedFiles?.first(where: { $0.isPDF }) ?? publication.linkedFiles?.first
+    }
 
     var body: some View {
-        TextEditor(text: $notes)
-            .font(.body)
-            .padding()
-            .onChange(of: publication.id, initial: true) { _, _ in
-                saveTask?.cancel()
-                notes = publication.fields["note"] ?? ""
+        switch notesPosition {
+        case .below:
+            VStack(spacing: 0) {
+                pdfViewerContent
+                NotesPanel(
+                    publication: publication,
+                    size: $notesPanelSize,
+                    isCollapsed: $isNotesPanelCollapsed,
+                    orientation: .horizontal
+                )
             }
-            .onChange(of: notes) { oldValue, newValue in
-                let targetPublication = publication
+        case .right:
+            HStack(spacing: 0) {
+                pdfViewerContent
+                NotesPanel(
+                    publication: publication,
+                    size: $notesPanelSize,
+                    isCollapsed: $isNotesPanelCollapsed,
+                    orientation: .verticalRight
+                )
+            }
+        case .left:
+            HStack(spacing: 0) {
+                NotesPanel(
+                    publication: publication,
+                    size: $notesPanelSize,
+                    isCollapsed: $isNotesPanelCollapsed,
+                    orientation: .verticalLeft
+                )
+                pdfViewerContent
+            }
+        }
+    }
 
-                saveTask?.cancel()
-                saveTask = Task {
-                    try? await Task.sleep(for: .milliseconds(500))
-                    guard !Task.isCancelled else { return }
-                    guard targetPublication.id == self.publication.id else { return }
-                    await viewModel.updateField(targetPublication, field: "note", value: newValue)
+    @ViewBuilder
+    private var pdfViewerContent: some View {
+        if let linked = linkedFile {
+            PDFViewerWithControls(
+                linkedFile: linked,
+                library: libraryManager.activeLibrary,
+                publicationID: publication.id,
+                onCorruptPDF: { _ in }
+            )
+        } else {
+            ContentUnavailableView(
+                "No PDF",
+                systemImage: "doc.richtext",
+                description: Text("Add a PDF to view it here while taking notes.")
+            )
+        }
+    }
+}
+
+// MARK: - Notes Panel Orientation
+
+enum NotesPanelOrientation {
+    case horizontal      // Panel below PDF (resize vertically)
+    case verticalLeft    // Panel on left of PDF (header on right edge)
+    case verticalRight   // Panel on right of PDF (header on left edge)
+}
+
+// MARK: - Notes Panel
+
+/// A collapsible notes panel that can be positioned below or beside the PDF viewer.
+/// Provides structured fields for annotations and a free-form notes area.
+struct NotesPanel: View {
+    let publication: CDPublication
+
+    @Binding var size: CGFloat
+    @Binding var isCollapsed: Bool
+    let orientation: NotesPanelOrientation
+
+    @Environment(LibraryViewModel.self) private var viewModel
+    @State private var isResizing = false
+    @State private var isEditingFreeformNotes = false  // Controls edit vs preview mode
+    @FocusState private var isFreeformNotesFocused: Bool  // Controls TextEditor focus
+
+    // Quick annotation settings
+    @State private var annotationSettings: QuickAnnotationSettings = .defaults
+
+    // Parsed notes (annotations + freeform)
+    @State private var annotations: [String: String] = [:]
+    @State private var freeformNotes: String = ""
+    @State private var saveTask: Task<Void, Never>?
+
+    private let minSize: CGFloat = 80
+    private let maxSize: CGFloat = 2000  // Allow up to 100% of view (effectively unlimited)
+    private let headerSize: CGFloat = 28
+
+    var body: some View {
+        Group {
+            switch orientation {
+            case .horizontal:
+                // Horizontal: header on top, content below
+                VStack(spacing: 0) {
+                    headerBar
+                    if !isCollapsed {
+                        notesContent
+                            .frame(height: size - headerSize)
+                    }
+                }
+                .frame(height: isCollapsed ? headerSize : size)
+
+            case .verticalRight:
+                // Panel on RIGHT of PDF: header bar on LEFT edge (between PDF and notes)
+                HStack(spacing: 0) {
+                    verticalHeaderBar(chevronExpand: "chevron.left", chevronCollapse: "chevron.right")
+                    if !isCollapsed {
+                        notesContent
+                            .frame(width: size - headerSize)
+                    }
+                }
+                .frame(width: isCollapsed ? headerSize : size)
+
+            case .verticalLeft:
+                // Panel on LEFT of PDF: header bar on RIGHT edge (between notes and PDF)
+                HStack(spacing: 0) {
+                    if !isCollapsed {
+                        notesContent
+                            .frame(width: size - headerSize)
+                    }
+                    verticalHeaderBar(chevronExpand: "chevron.right", chevronCollapse: "chevron.left")
+                }
+                .frame(width: isCollapsed ? headerSize : size)
+            }
+        }
+        #if os(macOS)
+        .background(Color(nsColor: .controlBackgroundColor))
+        #else
+        .background(Color(.secondarySystemBackground))
+        #endif
+        .task {
+            // Load annotation field settings
+            annotationSettings = await QuickAnnotationSettingsStore.shared.settings
+        }
+        .onChange(of: publication.id, initial: true) { _, _ in
+            loadNotes()
+        }
+    }
+
+    // MARK: - Notes Content
+
+    private var notesContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                structuredFieldsSection
+                Divider()
+                freeformNotesSection
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            enterEditMode()
+        }
+    }
+
+    // MARK: - Horizontal Header Bar (for below position)
+
+    private var headerBar: some View {
+        HStack(spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isCollapsed.toggle()
+                }
+            } label: {
+                Image(systemName: isCollapsed ? "chevron.up" : "chevron.down")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(isCollapsed ? "Expand notes" : "Collapse notes")
+
+            Text("Notes")
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            if !isCollapsed {
+                Image(systemName: "line.3.horizontal")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .rotationEffect(.degrees(90))
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(height: headerSize)
+        #if os(macOS)
+        .background(Color(nsColor: .windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    if !isCollapsed {
+                        let newSize = size - value.translation.height
+                        size = min(max(newSize, minSize), maxSize)
+                    }
+                }
+        )
+        .onHover { hovering in
+            if !isCollapsed {
+                #if os(macOS)
+                if hovering {
+                    NSCursor.resizeUpDown.push()
+                } else {
+                    NSCursor.pop()
+                }
+                #endif
+            }
+        }
+    }
+
+    // MARK: - Vertical Header Bar (for left/right position)
+
+    private func verticalHeaderBar(chevronExpand: String, chevronCollapse: String) -> some View {
+        VStack(spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isCollapsed.toggle()
+                }
+            } label: {
+                Image(systemName: isCollapsed ? chevronExpand : chevronCollapse)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help(isCollapsed ? "Expand notes" : "Collapse notes")
+
+            Text("Notes")
+                .font(.caption)
+                .fontWeight(.medium)
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(-90))
+                .fixedSize()
+
+            Spacer()
+
+            if !isCollapsed {
+                Image(systemName: "line.3.horizontal")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.vertical, 12)
+        .frame(width: headerSize)
+        #if os(macOS)
+        .background(Color(nsColor: .windowBackgroundColor))
+        #else
+        .background(Color(.systemBackground))
+        #endif
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    if !isCollapsed {
+                        // For left panel, dragging right increases size; for right panel, dragging left increases size
+                        let delta = orientation == .verticalLeft ? value.translation.width : -value.translation.width
+                        let newSize = size + delta
+                        size = min(max(newSize, minSize), maxSize)
+                    }
+                }
+        )
+        .onHover { hovering in
+            if !isCollapsed {
+                #if os(macOS)
+                if hovering {
+                    NSCursor.resizeLeftRight.push()
+                } else {
+                    NSCursor.pop()
+                }
+                #endif
+            }
+        }
+    }
+
+    // MARK: - Structured Fields
+
+    @ViewBuilder
+    private var structuredFieldsSection: some View {
+        let enabledFields = annotationSettings.enabledFields
+
+        if !enabledFields.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Quick Annotations")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .textCase(.uppercase)
+
+                LazyVGrid(columns: [
+                    GridItem(.flexible(), spacing: 12),
+                    GridItem(.flexible(), spacing: 12)
+                ], spacing: 8) {
+                    ForEach(enabledFields) { field in
+                        noteField(field)
+                    }
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func noteField(_ field: QuickAnnotationField) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(field.label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            TextField(field.placeholder, text: annotationBinding(for: field.id), axis: .vertical)
+                .textFieldStyle(.plain)
+                .font(.callout)
+                .lineLimit(2)
+                .padding(6)
+                #if os(macOS)
+                .background(Color(nsColor: .textBackgroundColor))
+                #else
+                .background(Color(.systemBackground))
+                #endif
+                .cornerRadius(4)
+        }
+    }
+
+    /// Create a binding for an annotation field
+    private func annotationBinding(for fieldID: String) -> Binding<String> {
+        Binding(
+            get: { annotations[fieldID] ?? "" },
+            set: { newValue in
+                annotations[fieldID] = newValue
+                scheduleSave()
+            }
+        )
+    }
+
+    // MARK: - Free-form Notes (Hybrid WYSIWYG)
+
+    @ViewBuilder
+    private var freeformNotesSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text("Reading Notes")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .textCase(.uppercase)
+
+                Spacer()
+
+                // Markdown hint
+                if isEditingFreeformNotes {
+                    Text("Markdown + LaTeX supported")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            // Hybrid editor: show raw markdown when editing, rendered when not
+            if isEditingFreeformNotes || freeformNotes.isEmpty {
+                // Edit mode: raw markdown input with formatting toolbar
+                VStack(spacing: 0) {
+                    // Formatting toolbar
+                    CompactFormattingBar(text: $freeformNotes)
+                        .cornerRadius(4)
+
+                    // Text editor
+                    TextEditor(text: $freeformNotes)
+                        .font(.system(size: 13, design: .monospaced))
+                        .frame(minHeight: 80)
+                        .scrollContentBackground(.hidden)
+                        .padding(6)
+                        #if os(macOS)
+                        .background(Color(nsColor: .textBackgroundColor))
+                        #else
+                        .background(Color(.systemBackground))
+                        #endif
+                        .focused($isFreeformNotesFocused)
+                        .onChange(of: freeformNotes) { _, _ in
+                            scheduleSave()
+                        }
+                }
+                .cornerRadius(4)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Color.accentColor.opacity(0.3), lineWidth: 1)
+                )
+            } else {
+                // Preview mode: rendered markdown + LaTeX
+                VStack(alignment: .leading, spacing: 0) {
+                    // Edit button overlay
+                    HStack {
+                        Spacer()
+                        Button {
+                            enterEditMode()
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .padding(4)
+                                .background(
+                                    Circle()
+                                        .fill(Color.primary.opacity(0.1))
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .help("Edit notes")
+                    }
+                    .padding(.trailing, 4)
+                    .padding(.top, 4)
+
+                    RichTextView(content: freeformNotes, mode: .markdown, fontSize: 13)
+                        .frame(minHeight: 60, maxHeight: .infinity)
+                        .padding(.horizontal, 6)
+                        .padding(.bottom, 6)
+                }
+                #if os(macOS)
+                .background(Color(nsColor: .textBackgroundColor))
+                #else
+                .background(Color(.systemBackground))
+                #endif
+                .cornerRadius(4)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4)
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                )
+                .contentShape(Rectangle())  // Make entire area tappable
+                .onTapGesture {
+                    // Single click to edit
+                    enterEditMode()
+                }
+            }
+
+            // Help text
+            if !isEditingFreeformNotes && freeformNotes.isEmpty {
+                Text("Click to add notes. Supports **bold**, _italic_, `code`, and $math$.")
+                    .font(.caption)
+                    .foregroundStyle(.quaternary)
+            }
+        }
+        .onChange(of: isFreeformNotesFocused) { _, focused in
+            // Exit edit mode when focus is lost (clicked elsewhere)
+            if !focused && !freeformNotes.isEmpty {
+                isEditingFreeformNotes = false
+            }
+        }
+    }
+
+    /// Enter edit mode and focus the TextEditor
+    private func enterEditMode() {
+        isEditingFreeformNotes = true
+        // Delay focus slightly to allow view to render
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            isFreeformNotesFocused = true
+        }
+    }
+
+    // MARK: - Persistence
+
+    private func loadNotes() {
+        saveTask?.cancel()
+
+        // Get raw note content
+        let rawNote = publication.fields["note"] ?? ""
+
+        // Check if this is legacy format (has separate notes_structured)
+        if let jsonString = publication.fields["notes_structured"],
+           let data = jsonString.data(using: .utf8),
+           let dict = try? JSONDecoder().decode([String: String].self, from: data),
+           !dict.isEmpty {
+            // Legacy format: migrate to unified format
+            let migrated = NotesParser.migrateFromLegacy(structuredJSON: jsonString, freeformNote: rawNote)
+            let parsed = NotesParser.parse(migrated)
+            annotations = parsed.annotations
+            freeformNotes = parsed.freeform
+        } else {
+            // New unified format: parse YAML front matter
+            let parsed = NotesParser.parse(rawNote)
+            // Convert label-keyed annotations to ID-keyed
+            annotations = annotationSettings.labelToIDAnnotations(parsed.annotations)
+            freeformNotes = parsed.freeform
+        }
+    }
+
+    private func scheduleSave() {
+        let targetPublication = publication
+        let currentAnnotations = annotations
+        let currentFreeform = freeformNotes
+        let settings = annotationSettings
+
+        saveTask?.cancel()
+        saveTask = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled else { return }
+            guard targetPublication.id == self.publication.id else { return }
+
+            // Serialize to unified format with YAML front matter
+            let notes = ParsedNotes(annotations: currentAnnotations, freeform: currentFreeform)
+            let serialized = NotesParser.serialize(notes, fields: settings.fields)
+
+            // Save to single "note" field
+            await viewModel.updateField(targetPublication, field: "note", value: serialized)
+
+            // Clear legacy field if it exists (migration cleanup)
+            if targetPublication.fields["notes_structured"] != nil {
+                await viewModel.updateField(targetPublication, field: "notes_structured", value: "")
+            }
+        }
     }
 }
 
