@@ -759,7 +759,7 @@ struct SidebarView: View {
                 if ss.library?.id == library.id { selection = nil }
             case .collection(let col):
                 if col.library?.id == library.id { selection = nil }
-            case .search:
+            case .search, .scixLibrary:
                 break  // Not affected by library deletion
             }
         }

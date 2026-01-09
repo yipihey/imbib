@@ -822,7 +822,7 @@ public extension CDSciXLibrary {
         case read = "read"          // Read-only access
 
         /// SF Symbol for permission level
-        var icon: String {
+        public var icon: String {
             switch self {
             case .owner: return "crown"
             case .admin: return "key"
