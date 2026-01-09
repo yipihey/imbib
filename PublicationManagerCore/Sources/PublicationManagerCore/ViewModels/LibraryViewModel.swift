@@ -100,7 +100,7 @@ public final class LibraryViewModel {
         // Slow path: fetch from Core Data (for smart searches, Inbox feeds, etc.)
         // Guard against Core Data not being fully initialized
         let context = PersistenceController.shared.viewContext
-        guard let entity = NSEntityDescription.entity(forEntityName: "CDPublication", in: context) else {
+        guard let entity = NSEntityDescription.entity(forEntityName: "Publication", in: context) else {
             // Core Data not fully loaded yet, skip fetch
             return nil
         }

@@ -317,18 +317,21 @@ public actor InboxScheduler {
 
     /// Check if a feed is due for refresh.
     private func isDue(_ smartSearch: CDSmartSearch) -> Bool {
+        // Calculate effective refresh interval (treat 0 as "use default")
+        var interval = TimeInterval(smartSearch.refreshIntervalSeconds)
+        if interval <= 0 {
+            interval = Self.defaultRefreshInterval
+        }
+        let effectiveInterval = max(interval, Self.minimumRefreshInterval)
+
         guard let lastRefresh = lastRefreshTimes[smartSearch.id] else {
             // Never refreshed - check dateLastExecuted from Core Data
             if let lastExecuted = smartSearch.dateLastExecuted {
-                let interval = TimeInterval(smartSearch.refreshIntervalSeconds)
-                let effectiveInterval = max(interval, Self.minimumRefreshInterval)
                 return Date().timeIntervalSince(lastExecuted) >= effectiveInterval
             }
             return true  // Never executed, due immediately
         }
 
-        let interval = TimeInterval(smartSearch.refreshIntervalSeconds)
-        let effectiveInterval = max(interval, Self.minimumRefreshInterval)
         return Date().timeIntervalSince(lastRefresh) >= effectiveInterval
     }
 

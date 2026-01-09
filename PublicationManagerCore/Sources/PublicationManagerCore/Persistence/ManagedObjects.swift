@@ -698,7 +698,7 @@ public class CDSmartSearch: NSManagedObject, Identifiable {
     // Inbox feature: Smart searches can feed papers to the Inbox
     @NSManaged public var feedsToInbox: Bool           // If true, results go to Inbox library
     @NSManaged public var autoRefreshEnabled: Bool     // If true, auto-refresh at interval
-    @NSManaged public var refreshIntervalSeconds: Int32 // Refresh interval (default: 6 hours)
+    @NSManaged public var refreshIntervalSeconds: Int32 // Refresh interval (0 = use default 24h)
     @NSManaged public var lastFetchCount: Int16        // Papers found in last fetch (for badge)
 
     // Relationships

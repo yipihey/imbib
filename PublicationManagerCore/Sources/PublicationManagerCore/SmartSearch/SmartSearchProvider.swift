@@ -201,11 +201,21 @@ public actor SmartSearchProvider {
         return Date().timeIntervalSince(lastFetched)
     }
 
+    /// Default refresh interval: 24 hours
+    private static let defaultRefreshInterval: TimeInterval = 86400
+
+    /// Minimum refresh interval: 15 minutes (to prevent excessive API calls)
+    private static let minimumRefreshInterval: TimeInterval = 900
+
     /// Whether cached results are stale (exceeds configured refresh interval)
     public var isStale: Bool {
         guard let elapsed = timeSinceLastFetch else { return true }
-        // Use configured interval (minimum 15 minutes to prevent excessive API calls)
-        let intervalSeconds = max(TimeInterval(refreshIntervalSeconds), 900)
+        // Use configured interval, or default if 0 (unset), with minimum floor
+        var intervalSeconds = TimeInterval(refreshIntervalSeconds)
+        if intervalSeconds <= 0 {
+            intervalSeconds = Self.defaultRefreshInterval
+        }
+        intervalSeconds = max(intervalSeconds, Self.minimumRefreshInterval)
         return elapsed > intervalSeconds
     }
 
@@ -322,6 +332,7 @@ public final class SmartSearchRepository: ObservableObject {
         smartSearch.dateLastExecuted = Date()  // Prevent immediate refresh on startup
         smartSearch.library = targetLibrary
         smartSearch.maxResults = effectiveMaxResults
+        smartSearch.refreshIntervalSeconds = 86400  // Default: 24 hours
 
         // Set order based on existing searches in this library
         let existingCount = targetLibrary?.smartSearches?.count ?? smartSearches.count
