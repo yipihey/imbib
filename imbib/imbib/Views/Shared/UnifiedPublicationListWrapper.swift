@@ -274,7 +274,7 @@ struct UnifiedPublicationListWrapper: View {
             emptyStateMessage: emptyMessage,
             emptyStateDescription: emptyDescription,
             listID: listID,
-            disableUnreadFilter: isInboxView,
+            disableUnreadFilter: false,
             onDelete: { ids in
                 await libraryViewModel.delete(ids: ids)
                 refreshPublicationsList()

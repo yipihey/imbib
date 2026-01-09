@@ -28,6 +28,8 @@ struct ContentView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showImportPreview = false
     @State private var importFileURL: URL?
+    /// Selected detail tab - persisted across paper changes so PDF tab stays selected
+    @State private var selectedDetailTab: DetailTab = .info
 
     // MARK: - Derived Selection
 
@@ -202,7 +204,7 @@ struct ContentView: View {
            !publication.isDeleted,
            publication.managedObjectContext != nil,
            let libraryID = selectedLibraryID,
-           let detail = DetailView(publication: publication, libraryID: libraryID) {
+           let detail = DetailView(publication: publication, libraryID: libraryID, selectedTab: $selectedDetailTab) {
             detail
         } else {
             ContentUnavailableView(

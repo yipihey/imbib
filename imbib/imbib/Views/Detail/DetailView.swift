@@ -37,14 +37,13 @@ struct DetailView: View {
     /// The underlying Core Data publication (enables editing for library papers)
     let publication: CDPublication?
 
+    /// External binding for tab selection (persists across paper changes)
+    @Binding var selectedTab: DetailTab
+
     // MARK: - Environment
 
     @Environment(LibraryViewModel.self) private var viewModel
     @Environment(LibraryManager.self) private var libraryManager
-
-    // MARK: - State
-
-    @State private var selectedTab: DetailTab = .info
 
     // MARK: - Computed Properties
 
@@ -60,14 +59,15 @@ struct DetailView: View {
 
     // MARK: - Initialization
 
-    init(paper: any PaperRepresentable, publication: CDPublication? = nil) {
+    init(paper: any PaperRepresentable, publication: CDPublication? = nil, selectedTab: Binding<DetailTab>) {
         self.paper = paper
         self.publication = publication
+        self._selectedTab = selectedTab
     }
 
     /// Primary initializer for CDPublication (ADR-016: all papers are CDPublication)
     /// Returns nil if the publication has been deleted
-    init?(publication: CDPublication, libraryID: UUID) {
+    init?(publication: CDPublication, libraryID: UUID, selectedTab: Binding<DetailTab>) {
         let start = CFAbsoluteTimeGetCurrent()
         // Guard against deleted Core Data objects
         guard let localPaper = LocalPaper(publication: publication, libraryID: libraryID) else {
@@ -75,6 +75,7 @@ struct DetailView: View {
         }
         self.paper = localPaper
         self.publication = publication
+        self._selectedTab = selectedTab
         let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
         logger.info("⏱ DetailView.init: \(elapsed, format: .fixed(precision: 1))ms")
     }
@@ -1260,6 +1261,7 @@ struct PDFTab: View {
     @State private var hasRemotePDF = false
     @State private var checkPDFTask: Task<Void, Never>?
     @State private var showFileImporter = false
+    @State private var isCheckingPDF = true  // Start in loading state
 
     var body: some View {
         Group {
@@ -1277,6 +1279,10 @@ struct PDFTab: View {
                     }
                 )
                 .id(pub.id)  // Force view recreation when paper changes to reset @State
+            } else if isCheckingPDF {
+                // Loading state while checking for PDFs
+                ProgressView("Checking for PDF...")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if isDownloading {
                 downloadingView
             } else if let error = downloadError {
@@ -1288,6 +1294,10 @@ struct PDFTab: View {
                 // No PDF available anywhere
                 noPDFView
             }
+        }
+        .onAppear {
+            // Trigger initial PDF check on first appearance
+            resetAndCheckPDF()
         }
         .onChange(of: selectedTab) { oldTab, newTab in
             // Only check PDF when switching TO the PDF tab
@@ -1393,7 +1403,7 @@ struct PDFTab: View {
 
     private func resetAndCheckPDF() {
         let start = CFAbsoluteTimeGetCurrent()
-        Logger.performance.info("⏱ resetAndCheckPDF: started")
+        Logger.files.infoCapture("[PDFTab] resetAndCheckPDF started", category: "pdf")
 
         checkPDFTask?.cancel()
 
@@ -1401,39 +1411,79 @@ struct PDFTab: View {
         downloadError = nil
         isDownloading = false
         hasRemotePDF = false
+        isCheckingPDF = true  // Show loading state
 
         checkPDFTask = Task {
+            Logger.files.infoCapture("[PDFTab] checking publication...", category: "pdf")
+
             // ADR-016: All papers are now CDPublication
             guard let pub = publication else {
+                Logger.files.warningCapture("[PDFTab] publication is NIL!", category: "pdf")
+                await MainActor.run { isCheckingPDF = false }
                 return
             }
 
+            Logger.files.infoCapture("[PDFTab] pub='\(pub.citeKey)', checking linkedFiles...", category: "pdf")
+
             // Check for linked PDF files
             let linkedFiles = pub.linkedFiles ?? []
+            Logger.files.infoCapture("[PDFTab] linkedFiles count = \(linkedFiles.count)", category: "pdf")
+            for (i, file) in linkedFiles.enumerated() {
+                Logger.files.infoCapture("[PDFTab] linkedFile[\(i)]: \(file.filename), isPDF=\(file.isPDF), path=\(file.relativePath)", category: "pdf")
+            }
+
             if let firstPDF = linkedFiles.first(where: { $0.isPDF }) ?? linkedFiles.first {
+                Logger.files.infoCapture("[PDFTab] Found local PDF: \(firstPDF.filename)", category: "pdf")
                 await MainActor.run {
                     linkedFile = firstPDF
+                    isCheckingPDF = false
                     let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
-                    Logger.performance.info("⏱ resetAndCheckPDF: \(elapsed, format: .fixed(precision: 1))ms (found local PDF)")
+                    Logger.files.infoCapture("[PDFTab] \(String(format: "%.1f", elapsed))ms (found local PDF)", category: "pdf")
                 }
                 return
             }
 
+            Logger.files.infoCapture("[PDFTab] No local PDF found, checking remote...", category: "pdf")
+
             // No local PDF - check if remote PDF is available
-            let hasRemote = PDFURLResolver.hasPDF(publication: pub)
+            // Check multiple sources: PDFURLResolver, pdfLinks, arxivID from fields
+            let resolverHasPDF = PDFURLResolver.hasPDF(publication: pub)
+            let hasPdfLinks = !pub.pdfLinks.isEmpty
+            let hasArxivID = pub.arxivID != nil
+            let hasEprint = pub.fields["eprint"] != nil
+            let hasRemote = resolverHasPDF || hasPdfLinks || hasArxivID || hasEprint
+
+            // Debug logging for PDF availability
+            let arxivVal = pub.arxivID ?? "nil"
+            let eprintVal = pub.fields["eprint"] ?? "nil"
+            Logger.files.infoCapture("[PDFTab] PDF check: resolver=\(resolverHasPDF), pdfLinks=\(hasPdfLinks) (\(pub.pdfLinks.count)), arxivID=\(hasArxivID) (\(arxivVal)), eprint=\(hasEprint) (\(eprintVal)), result=\(hasRemote)", category: "pdf")
+
+            // Log pdfLinks details if present
+            for (i, link) in pub.pdfLinks.enumerated() {
+                let sourceID = link.sourceID ?? "nil"
+                Logger.files.infoCapture("[PDFTab] pdfLink[\(i)]: \(link.url.absoluteString) type=\(String(describing: link.type)) source=\(sourceID)", category: "pdf")
+            }
+
+            // Log fields if no PDF found
+            if !hasRemote {
+                let fieldKeys = pub.fields.keys.sorted().joined(separator: ", ")
+                Logger.files.warningCapture("[PDFTab] No PDF available. Fields: [\(fieldKeys)]", category: "pdf")
+            }
+
             await MainActor.run {
                 hasRemotePDF = hasRemote
+                isCheckingPDF = false  // Done checking
             }
 
             // Auto-download if setting enabled AND remote PDF available
             let settings = await PDFSettingsStore.shared.settings
             if settings.autoDownloadEnabled && hasRemote {
-                Logger.performance.info("⏱ resetAndCheckPDF: auto-downloading PDF...")
+                Logger.files.infoCapture("[PDFTab] auto-downloading PDF...", category: "pdf")
                 await downloadPDF()
             }
 
             let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
-            Logger.performance.info("⏱ resetAndCheckPDF: \(elapsed, format: .fixed(precision: 1))ms (autoDownload=\(settings.autoDownloadEnabled))")
+            Logger.files.infoCapture("[PDFTab] \(String(format: "%.1f", elapsed))ms (autoDownload=\(settings.autoDownloadEnabled))", category: "pdf")
         }
     }
 
@@ -1705,7 +1755,7 @@ struct FlowLayout: Layout {
     let libraryID = UUID()
 
     NavigationStack {
-        DetailView(publication: publication, libraryID: libraryID)
+        DetailView(publication: publication, libraryID: libraryID, selectedTab: .constant(.info))
     }
     .environment(LibraryViewModel())
     .environment(LibraryManager(persistenceController: .preview))

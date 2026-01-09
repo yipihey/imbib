@@ -5,6 +5,7 @@
 //  Created by Claude on 2026-01-04.
 //
 
+import CoreData
 import Foundation
 import OSLog
 import SwiftUI
@@ -84,14 +85,43 @@ public final class LibraryViewModel {
 
     /// Fast O(1) lookup of publication by ID.
     ///
+    /// First checks the local cache (for library publications), then falls back to
+    /// Core Data fetch (for smart search results, Inbox feeds, etc.).
+    ///
     /// Returns nil if no publication with that ID exists or if the object was deleted.
     public func publication(for id: UUID) -> CDPublication? {
-        guard let pub = publicationsByID[id],
-              !pub.isDeleted,
-              pub.managedObjectContext != nil else {
+        // Fast path: check local cache first
+        if let pub = publicationsByID[id],
+           !pub.isDeleted,
+           pub.managedObjectContext != nil {
+            return pub
+        }
+
+        // Slow path: fetch from Core Data (for smart searches, Inbox feeds, etc.)
+        // Guard against Core Data not being fully initialized
+        let context = PersistenceController.shared.viewContext
+        guard let entity = NSEntityDescription.entity(forEntityName: "CDPublication", in: context) else {
+            // Core Data not fully loaded yet, skip fetch
             return nil
         }
-        return pub
+
+        let request = NSFetchRequest<CDPublication>()
+        request.entity = entity
+        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+        request.fetchLimit = 1
+
+        do {
+            let results = try context.fetch(request)
+            if let pub = results.first,
+               !pub.isDeleted,
+               pub.managedObjectContext != nil {
+                return pub
+            }
+        } catch {
+            Logger.viewModels.error("Failed to fetch publication \(id): \(error.localizedDescription)")
+        }
+
+        return nil
     }
 
     // MARK: - Search

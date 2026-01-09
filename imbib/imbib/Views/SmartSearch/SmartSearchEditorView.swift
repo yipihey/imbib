@@ -126,9 +126,10 @@ struct SmartSearchEditorView: View {
                     }
                 }
             }
+            .formStyle(.grouped)
             .navigationTitle(isEditing ? "Edit Smart Search" : "New Smart Search")
             #if os(macOS)
-            .frame(minWidth: 400, minHeight: 300)
+            .frame(minWidth: 500, minHeight: 600)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

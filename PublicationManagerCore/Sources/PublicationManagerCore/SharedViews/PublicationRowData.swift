@@ -232,9 +232,22 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     // MARK: - Attachment Check
 
     private static func checkHasPDF(_ publication: CDPublication) -> Bool {
-        // Only show paperclip for actual stored attachments (not potential download URLs)
-        guard let linkedFiles = publication.linkedFiles else { return false }
-        return !linkedFiles.isEmpty
+        // Check for locally stored attachments
+        if let linkedFiles = publication.linkedFiles, !linkedFiles.isEmpty {
+            return true
+        }
+
+        // Check for remote PDF links (e.g., from arXiv, ADS, publisher)
+        if !publication.pdfLinks.isEmpty {
+            return true
+        }
+
+        // Check for arXiv ID (implies PDF is available at arxiv.org)
+        if publication.arxivID != nil {
+            return true
+        }
+
+        return false
     }
 
     // MARK: - Category Extraction
