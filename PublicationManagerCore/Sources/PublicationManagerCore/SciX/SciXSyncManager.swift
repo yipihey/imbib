@@ -101,6 +101,12 @@ public actor SciXSyncManager {
         }
 
         Logger.scix.info("Pulled \(updatedLibraries.count) libraries")
+
+        // Notify repository to reload from Core Data
+        await MainActor.run {
+            SciXLibraryRepository.shared.loadLibraries()
+        }
+
         return updatedLibraries
     }
 
