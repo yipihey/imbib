@@ -26,6 +26,9 @@ struct SidebarView: View {
     /// Observe SmartSearchRepository to refresh when smart searches change
     @ObservedObject private var smartSearchRepository = SmartSearchRepository.shared
 
+    /// Observe SciXLibraryRepository for SciX libraries
+    @ObservedObject private var scixRepository = SciXLibraryRepository.shared
+
     // MARK: - State
     @State private var showingNewSmartSearch = false
     @State private var editingSmartSearch: CDSmartSearch?
@@ -57,6 +60,15 @@ struct SidebarView: View {
                     }
                     .onMove { indices, destination in
                         libraryManager.moveLibraries(from: indices, to: destination)
+                    }
+                }
+
+                // SciX Libraries Section (online collaborative libraries)
+                if !scixRepository.libraries.isEmpty {
+                    Section("SciX Libraries") {
+                        ForEach(scixRepository.libraries, id: \.id) { library in
+                            scixLibraryRow(for: library)
+                        }
                     }
                 }
 
@@ -251,6 +263,65 @@ struct SidebarView: View {
                         showDeleteConfirmation = true
                     }
                 }
+        }
+    }
+
+    // MARK: - SciX Library Row
+
+    @ViewBuilder
+    private func scixLibraryRow(for library: CDSciXLibrary) -> some View {
+        HStack {
+            // Cloud icon (different from local libraries)
+            Image(systemName: "cloud")
+                .foregroundColor(.blue)
+
+            Text(library.displayName)
+
+            Spacer()
+
+            // Permission level indicator
+            Image(systemName: library.permissionLevelEnum.icon)
+                .font(.caption)
+                .foregroundColor(.secondary)
+
+            // Pending changes indicator
+            if library.hasPendingChanges {
+                Image(systemName: "arrow.up.circle.fill")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+            }
+
+            // Paper count
+            if library.documentCount > 0 {
+                CountBadge(count: Int(library.documentCount))
+            }
+        }
+        .tag(SidebarSection.scixLibrary(library))
+        .contextMenu {
+            Button {
+                Task {
+                    try? await SciXSyncManager.shared.pullLibraryPapers(libraryID: library.remoteID)
+                }
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+
+            if library.canManagePermissions {
+                Button {
+                    // TODO: Show permissions sheet
+                } label: {
+                    Label("Share...", systemImage: "person.2")
+                }
+            }
+
+            if library.permissionLevelEnum == .owner {
+                Divider()
+                Button(role: .destructive) {
+                    // TODO: Show delete confirmation
+                } label: {
+                    Label("Delete Library", systemImage: "trash")
+                }
+            }
         }
     }
 

@@ -196,6 +196,8 @@ public final class PersistenceController: @unchecked Sendable {
         let smartSearchEntity = createSmartSearchEntity()
         let mutedItemEntity = createMutedItemEntity()
         let dismissedPaperEntity = createDismissedPaperEntity()
+        let scixLibraryEntity = createSciXLibraryEntity()
+        let scixPendingChangeEntity = createSciXPendingChangeEntity()
 
         // Set up relationships
         setupRelationships(
@@ -243,6 +245,17 @@ public final class PersistenceController: @unchecked Sendable {
             attachmentTag: attachmentTagEntity
         )
 
+        // Set up SciX library relationships
+        setupSciXLibraryPublicationsRelationship(
+            scixLibrary: scixLibraryEntity,
+            publication: publicationEntity
+        )
+
+        setupSciXLibraryPendingChangesRelationship(
+            scixLibrary: scixLibraryEntity,
+            pendingChange: scixPendingChangeEntity
+        )
+
         model.entities = [
             publicationEntity,
             authorEntity,
@@ -255,6 +268,8 @@ public final class PersistenceController: @unchecked Sendable {
             smartSearchEntity,
             mutedItemEntity,
             dismissedPaperEntity,
+            scixLibraryEntity,
+            scixPendingChangeEntity,
         ]
 
         return model
@@ -987,6 +1002,146 @@ public final class PersistenceController: @unchecked Sendable {
         return entity
     }
 
+    private static func createSciXLibraryEntity() -> NSEntityDescription {
+        let entity = NSEntityDescription()
+        entity.name = "SciXLibrary"
+        entity.managedObjectClassName = "PublicationManagerCore.CDSciXLibrary"
+
+        var properties: [NSPropertyDescription] = []
+
+        let id = NSAttributeDescription()
+        id.name = "id"
+        id.attributeType = .UUIDAttributeType
+        id.isOptional = false
+        properties.append(id)
+
+        let remoteID = NSAttributeDescription()
+        remoteID.name = "remoteID"
+        remoteID.attributeType = .stringAttributeType
+        remoteID.isOptional = false
+        properties.append(remoteID)
+
+        let name = NSAttributeDescription()
+        name.name = "name"
+        name.attributeType = .stringAttributeType
+        name.isOptional = false
+        name.defaultValue = ""
+        properties.append(name)
+
+        let descriptionText = NSAttributeDescription()
+        descriptionText.name = "descriptionText"
+        descriptionText.attributeType = .stringAttributeType
+        descriptionText.isOptional = true
+        properties.append(descriptionText)
+
+        let isPublic = NSAttributeDescription()
+        isPublic.name = "isPublic"
+        isPublic.attributeType = .booleanAttributeType
+        isPublic.isOptional = false
+        isPublic.defaultValue = false
+        properties.append(isPublic)
+
+        let dateCreated = NSAttributeDescription()
+        dateCreated.name = "dateCreated"
+        dateCreated.attributeType = .dateAttributeType
+        dateCreated.isOptional = false
+        dateCreated.defaultValue = Date()
+        properties.append(dateCreated)
+
+        let lastSyncDate = NSAttributeDescription()
+        lastSyncDate.name = "lastSyncDate"
+        lastSyncDate.attributeType = .dateAttributeType
+        lastSyncDate.isOptional = true
+        properties.append(lastSyncDate)
+
+        let syncState = NSAttributeDescription()
+        syncState.name = "syncState"
+        syncState.attributeType = .stringAttributeType
+        syncState.isOptional = false
+        syncState.defaultValue = "synced"
+        properties.append(syncState)
+
+        let permissionLevel = NSAttributeDescription()
+        permissionLevel.name = "permissionLevel"
+        permissionLevel.attributeType = .stringAttributeType
+        permissionLevel.isOptional = false
+        permissionLevel.defaultValue = "read"
+        properties.append(permissionLevel)
+
+        let ownerEmail = NSAttributeDescription()
+        ownerEmail.name = "ownerEmail"
+        ownerEmail.attributeType = .stringAttributeType
+        ownerEmail.isOptional = true
+        properties.append(ownerEmail)
+
+        let documentCount = NSAttributeDescription()
+        documentCount.name = "documentCount"
+        documentCount.attributeType = .integer32AttributeType
+        documentCount.isOptional = false
+        documentCount.defaultValue = Int32(0)
+        properties.append(documentCount)
+
+        let sortOrder = NSAttributeDescription()
+        sortOrder.name = "sortOrder"
+        sortOrder.attributeType = .integer16AttributeType
+        sortOrder.isOptional = false
+        sortOrder.defaultValue = Int16(0)
+        properties.append(sortOrder)
+
+        entity.properties = properties
+
+        // Add index for O(1) remoteID lookups
+        let remoteIDIndex = NSFetchIndexDescription(name: "byRemoteID", elements: [
+            NSFetchIndexElementDescription(property: remoteID, collationType: .binary)
+        ])
+        entity.indexes = [remoteIDIndex]
+
+        return entity
+    }
+
+    private static func createSciXPendingChangeEntity() -> NSEntityDescription {
+        let entity = NSEntityDescription()
+        entity.name = "SciXPendingChange"
+        entity.managedObjectClassName = "PublicationManagerCore.CDSciXPendingChange"
+
+        var properties: [NSPropertyDescription] = []
+
+        let id = NSAttributeDescription()
+        id.name = "id"
+        id.attributeType = .UUIDAttributeType
+        id.isOptional = false
+        properties.append(id)
+
+        let action = NSAttributeDescription()
+        action.name = "action"
+        action.attributeType = .stringAttributeType
+        action.isOptional = false
+        action.defaultValue = "add"
+        properties.append(action)
+
+        let bibcodesJSON = NSAttributeDescription()
+        bibcodesJSON.name = "bibcodesJSON"
+        bibcodesJSON.attributeType = .stringAttributeType
+        bibcodesJSON.isOptional = true
+        properties.append(bibcodesJSON)
+
+        let metadataJSON = NSAttributeDescription()
+        metadataJSON.name = "metadataJSON"
+        metadataJSON.attributeType = .stringAttributeType
+        metadataJSON.isOptional = true
+        properties.append(metadataJSON)
+
+        let dateCreated = NSAttributeDescription()
+        dateCreated.name = "dateCreated"
+        dateCreated.attributeType = .dateAttributeType
+        dateCreated.isOptional = false
+        dateCreated.defaultValue = Date()
+        properties.append(dateCreated)
+
+        entity.properties = properties
+        return entity
+    }
+
     // MARK: - Relationship Setup
 
     private static func setupLibrarySmartSearchRelationship(
@@ -1261,6 +1416,64 @@ public final class PersistenceController: @unchecked Sendable {
         // Add to entities
         linkedFile.properties.append(fileToTags)
         attachmentTag.properties.append(tagToFiles)
+    }
+
+    // SciXLibrary <-> Publications relationship (many-to-many)
+    // Publications can be cached in multiple SciX libraries
+    private static func setupSciXLibraryPublicationsRelationship(
+        scixLibrary: NSEntityDescription,
+        publication: NSEntityDescription
+    ) {
+        // SciXLibrary -> publications (to-many)
+        let libraryToPublications = NSRelationshipDescription()
+        libraryToPublications.name = "publications"
+        libraryToPublications.destinationEntity = publication
+        libraryToPublications.isOptional = true
+        libraryToPublications.deleteRule = .nullifyDeleteRule  // Don't delete publications when library is deleted
+
+        // Publication -> scixLibraries (to-many)
+        let publicationToLibraries = NSRelationshipDescription()
+        publicationToLibraries.name = "scixLibraries"
+        publicationToLibraries.destinationEntity = scixLibrary
+        publicationToLibraries.isOptional = true
+        publicationToLibraries.deleteRule = .nullifyDeleteRule
+
+        // Set inverse relationships
+        libraryToPublications.inverseRelationship = publicationToLibraries
+        publicationToLibraries.inverseRelationship = libraryToPublications
+
+        // Add to entities
+        scixLibrary.properties.append(libraryToPublications)
+        publication.properties.append(publicationToLibraries)
+    }
+
+    // SciXLibrary <-> PendingChanges relationship (one-to-many)
+    private static func setupSciXLibraryPendingChangesRelationship(
+        scixLibrary: NSEntityDescription,
+        pendingChange: NSEntityDescription
+    ) {
+        // SciXLibrary -> pendingChanges (one-to-many)
+        let libraryToChanges = NSRelationshipDescription()
+        libraryToChanges.name = "pendingChanges"
+        libraryToChanges.destinationEntity = pendingChange
+        libraryToChanges.isOptional = true
+        libraryToChanges.deleteRule = .cascadeDeleteRule  // Delete changes when library is deleted
+
+        // PendingChange -> library (many-to-one)
+        let changeToLibrary = NSRelationshipDescription()
+        changeToLibrary.name = "library"
+        changeToLibrary.destinationEntity = scixLibrary
+        changeToLibrary.maxCount = 1
+        changeToLibrary.isOptional = true
+        changeToLibrary.deleteRule = .nullifyDeleteRule
+
+        // Set inverse relationships
+        libraryToChanges.inverseRelationship = changeToLibrary
+        changeToLibrary.inverseRelationship = libraryToChanges
+
+        // Add to entities
+        scixLibrary.properties.append(libraryToChanges)
+        pendingChange.properties.append(changeToLibrary)
     }
 
     // MARK: - Save

@@ -242,6 +242,12 @@ struct ContentView: View {
                 return .collection(collection)
             }
             return nil
+
+        case .scixLibrary(let id):
+            if let scixLibrary = findSciXLibrary(by: id) {
+                return .scixLibrary(scixLibrary)
+            }
+            return nil
         }
     }
 
@@ -264,6 +270,8 @@ struct ContentView: View {
             return .smartSearch(smartSearch.id)
         case .collection(let collection):
             return .collection(collection.id)
+        case .scixLibrary(let scixLibrary):
+            return .scixLibrary(scixLibrary.id)
         }
     }
 
@@ -278,6 +286,14 @@ struct ContentView: View {
     /// Find a collection by UUID
     private func findCollection(by id: UUID) -> CDCollection? {
         let request = NSFetchRequest<CDCollection>(entityName: "Collection")
+        request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
+        request.fetchLimit = 1
+        return try? PersistenceController.shared.viewContext.fetch(request).first
+    }
+
+    /// Find a SciX library by UUID
+    private func findSciXLibrary(by id: UUID) -> CDSciXLibrary? {
+        let request = NSFetchRequest<CDSciXLibrary>(entityName: "SciXLibrary")
         request.predicate = NSPredicate(format: "id == %@", id as CVarArg)
         request.fetchLimit = 1
         return try? PersistenceController.shared.viewContext.fetch(request).first
@@ -334,6 +350,9 @@ struct ContentView: View {
 
         case .collection(let collection):
             CollectionListView(collection: collection, selection: selectedPublicationBinding)
+
+        case .scixLibrary(let scixLibrary):
+            SciXLibraryListView(library: scixLibrary, selection: selectedPublicationBinding)
 
         case .none:
             ContentUnavailableView(
@@ -457,6 +476,7 @@ enum SidebarSection: Hashable {
     case search                        // Global search
     case smartSearch(CDSmartSearch)   // Smart search (library-scoped via relationship)
     case collection(CDCollection)     // Collection (library-scoped via relationship)
+    case scixLibrary(CDSciXLibrary)   // SciX online library
 }
 
 // MARK: - Collection List View

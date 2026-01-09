@@ -68,6 +68,7 @@ public class CDPublication: NSManagedObject {
     @NSManaged public var tags: Set<CDTag>?
     @NSManaged public var collections: Set<CDCollection>?
     @NSManaged public var libraries: Set<CDLibrary>?     // Publications can belong to multiple libraries
+    @NSManaged public var scixLibraries: Set<CDSciXLibrary>?  // SciX online libraries containing this paper
 }
 
 // MARK: - Publication Helpers
@@ -776,4 +777,207 @@ public class CDDismissedPaper: NSManagedObject, Identifiable {
     @NSManaged public var arxivID: String?         // arXiv ID of dismissed paper
     @NSManaged public var bibcode: String?         // ADS bibcode of dismissed paper
     @NSManaged public var dateDismissed: Date      // When the paper was dismissed
+}
+
+// MARK: - SciX Library
+
+/// Cached remote SciX library from the Biblib API.
+/// Supports read/write operations with two-way sync.
+@objc(CDSciXLibrary)
+public class CDSciXLibrary: NSManagedObject, Identifiable {
+    @NSManaged public var id: UUID
+    @NSManaged public var remoteID: String                  // SciX library ID from API
+    @NSManaged public var name: String
+    @NSManaged public var descriptionText: String?
+    @NSManaged public var isPublic: Bool
+    @NSManaged public var dateCreated: Date
+    @NSManaged public var lastSyncDate: Date?               // When last synced with SciX
+    @NSManaged public var syncState: String                 // synced, pending, error
+    @NSManaged public var permissionLevel: String           // owner, admin, write, read
+    @NSManaged public var ownerEmail: String?
+    @NSManaged public var documentCount: Int32              // Number of papers in library
+    @NSManaged public var sortOrder: Int16                  // For sidebar ordering
+
+    // Relationships
+    @NSManaged public var publications: Set<CDPublication>? // Cached papers from this library
+    @NSManaged public var pendingChanges: Set<CDSciXPendingChange>?
+}
+
+// MARK: - SciX Library Helpers
+
+public extension CDSciXLibrary {
+
+    /// Sync state enum for type-safe access
+    enum SyncState: String, CaseIterable, Sendable {
+        case synced = "synced"      // In sync with remote
+        case pending = "pending"    // Has pending local changes
+        case error = "error"        // Last sync failed
+    }
+
+    /// Permission level enum for type-safe access
+    enum PermissionLevel: String, CaseIterable, Sendable {
+        case owner = "owner"        // Full control, can delete
+        case admin = "admin"        // Can manage permissions
+        case write = "write"        // Can add/remove papers
+        case read = "read"          // Read-only access
+
+        /// SF Symbol for permission level
+        var icon: String {
+            switch self {
+            case .owner: return "crown"
+            case .admin: return "key"
+            case .write: return "pencil"
+            case .read: return "eye"
+            }
+        }
+
+        /// Whether this level allows editing
+        var canEdit: Bool {
+            self != .read
+        }
+
+        /// Whether this level allows managing permissions
+        var canManagePermissions: Bool {
+            self == .owner || self == .admin
+        }
+    }
+
+    /// Get sync state as enum
+    var syncStateEnum: SyncState {
+        SyncState(rawValue: syncState) ?? .synced
+    }
+
+    /// Get permission level as enum
+    var permissionLevelEnum: PermissionLevel {
+        PermissionLevel(rawValue: permissionLevel) ?? .read
+    }
+
+    /// Whether this library has pending local changes
+    var hasPendingChanges: Bool {
+        !(pendingChanges?.isEmpty ?? true)
+    }
+
+    /// Number of pending changes
+    var pendingChangeCount: Int {
+        pendingChanges?.count ?? 0
+    }
+
+    /// Whether current user can edit this library
+    var canEdit: Bool {
+        permissionLevelEnum.canEdit
+    }
+
+    /// Whether current user can manage permissions
+    var canManagePermissions: Bool {
+        permissionLevelEnum.canManagePermissions
+    }
+
+    /// Display name (falls back to "Untitled" if empty)
+    var displayName: String {
+        name.isEmpty ? "Untitled Library" : name
+    }
+
+    /// All bibcodes in this library
+    var bibcodes: [String] {
+        publications?.compactMap { $0.bibcode } ?? []
+    }
+}
+
+// MARK: - SciX Pending Change
+
+/// Queued change for sync to SciX.
+/// Stored locally until confirmed and pushed to server.
+@objc(CDSciXPendingChange)
+public class CDSciXPendingChange: NSManagedObject, Identifiable {
+    @NSManaged public var id: UUID
+    @NSManaged public var action: String                    // add, remove, updateMeta
+    @NSManaged public var bibcodesJSON: String?             // JSON array of bibcodes (for add/remove)
+    @NSManaged public var metadataJSON: String?             // JSON object with new metadata (for updateMeta)
+    @NSManaged public var dateCreated: Date
+
+    // Relationships
+    @NSManaged public var library: CDSciXLibrary?
+}
+
+// MARK: - SciX Pending Change Helpers
+
+public extension CDSciXPendingChange {
+
+    /// Action types for pending changes
+    enum Action: String, CaseIterable, Sendable {
+        case add = "add"                // Add papers to library
+        case remove = "remove"          // Remove papers from library
+        case updateMeta = "updateMeta"  // Update library metadata (name, description, public)
+    }
+
+    /// Get action as enum
+    var actionEnum: Action {
+        Action(rawValue: action) ?? .add
+    }
+
+    /// Get bibcodes as array (for add/remove actions)
+    var bibcodes: [String] {
+        get {
+            guard let json = bibcodesJSON,
+                  let data = json.data(using: .utf8),
+                  let array = try? JSONDecoder().decode([String].self, from: data) else {
+                return []
+            }
+            return array
+        }
+        set {
+            if let data = try? JSONEncoder().encode(newValue),
+               let json = String(data: data, encoding: .utf8) {
+                bibcodesJSON = json
+            }
+        }
+    }
+
+    /// Metadata update info
+    struct MetadataUpdate: Codable {
+        var name: String?
+        var description: String?
+        var isPublic: Bool?
+    }
+
+    /// Get metadata update (for updateMeta action)
+    var metadata: MetadataUpdate? {
+        get {
+            guard let json = metadataJSON,
+                  let data = json.data(using: .utf8) else {
+                return nil
+            }
+            return try? JSONDecoder().decode(MetadataUpdate.self, from: data)
+        }
+        set {
+            if let value = newValue,
+               let data = try? JSONEncoder().encode(value),
+               let json = String(data: data, encoding: .utf8) {
+                metadataJSON = json
+            } else {
+                metadataJSON = nil
+            }
+        }
+    }
+
+    /// Description of the change for display
+    var changeDescription: String {
+        switch actionEnum {
+        case .add:
+            let count = bibcodes.count
+            return "Add \(count) paper\(count == 1 ? "" : "s")"
+        case .remove:
+            let count = bibcodes.count
+            return "Remove \(count) paper\(count == 1 ? "" : "s")"
+        case .updateMeta:
+            if let meta = metadata {
+                var changes: [String] = []
+                if meta.name != nil { changes.append("name") }
+                if meta.description != nil { changes.append("description") }
+                if meta.isPublic != nil { changes.append("visibility") }
+                return "Update \(changes.joined(separator: ", "))"
+            }
+            return "Update metadata"
+        }
+    }
 }

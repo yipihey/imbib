@@ -25,6 +25,7 @@ public enum ListViewID: Hashable, Sendable {
     case collection(UUID)
     case smartSearch(UUID)
     case lastSearch(UUID)  // "Last Search" system collection
+    case scixLibrary(UUID)  // SciX online library
 
     /// Storage key for this list view
     var storageKey: String {
@@ -37,6 +38,8 @@ public enum ListViewID: Hashable, Sendable {
             return "smartsearch_\(id.uuidString)"
         case .lastSearch(let id):
             return "lastsearch_\(id.uuidString)"
+        case .scixLibrary(let id):
+            return "scixlibrary_\(id.uuidString)"
         }
     }
 }

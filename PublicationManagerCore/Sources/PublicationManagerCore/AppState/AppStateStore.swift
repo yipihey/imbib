@@ -20,6 +20,7 @@ public enum SidebarSelectionState: Codable, Equatable, Sendable {
     case search
     case smartSearch(UUID)      // Smart search ID
     case collection(UUID)       // Collection ID
+    case scixLibrary(UUID)      // SciX online library ID
 }
 
 // MARK: - App State
