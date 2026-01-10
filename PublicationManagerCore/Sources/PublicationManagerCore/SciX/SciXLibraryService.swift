@@ -143,11 +143,17 @@ public actor SciXLibraryService {
         // Use raw=true to get the exact list of bibcodes saved in the library
         let (data, _) = try await makeRequest(path: "/libraries/\(id)?raw=true")
 
+        // Log raw response for debugging
+        if let rawJSON = String(data: data, encoding: .utf8) {
+            Logger.scix.debug("Library details raw response: \(rawJSON.prefix(500))")
+        }
+
         do {
             let response = try decoder.decode(SciXLibraryDetailResponse.self, from: data)
             Logger.scix.info("Fetched library details: \(response.metadata.name) (\(response.metadata.num_documents) docs)")
             return response
         } catch {
+            Logger.scix.error("Failed to decode library details: \(error)")
             throw SciXLibraryError.decodingError(error)
         }
     }
