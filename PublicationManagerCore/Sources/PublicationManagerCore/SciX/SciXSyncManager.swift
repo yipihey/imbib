@@ -116,14 +116,20 @@ public actor SciXSyncManager {
 
         // Fetch bibcodes from API
         let bibcodes = try await service.fetchLibraryBibcodes(id: libraryID)
+        Logger.scix.info("Got \(bibcodes.count) bibcodes from SciX library")
 
         guard !bibcodes.isEmpty else {
             Logger.scix.debug("Library has no papers")
             return
         }
 
+        // Log first few bibcodes for debugging
+        let sampleBibcodes = bibcodes.prefix(5).joined(separator: ", ")
+        Logger.scix.debug("Sample bibcodes: \(sampleBibcodes)")
+
         // Fetch paper details from ADS
         let papers = try await fetchPapersFromADS(bibcodes: bibcodes)
+        Logger.scix.info("Fetched \(papers.count) papers from ADS for \(bibcodes.count) bibcodes")
 
         // Cache papers locally and link to library
         let context = persistenceController.viewContext

@@ -140,7 +140,8 @@ public actor SciXLibraryService {
 
     /// Fetch details for a specific library including bibcodes
     public func fetchLibraryDetails(id: String) async throws -> SciXLibraryDetailResponse {
-        let (data, _) = try await makeRequest(path: "/libraries/\(id)")
+        // Use raw=true to get the exact list of bibcodes saved in the library
+        let (data, _) = try await makeRequest(path: "/libraries/\(id)?raw=true")
 
         do {
             let response = try decoder.decode(SciXLibraryDetailResponse.self, from: data)
@@ -151,16 +152,25 @@ public actor SciXLibraryService {
         }
     }
 
-    /// Fetch bibcodes for a library (extracted from solr.q field)
+    /// Fetch bibcodes for a library
     public func fetchLibraryBibcodes(id: String) async throws -> [String] {
         let details = try await fetchLibraryDetails(id: id)
 
-        guard let solr = details.solr, let query = solr.q else {
-            return []
+        // Primary: Use documents array if available
+        if let documents = details.documents, !documents.isEmpty {
+            Logger.scix.debug("Found \(documents.count) bibcodes in documents array")
+            return documents
         }
 
-        // Parse bibcodes from query like "identifier:(bibcode1 OR bibcode2 OR ...)"
-        return parseBibcodesFromQuery(query)
+        // Fallback: Parse from solr.q query string
+        if let solr = details.solr, let query = solr.q {
+            let parsed = parseBibcodesFromQuery(query)
+            Logger.scix.debug("Parsed \(parsed.count) bibcodes from solr.q")
+            return parsed
+        }
+
+        Logger.scix.warning("No bibcodes found in library response")
+        return []
     }
 
     private func parseBibcodesFromQuery(_ query: String) -> [String] {

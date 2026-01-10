@@ -35,6 +35,7 @@ public struct SciXLibraryDetailResponse: Codable, Sendable {
     public let metadata: SciXLibraryDetailMetadata
     public let solr: SciXLibrarySolr?
     public let updates: SciXLibraryUpdates?
+    public let documents: [String]?          // Array of bibcodes (primary way to get bibcodes)
 }
 
 /// Detailed library metadata including document list
