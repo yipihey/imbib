@@ -50,8 +50,8 @@ public actor ArXivSource: SourcePlugin {
 
         await rateLimiter.waitIfNeeded()
 
-        // Cap maxResults to avoid rate limiting (arXiv recommends smaller requests)
-        let cappedMaxResults = min(maxResults, 500)
+        // Cap maxResults to avoid excessive response sizes
+        let cappedMaxResults = min(maxResults, 3000)
 
         // Build the arXiv API query from user query
         let apiQuery = buildAPIQuery(from: query)
