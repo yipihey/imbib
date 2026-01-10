@@ -38,6 +38,9 @@ struct ContentView: View {
     /// Multi-selection for bulk operations (BibTeX export, etc.)
     @State private var selectedPublicationIDs = Set<UUID>()
 
+    /// Data for batch PDF download sheet (nil = not shown)
+    @State private var batchDownloadData: BatchDownloadData?
+
     // MARK: - Derived Selection
 
     /// The publication ID that the detail view should display.
@@ -124,6 +127,9 @@ struct ContentView: View {
                     try await importPreviewEntries(entries)
                 }
             }
+        }
+        .sheet(item: $batchDownloadData) { data in
+            PDFBatchDownloadView(publications: data.publications, library: data.library)
         }
         .task {
             await libraryViewModel.loadPublications()
@@ -322,7 +328,8 @@ struct ContentView: View {
                 UnifiedPublicationListWrapper(
                     source: .library(inboxLibrary),
                     selectedPublication: selectedPublicationBinding,
-                    selectedPublicationIDs: $selectedPublicationIDs
+                    selectedPublicationIDs: $selectedPublicationIDs,
+                    onDownloadPDFs: handleDownloadPDFs
                 )
             } else {
                 ContentUnavailableView(
@@ -337,14 +344,16 @@ struct ContentView: View {
             UnifiedPublicationListWrapper(
                 source: .smartSearch(smartSearch),
                 selectedPublication: selectedPublicationBinding,
-                selectedPublicationIDs: $selectedPublicationIDs
+                selectedPublicationIDs: $selectedPublicationIDs,
+                onDownloadPDFs: handleDownloadPDFs
             )
 
         case .library(let library):
             UnifiedPublicationListWrapper(
                 source: .library(library),
                 selectedPublication: selectedPublicationBinding,
-                selectedPublicationIDs: $selectedPublicationIDs
+                selectedPublicationIDs: $selectedPublicationIDs,
+                onDownloadPDFs: handleDownloadPDFs
             )
 
         case .unread(let library):
@@ -352,7 +361,8 @@ struct ContentView: View {
                 source: .library(library),
                 selectedPublication: selectedPublicationBinding,
                 selectedPublicationIDs: $selectedPublicationIDs,
-                initialFilterMode: .unread
+                initialFilterMode: .unread,
+                onDownloadPDFs: handleDownloadPDFs
             )
 
         case .search:
@@ -362,7 +372,8 @@ struct ContentView: View {
             UnifiedPublicationListWrapper(
                 source: .smartSearch(smartSearch),
                 selectedPublication: selectedPublicationBinding,
-                selectedPublicationIDs: $selectedPublicationIDs
+                selectedPublicationIDs: $selectedPublicationIDs,
+                onDownloadPDFs: handleDownloadPDFs
             )
 
         case .collection(let collection):
@@ -384,20 +395,33 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
-        // Multi-selection: show BibTeX-only view for bulk operations
-        if isMultiSelection {
-            MultiSelectionBibTeXView(publications: selectedPublications)
-                // Force view recreation when selection changes
-                .id(selectedPublicationIDs)
+        // Multi-selection on BibTeX tab: show combined BibTeX view
+        if isMultiSelection && selectedDetailTab == .bibtex {
+            MultiSelectionBibTeXView(
+                publications: selectedPublications,
+                onDownloadPDFs: {
+                    handleDownloadPDFs(selectedPublicationIDs)
+                }
+            )
+            // Force view recreation when selection changes
+            .id(selectedPublicationIDs)
         }
         // Guard against deleted Core Data objects - check isDeleted and managedObjectContext
         // DetailView.init is failable and returns nil for deleted publications
         // Uses displayedPublication (deferred) instead of immediate selection for smoother UX
+        // In multi-selection mode, show the first selected paper's details (PDF/Info/Notes tabs still work)
         else if let publication = displayedPublication,
            !publication.isDeleted,
            publication.managedObjectContext != nil,
            let libraryID = selectedLibraryID,
-           let detail = DetailView(publication: publication, libraryID: libraryID, selectedTab: $selectedDetailTab) {
+           let detail = DetailView(
+               publication: publication,
+               libraryID: libraryID,
+               selectedTab: $selectedDetailTab,
+               isMultiSelection: isMultiSelection,
+               selectedPublicationIDs: selectedPublicationIDs,
+               onDownloadPDFs: { handleDownloadPDFs(selectedPublicationIDs) }
+           ) {
             detail
         } else {
             ContentUnavailableView(
@@ -428,6 +452,35 @@ struct ContentView: View {
         default:
             return nil
         }
+    }
+
+    /// Get the current CDLibrary for batch PDF downloads
+    private var currentLibrary: CDLibrary? {
+        switch selectedSection {
+        case .inbox:
+            return InboxManager.shared.inboxLibrary
+        case .inboxFeed(let smartSearch):
+            return InboxManager.shared.inboxLibrary ?? smartSearch.library
+        case .library(let library), .unread(let library):
+            return library
+        case .smartSearch(let smartSearch):
+            return smartSearch.library
+        case .collection(let collection):
+            return collection.owningLibrary
+        default:
+            return nil
+        }
+    }
+
+    // MARK: - Batch PDF Download
+
+    /// Handle "Download PDFs" context menu action
+    private func handleDownloadPDFs(_ ids: Set<UUID>) {
+        let publications = ids.compactMap { libraryViewModel.publication(for: $0) }
+        guard !publications.isEmpty, let library = currentLibrary else { return }
+
+        contentLogger.info("[BatchDownload] Starting batch download for \(publications.count) papers")
+        batchDownloadData = BatchDownloadData(publications: publications, library: library)
     }
 
     // MARK: - Import/Export
@@ -503,6 +556,16 @@ enum SidebarSection: Hashable {
     case smartSearch(CDSmartSearch)   // Smart search (library-scoped via relationship)
     case collection(CDCollection)     // Collection (library-scoped via relationship)
     case scixLibrary(CDSciXLibrary)   // SciX online library
+}
+
+// MARK: - Batch Download Data
+
+/// Data for the batch PDF download sheet.
+/// Using Identifiable allows sheet(item:) to properly capture the data when shown.
+struct BatchDownloadData: Identifiable {
+    let id = UUID()
+    let publications: [CDPublication]
+    let library: CDLibrary
 }
 
 // MARK: - Collection List View

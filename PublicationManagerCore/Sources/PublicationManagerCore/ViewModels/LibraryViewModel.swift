@@ -493,6 +493,15 @@ public final class LibraryViewModel {
         Logger.viewModels.infoCapture("Removed \(toRemove.count) publications from all collections", category: "library")
     }
 
+    /// Remove publications from a specific library
+    public func removeFromLibrary(_ ids: Set<UUID>, library: CDLibrary) async {
+        let toRemove = publications.filter { ids.contains($0.id) }
+        guard !toRemove.isEmpty else { return }
+
+        await repository.removeFromLibrary(toRemove, library: library)
+        Logger.viewModels.infoCapture("Removed \(toRemove.count) publications from \(library.displayName)", category: "library")
+    }
+
     // MARK: - Smart Collections
 
     /// Execute a smart collection query and return matching publications.

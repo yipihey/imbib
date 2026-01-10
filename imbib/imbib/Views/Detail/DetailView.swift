@@ -40,6 +40,15 @@ struct DetailView: View {
     /// External binding for tab selection (persists across paper changes)
     @Binding var selectedTab: DetailTab
 
+    /// Whether multiple papers are selected (disables auto-download)
+    var isMultiSelection: Bool = false
+
+    /// Selected publication IDs when in multi-selection mode (for context info)
+    var selectedPublicationIDs: Set<UUID> = []
+
+    /// Callback to trigger batch PDF download (multi-selection mode)
+    var onDownloadPDFs: (() -> Void)?
+
     // MARK: - Environment
 
     @Environment(LibraryViewModel.self) private var viewModel
@@ -70,15 +79,18 @@ struct DetailView: View {
 
     // MARK: - Initialization
 
-    init(paper: any PaperRepresentable, publication: CDPublication? = nil, selectedTab: Binding<DetailTab>) {
+    init(paper: any PaperRepresentable, publication: CDPublication? = nil, selectedTab: Binding<DetailTab>, isMultiSelection: Bool = false, selectedPublicationIDs: Set<UUID> = [], onDownloadPDFs: (() -> Void)? = nil) {
         self.paper = paper
         self.publication = publication
         self._selectedTab = selectedTab
+        self.isMultiSelection = isMultiSelection
+        self.selectedPublicationIDs = selectedPublicationIDs
+        self.onDownloadPDFs = onDownloadPDFs
     }
 
     /// Primary initializer for CDPublication (ADR-016: all papers are CDPublication)
     /// Returns nil if the publication has been deleted
-    init?(publication: CDPublication, libraryID: UUID, selectedTab: Binding<DetailTab>) {
+    init?(publication: CDPublication, libraryID: UUID, selectedTab: Binding<DetailTab>, isMultiSelection: Bool = false, selectedPublicationIDs: Set<UUID> = [], onDownloadPDFs: (() -> Void)? = nil) {
         let start = CFAbsoluteTimeGetCurrent()
         // Guard against deleted Core Data objects
         guard let localPaper = LocalPaper(publication: publication, libraryID: libraryID) else {
@@ -87,6 +99,9 @@ struct DetailView: View {
         self.paper = localPaper
         self.publication = publication
         self._selectedTab = selectedTab
+        self.isMultiSelection = isMultiSelection
+        self.selectedPublicationIDs = selectedPublicationIDs
+        self.onDownloadPDFs = onDownloadPDFs
         let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
         logger.info("⏱ DetailView.init: \(elapsed, format: .fixed(precision: 1))ms")
     }
@@ -136,7 +151,7 @@ struct DetailView: View {
 
             Group {
                 if selectedTab == .pdf {
-                    PDFTab(paper: paper, publication: publication, selectedTab: $selectedTab)
+                    PDFTab(paper: paper, publication: publication, selectedTab: $selectedTab, isMultiSelection: isMultiSelection)
                 } else {
                     Color.clear
                 }
@@ -219,10 +234,19 @@ struct DetailView: View {
     // MARK: - Navigation Subtitle
 
     private var navigationSubtitle: String {
+        var subtitle: String
         if let pub = publication {
-            return pub.citeKey
+            subtitle = pub.citeKey
+        } else {
+            subtitle = paper.authorDisplayString
         }
-        return paper.authorDisplayString
+
+        // Add multi-selection indicator
+        if isMultiSelection {
+            subtitle += " — \(selectedPublicationIDs.count) papers selected"
+        }
+
+        return subtitle
     }
 
     // MARK: - Toolbar
@@ -230,6 +254,16 @@ struct DetailView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItemGroup {
+            // Download PDFs button (multi-selection mode)
+            if isMultiSelection, let onDownloadPDFs = onDownloadPDFs {
+                Button {
+                    onDownloadPDFs()
+                } label: {
+                    Label("Download PDFs (\(selectedPublicationIDs.count))", systemImage: "arrow.down.doc")
+                }
+                .help("Download PDFs for all selected papers")
+            }
+
             // Open PDF button (for papers with PDF)
             if paper.hasPDF {
                 Button {
@@ -1353,6 +1387,7 @@ struct BibTeXTab: View {
 /// Only displays combined BibTeX with a Copy button.
 struct MultiSelectionBibTeXView: View {
     let publications: [CDPublication]
+    var onDownloadPDFs: (() -> Void)?
 
     /// Combined BibTeX content - computed directly from publications
     private var bibtexContent: String {
@@ -1367,12 +1402,21 @@ struct MultiSelectionBibTeXView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header with count and copy button
+            // Header with count and action buttons
             HStack {
                 Text("\(publications.count) papers selected")
                     .font(.headline)
 
                 Spacer()
+
+                if let onDownloadPDFs = onDownloadPDFs {
+                    Button {
+                        onDownloadPDFs()
+                    } label: {
+                        Label("Download PDFs", systemImage: "arrow.down.doc")
+                    }
+                    .buttonStyle(.bordered)
+                }
 
                 Button {
                     copyToClipboard()
@@ -1422,6 +1466,7 @@ struct PDFTab: View {
     let paper: any PaperRepresentable
     let publication: CDPublication?
     @Binding var selectedTab: DetailTab
+    var isMultiSelection: Bool = false  // Disable auto-download when multiple papers selected
 
     @Environment(LibraryManager.self) private var libraryManager
     @State private var linkedFile: CDLinkedFile?
@@ -1655,11 +1700,14 @@ struct PDFTab: View {
                 isCheckingPDF = false  // Done checking
             }
 
-            // Auto-download if setting enabled AND remote PDF available
+            // Auto-download if setting enabled AND remote PDF available AND not multi-selection
+            // When multiple papers are selected, don't auto-download - user can use "Download PDFs" menu
             let settings = await PDFSettingsStore.shared.settings
-            if settings.autoDownloadEnabled && hasRemote {
+            if settings.autoDownloadEnabled && hasRemote && !isMultiSelection {
                 Logger.files.infoCapture("[PDFTab] auto-downloading PDF...", category: "pdf")
                 await downloadPDF()
+            } else if isMultiSelection && hasRemote {
+                Logger.files.infoCapture("[PDFTab] Skipping auto-download (multi-selection mode)", category: "pdf")
             }
 
             let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000

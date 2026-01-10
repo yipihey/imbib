@@ -130,6 +130,9 @@ public struct PublicationListView: View {
     /// Called when files are dropped onto a publication row
     public var onFileDrop: ((CDPublication, [NSItemProvider]) -> Void)?
 
+    /// Called when "Download PDFs" is requested for selected publications
+    public var onDownloadPDFs: ((Set<UUID>) -> Void)?
+
     // MARK: - Inbox Triage Callbacks
 
     /// Called when archive to library is requested (Inbox: adds to library AND removes from Inbox)
@@ -266,6 +269,7 @@ public struct PublicationListView: View {
         onImport: (() -> Void)? = nil,
         onOpenPDF: ((CDPublication) -> Void)? = nil,
         onFileDrop: ((CDPublication, [NSItemProvider]) -> Void)? = nil,
+        onDownloadPDFs: ((Set<UUID>) -> Void)? = nil,
         // Inbox triage callbacks
         onArchiveToLibrary: ((Set<UUID>, CDLibrary) async -> Void)? = nil,
         onDismiss: ((Set<UUID>) async -> Void)? = nil,
@@ -297,6 +301,7 @@ public struct PublicationListView: View {
         self.onImport = onImport
         self.onOpenPDF = onOpenPDF
         self.onFileDrop = onFileDrop
+        self.onDownloadPDFs = onDownloadPDFs
         // Inbox triage
         self.onArchiveToLibrary = onArchiveToLibrary
         self.onDismiss = onDismiss
@@ -852,6 +857,16 @@ public struct PublicationListView: View {
             }
         }
 
+        // Download PDFs (only shown when multiple papers selected)
+        if let onDownloadPDFs = onDownloadPDFs, ids.count > 1 {
+            Divider()
+            Button {
+                onDownloadPDFs(ids)
+            } label: {
+                Label("Download PDFs", systemImage: "arrow.down.doc")
+            }
+        }
+
         Divider()
 
         // Add to Library submenu (publications can belong to multiple libraries)
@@ -928,11 +943,13 @@ public struct PublicationListView: View {
             }
         }
 
-        // MARK: Inbox Triage Actions
+        // MARK: Archive/Triage Actions
 
-        // Archive to Library (Inbox only - adds to library and removes from Inbox)
+        // Archive to Library (adds to target library AND removes from current library)
+        // Available for all views, not just Inbox
         if let onArchiveToLibrary = onArchiveToLibrary, !allLibraries.isEmpty {
-            let archiveLibraries = allLibraries.filter { !$0.isInbox }
+            // Filter out current library and Inbox from archive targets
+            let archiveLibraries = allLibraries.filter { $0.id != library?.id && !$0.isInbox }
             if !archiveLibraries.isEmpty {
                 Menu("Archive to Library") {
                     ForEach(archiveLibraries, id: \.id) { targetLibrary in

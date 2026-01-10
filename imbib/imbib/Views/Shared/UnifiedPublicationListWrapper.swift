@@ -71,6 +71,9 @@ struct UnifiedPublicationListWrapper: View {
     /// Initial filter mode (for Unread sidebar item)
     var initialFilterMode: LibraryFilterMode = .all
 
+    /// Called when "Download PDFs" is requested for selected publications
+    var onDownloadPDFs: ((Set<UUID>) -> Void)?
+
     // MARK: - Environment
 
     @Environment(LibraryViewModel.self) private var libraryViewModel
@@ -321,10 +324,12 @@ struct UnifiedPublicationListWrapper: View {
                     refreshPublicationsList()
                 }
             },
-            // Inbox triage callbacks (only when viewing Inbox or Inbox feeds)
-            onArchiveToLibrary: isInboxView ? { ids, targetLibrary in
-                await archiveToLibrary(ids: ids, library: targetLibrary)
-            } : nil,
+            onDownloadPDFs: onDownloadPDFs,
+            // Archive callback - available for all views (moves papers to target library)
+            onArchiveToLibrary: { ids, targetLibrary in
+                await archiveToLibrary(ids: ids, targetLibrary: targetLibrary)
+            },
+            // Inbox-specific triage callbacks
             onDismiss: isInboxView ? { ids in
                 await dismissFromInbox(ids: ids)
             } : nil,
@@ -577,17 +582,10 @@ struct UnifiedPublicationListWrapper: View {
             return
         }
 
-        let inboxManager = InboxManager.shared
-
-        for uuid in selectedPublicationIDs {
-            if let publication = publications.first(where: { $0.id == uuid }) {
-                inboxManager.archiveToLibrary(publication, library: defaultLibrary)
-            }
+        let ids = selectedPublicationIDs
+        Task {
+            await archiveToLibrary(ids: ids, targetLibrary: defaultLibrary)
         }
-
-        selectedPublicationIDs.removeAll()
-        refreshPublicationsList()
-        logger.info("Archived \(selectedPublicationIDs.count) papers to \(defaultLibrary.displayName)")
     }
 
     /// Dismiss selected publications from inbox
@@ -620,22 +618,81 @@ struct UnifiedPublicationListWrapper: View {
         logger.info("Toggled star for \(selectedPublicationIDs.count) papers")
     }
 
-    // MARK: - Inbox Triage Callback Implementations
+    // MARK: - Archive Implementation
 
-    /// Archive publications to a specific library (for context menu)
-    private func archiveToLibrary(ids: Set<UUID>, library: CDLibrary) async {
-        let inboxManager = InboxManager.shared
+    /// Archive publications to a target library (adds to target AND removes from current).
+    /// Selects the next paper in the list after archiving.
+    private func archiveToLibrary(ids: Set<UUID>, targetLibrary: CDLibrary) async {
+        guard let sourceLibrary = currentLibrary else {
+            logger.warning("Cannot archive - no source library")
+            return
+        }
 
-        for uuid in ids {
-            if let publication = publications.first(where: { $0.id == uuid }) {
-                inboxManager.archiveToLibrary(publication, library: library)
+        // Find next paper to select before removing current selection
+        let nextPaperID = findNextPaperAfter(ids: ids)
+
+        // For Inbox, use InboxManager which handles special Inbox logic
+        if isInboxView {
+            let inboxManager = InboxManager.shared
+            for uuid in ids {
+                if let publication = publications.first(where: { $0.id == uuid }) {
+                    inboxManager.archiveToLibrary(publication, library: targetLibrary)
+                }
+            }
+        } else {
+            // For regular libraries: add to target, remove from source
+            await libraryViewModel.addToLibrary(ids, library: targetLibrary)
+            await libraryViewModel.removeFromLibrary(ids, library: sourceLibrary)
+        }
+
+        // Select next paper (or clear if none left)
+        if let nextID = nextPaperID,
+           let nextPub = publications.first(where: { $0.id == nextID }) {
+            selectedPublicationIDs = [nextID]
+            selectedPublication = nextPub
+        } else {
+            selectedPublicationIDs.removeAll()
+            selectedPublication = nil
+        }
+
+        refreshPublicationsList()
+        logger.info("Archived \(ids.count) papers from \(sourceLibrary.displayName) to \(targetLibrary.displayName)")
+    }
+
+    /// Find the next paper ID to select after removing the given IDs.
+    /// Returns the paper immediately after the last selected one, or the one before if at end.
+    private func findNextPaperAfter(ids: Set<UUID>) -> UUID? {
+        // Find indices of selected papers
+        let selectedIndices = publications.enumerated()
+            .filter { ids.contains($0.element.id) }
+            .map { $0.offset }
+            .sorted()
+
+        guard let lastIndex = selectedIndices.last else { return nil }
+
+        // Try next paper after the last selected
+        let nextIndex = lastIndex + 1
+        if nextIndex < publications.count && !ids.contains(publications[nextIndex].id) {
+            return publications[nextIndex].id
+        }
+
+        // Try paper before the first selected
+        if let firstIndex = selectedIndices.first, firstIndex > 0 {
+            let prevIndex = firstIndex - 1
+            if !ids.contains(publications[prevIndex].id) {
+                return publications[prevIndex].id
             }
         }
 
-        selectedPublicationIDs.removeAll()
-        refreshPublicationsList()
-        logger.info("Archived \(ids.count) papers to \(library.displayName)")
+        // Find any remaining paper not in the selection
+        for pub in publications where !ids.contains(pub.id) {
+            return pub.id
+        }
+
+        return nil
     }
+
+    // MARK: - Inbox Triage Callback Implementations
 
     /// Dismiss publications from inbox (for context menu)
     private func dismissFromInbox(ids: Set<UUID>) async {
