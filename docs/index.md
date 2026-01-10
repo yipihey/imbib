@@ -9,7 +9,7 @@ title: Home
 
 # imBib
 
-**Search everywhere. Inbox what matters.**
+**Subscribe to Science.**
 
 *Your research inbox. Every database. One library.*
 
