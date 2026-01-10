@@ -721,42 +721,80 @@ public actor PublicationRepository {
             do {
                 let found = try context.fetch(request)
 
-                // Map found publications back to result IDs
+                // Build lookup dictionaries from found publications for O(1) matching
+                // This ensures each result maps to at most ONE publication
+                var pubsByDOI: [String: CDPublication] = [:]
+                var pubsByArxiv: [String: CDPublication] = [:]
+                var pubsByBibcode: [String: CDPublication] = [:]
+                var pubsBySS: [String: CDPublication] = [:]
+                var pubsByOA: [String: CDPublication] = [:]
+
                 for pub in found {
-                    for result in results {
-                        // Check each identifier type
-                        if let doi = result.doi, !doi.isEmpty,
-                           let pubDOI = pub.doi, pubDOI.lowercased() == doi.lowercased() {
-                            existing[result.id] = pub
-                            continue
-                        }
-                        if let arxiv = result.arxivID, !arxiv.isEmpty,
-                           let pubArxiv = pub.arxivIDNormalized,
-                           pubArxiv == IdentifierExtractor.normalizeArXivID(arxiv) {
-                            existing[result.id] = pub
-                            continue
-                        }
-                        if let bibcode = result.bibcode, !bibcode.isEmpty,
-                           let pubBibcode = pub.bibcodeNormalized,
-                           pubBibcode == bibcode.uppercased().trimmingCharacters(in: .whitespaces) {
-                            existing[result.id] = pub
-                            continue
-                        }
-                        if let ssID = result.semanticScholarID, !ssID.isEmpty,
-                           pub.semanticScholarID == ssID {
-                            existing[result.id] = pub
-                            continue
-                        }
-                        if let oaID = result.openAlexID, !oaID.isEmpty,
-                           pub.openAlexID == oaID {
-                            existing[result.id] = pub
-                            continue
-                        }
+                    if let doi = pub.doi, !doi.isEmpty {
+                        pubsByDOI[doi.lowercased()] = pub
+                    }
+                    if let arxiv = pub.arxivIDNormalized, !arxiv.isEmpty {
+                        pubsByArxiv[arxiv] = pub
+                    }
+                    if let bibcode = pub.bibcodeNormalized, !bibcode.isEmpty {
+                        pubsByBibcode[bibcode] = pub
+                    }
+                    if let ssID = pub.semanticScholarID, !ssID.isEmpty {
+                        pubsBySS[ssID] = pub
+                    }
+                    if let oaID = pub.openAlexID, !oaID.isEmpty {
+                        pubsByOA[oaID] = pub
+                    }
+                }
+
+                // Track match statistics for diagnostics
+                var matchesByDOI = 0
+                var matchesByArxiv = 0
+                var matchesByBibcode = 0
+                var matchesBySS = 0
+                var matchesByOA = 0
+
+                // Match each result exactly once using dictionary lookups
+                for result in results {
+                    // Skip if already matched (prevents double-counting)
+                    if existing[result.id] != nil { continue }
+
+                    // Check each identifier type in priority order
+                    if let doi = result.doi, !doi.isEmpty,
+                       let pub = pubsByDOI[doi.lowercased()] {
+                        existing[result.id] = pub
+                        matchesByDOI += 1
+                        continue
+                    }
+                    if let arxiv = result.arxivID, !arxiv.isEmpty,
+                       let pub = pubsByArxiv[IdentifierExtractor.normalizeArXivID(arxiv)] {
+                        existing[result.id] = pub
+                        matchesByArxiv += 1
+                        continue
+                    }
+                    if let bibcode = result.bibcode, !bibcode.isEmpty,
+                       let pub = pubsByBibcode[bibcode.uppercased().trimmingCharacters(in: .whitespaces)] {
+                        existing[result.id] = pub
+                        matchesByBibcode += 1
+                        continue
+                    }
+                    if let ssID = result.semanticScholarID, !ssID.isEmpty,
+                       let pub = pubsBySS[ssID] {
+                        existing[result.id] = pub
+                        matchesBySS += 1
+                        continue
+                    }
+                    if let oaID = result.openAlexID, !oaID.isEmpty,
+                       let pub = pubsByOA[oaID] {
+                        existing[result.id] = pub
+                        matchesByOA += 1
+                        continue
                     }
                 }
 
                 Logger.persistence.debugCapture(
-                    "Batch find: \(results.count) results → \(found.count) DB matches → \(existing.count) mapped",
+                    "Batch find: \(results.count) results → \(found.count) DB → \(existing.count) mapped " +
+                    "(DOI:\(matchesByDOI) arXiv:\(matchesByArxiv) bibcode:\(matchesByBibcode) SS:\(matchesBySS) OA:\(matchesByOA))",
                     category: "batch"
                 )
             } catch {
