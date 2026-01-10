@@ -67,10 +67,12 @@ struct SidebarView: View {
                 // SciX Libraries Section (online collaborative libraries)
                 // Only show if user has configured their SciX API key
                 if hasSciXAPIKey && !scixRepository.libraries.isEmpty {
-                    Section("SciX Libraries") {
+                    Section {
                         ForEach(scixRepository.libraries, id: \.id) { library in
                             scixLibraryRow(for: library)
                         }
+                    } header: {
+                        scixLibrariesSectionHeader
                     }
                 }
 
@@ -277,6 +279,44 @@ struct SidebarView: View {
                     }
                 }
         }
+    }
+
+    // MARK: - SciX Libraries Section Header
+
+    /// Section header for SciX Libraries with help tooltip
+    private var scixLibrariesSectionHeader: some View {
+        HStack {
+            Text("SciX Libraries")
+
+            Spacer()
+
+            // Help button that opens SciX libraries documentation
+            Button {
+                if let url = URL(string: "https://ui.adsabs.harvard.edu/help/libraries/") {
+                    #if os(macOS)
+                    NSWorkspace.shared.open(url)
+                    #else
+                    UIApplication.shared.open(url)
+                    #endif
+                }
+            } label: {
+                Image(systemName: "questionmark.circle")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .help("Learn about SciX Libraries - click to open help page")
+        }
+        .help("""
+            SciX Libraries are cloud-based collections synced with NASA ADS/SciX.
+
+            • Access your libraries from any device
+            • Share and collaborate with other researchers
+            • Set operations: union, intersection, difference
+            • Citation helper finds related papers
+
+            Click the ? to learn more.
+            """)
     }
 
     // MARK: - SciX Library Row
