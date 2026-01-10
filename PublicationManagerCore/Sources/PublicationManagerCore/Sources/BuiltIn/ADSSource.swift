@@ -300,8 +300,9 @@ public actor ADSSource: SourcePlugin {
                     hasPublisher = true
                 }
             } else if upper == "ADS_PDF" || upper == "ADS_SCAN" {
-                // ADS-hosted scans are reliable (hosted directly by ADS)
-                if let url = URL(string: "https://ui.adsabs.harvard.edu/link_gateway/\(bibcode)/ADS_PDF") {
+                // ADS-hosted scans - use direct URL (more reliable than link_gateway)
+                // Format: https://articles.adsabs.harvard.edu/pdf/{bibcode}
+                if let url = URL(string: "https://articles.adsabs.harvard.edu/pdf/\(bibcode)") {
                     links.append(PDFLink(url: url, type: .adsScan, sourceID: "ads"))
                 }
             }

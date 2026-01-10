@@ -1271,9 +1271,6 @@ struct PDFTab: View {
     @Binding var selectedTab: DetailTab
 
     @Environment(LibraryManager.self) private var libraryManager
-    @AppStorage("notesPosition") private var notesPositionRaw: String = "below"
-    @AppStorage("notesPanelSize") private var notesPanelSize: Double = 400  // ~60 chars at 13pt monospace
-    @AppStorage("notesPanelCollapsed") private var isNotesPanelCollapsed = false
     @State private var linkedFile: CDLinkedFile?
     @State private var isDownloading = false
     @State private var downloadError: Error?
@@ -1282,16 +1279,12 @@ struct PDFTab: View {
     @State private var showFileImporter = false
     @State private var isCheckingPDF = true  // Start in loading state
 
-    private var notesPosition: NotesPosition {
-        NotesPosition(rawValue: notesPositionRaw) ?? .below
-    }
-
     var body: some View {
         Group {
             // ADR-016: All papers are now CDPublication
             if let linked = linkedFile, let pub = publication {
-                // Has linked PDF file → show viewer with notes panel
-                pdfWithNotesPanel(linked: linked, pub: pub)
+                // Has linked PDF file → show viewer only (no notes panel)
+                pdfViewerOnly(linked: linked, pub: pub)
                     .id(pub.id)  // Force view recreation when paper changes to reset @State
             } else if isCheckingPDF {
                 // Loading state while checking for PDFs
@@ -1341,11 +1334,11 @@ struct PDFTab: View {
         }
     }
 
-    // MARK: - PDF with Notes Panel
+    // MARK: - PDF Viewer Only (no notes panel)
 
     @ViewBuilder
-    private func pdfWithNotesPanel(linked: CDLinkedFile, pub: CDPublication) -> some View {
-        let pdfViewer = PDFViewerWithControls(
+    private func pdfViewerOnly(linked: CDLinkedFile, pub: CDPublication) -> some View {
+        PDFViewerWithControls(
             linkedFile: linked,
             library: libraryManager.activeLibrary,
             publicationID: pub.id,
@@ -1355,44 +1348,6 @@ struct PDFTab: View {
                 }
             }
         )
-
-        let sizeBinding = Binding<CGFloat>(
-            get: { CGFloat(notesPanelSize) },
-            set: { notesPanelSize = Double($0) }
-        )
-
-        switch notesPosition {
-        case .below:
-            VStack(spacing: 0) {
-                pdfViewer
-                NotesPanel(
-                    publication: pub,
-                    size: sizeBinding,
-                    isCollapsed: $isNotesPanelCollapsed,
-                    orientation: .horizontal
-                )
-            }
-        case .right:
-            HStack(spacing: 0) {
-                pdfViewer
-                NotesPanel(
-                    publication: pub,
-                    size: sizeBinding,
-                    isCollapsed: $isNotesPanelCollapsed,
-                    orientation: .verticalRight
-                )
-            }
-        case .left:
-            HStack(spacing: 0) {
-                NotesPanel(
-                    publication: pub,
-                    size: sizeBinding,
-                    isCollapsed: $isNotesPanelCollapsed,
-                    orientation: .verticalLeft
-                )
-                pdfViewer
-            }
-        }
     }
 
     // MARK: - Subviews

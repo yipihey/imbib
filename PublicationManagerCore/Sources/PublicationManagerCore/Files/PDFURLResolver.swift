@@ -97,13 +97,19 @@ public struct PDFURLResolver {
             return applyProxy(to: publisherLink.url, settings: settings)
         }
 
-        // 3. Try arXiv last
+        // 3. Try ADS scanned articles (hosted directly by ADS, always free)
+        if let adsScanLink = links.first(where: { $0.type == .adsScan }) {
+            Logger.files.infoCapture("[PDFURLResolver] Using ADS scan PDF", category: "pdf")
+            return adsScanLink.url
+        }
+
+        // 4. Try arXiv
         if let arxivID = publication.arxivID {
             Logger.files.infoCapture("[PDFURLResolver] Using arXiv PDF", category: "pdf")
             return arXivPDFURL(arxivID: arxivID)
         }
 
-        // 4. Fallback: any available preprint link
+        // 5. Fallback: any available preprint link
         if let preprintLink = links.first(where: { $0.type == .preprint }) {
             Logger.files.infoCapture("[PDFURLResolver] Using preprint PDF from \(preprintLink.sourceID ?? "unknown")", category: "pdf")
             return preprintLink.url
@@ -206,7 +212,12 @@ public struct PDFURLResolver {
 
     /// Check if publication has any PDF source available
     public static func hasPDF(publication: CDPublication) -> Bool {
-        publication.arxivID != nil || publication.bestRemotePDFURL != nil
+        // Check for arXiv, remote PDF links, or ADS scans
+        if publication.arxivID != nil { return true }
+        if publication.bestRemotePDFURL != nil { return true }
+        // Check for ADS scan links
+        if publication.pdfLinks.contains(where: { $0.type == .adsScan }) { return true }
+        return false
     }
 
     /// Get available PDF sources for a publication
