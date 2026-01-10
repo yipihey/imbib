@@ -1197,18 +1197,23 @@ public actor CollectionRepository {
 
         Logger.persistence.debug("Executing smart collection: \(collection.name)")
         let context = persistenceController.viewContext
+        let library = collection.library
 
         return await context.perform {
             let request = NSFetchRequest<CDPublication>(entityName: "Publication")
 
-            // Parse and apply the predicate
-            do {
-                request.predicate = NSPredicate(format: predicateString)
-            } catch {
-                Logger.persistence.error("Invalid predicate: \(predicateString)")
-                return []
+            // Build compound predicate: user's rules AND library membership
+            var predicates: [NSPredicate] = []
+
+            // Add user's smart collection predicate
+            predicates.append(NSPredicate(format: predicateString))
+
+            // Scope to owning library if present
+            if let library = library {
+                predicates.append(NSPredicate(format: "ANY libraries == %@", library))
             }
 
+            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
             request.sortDescriptors = [NSSortDescriptor(key: "dateModified", ascending: false)]
 
             do {

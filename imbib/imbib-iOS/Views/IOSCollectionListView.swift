@@ -108,14 +108,24 @@ struct IOSCollectionListView: View {
     // MARK: - Data Refresh
 
     private func refreshPublications() {
-        var result = (collection.publications ?? [])
-            .filter { !$0.isDeleted && $0.managedObjectContext != nil }
+        Task {
+            var result: [CDPublication]
 
-        if filterMode == .unread {
-            result = result.filter { !$0.isRead }
+            if collection.isSmartCollection {
+                // Execute predicate for smart collections
+                result = await PublicationRepository.shared.executeSmartCollection(collection)
+            } else {
+                // For static collections, use direct relationship
+                result = Array(collection.publications ?? [])
+                    .filter { !$0.isDeleted && $0.managedObjectContext != nil }
+            }
+
+            if filterMode == .unread {
+                result = result.filter { !$0.isRead }
+            }
+
+            publications = result.sorted { $0.dateAdded > $1.dateAdded }
         }
-
-        publications = result.sorted { $0.dateAdded > $1.dateAdded }
     }
 
     // MARK: - Actions
