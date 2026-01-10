@@ -176,6 +176,9 @@ public struct PublicationListView: View {
     /// Memoization cache for filtered row data (class reference to avoid state changes)
     @StateObject private var filterCache = FilteredRowDataCache()
 
+    /// Scroll proxy for programmatic scrolling to selection (set by ScrollViewReader)
+    @State private var scrollProxy: ScrollViewProxy?
+
     // MARK: - Computed Properties
 
     /// Filtered and sorted row data - memoized to avoid repeated computation
@@ -564,32 +567,37 @@ public struct PublicationListView: View {
     // MARK: - Publication List
 
     private var publicationList: some View {
-        List(filteredRowData, id: \.id, selection: $selection) { rowData in
-            MailStylePublicationRow(
-                data: rowData,
-                settings: listViewSettings,
-                onToggleRead: onToggleRead != nil ? {
-                    if let pub = publicationsByID[rowData.id] {
-                        Task { await onToggleRead?(pub) }
-                    }
-                } : nil,
-                onCategoryTap: onCategoryTap
-            )
-            .tag(rowData.id)
-        }
-        // OPTIMIZATION: Disable selection animations for instant visual feedback
-        .animation(nil, value: selection)
-        .transaction { $0.animation = nil }
-        .contextMenu(forSelectionType: UUID.self) { ids in
-            contextMenuItems(for: ids)
-        } primaryAction: { ids in
-            // Double-click to open PDF - O(1) lookup
-            if let first = ids.first,
-               let publication = publicationsByID[first],
-               let onOpenPDF = onOpenPDF {
-                onOpenPDF(publication)
+        ScrollViewReader { proxy in
+            List(filteredRowData, id: \.id, selection: $selection) { rowData in
+                MailStylePublicationRow(
+                    data: rowData,
+                    settings: listViewSettings,
+                    onToggleRead: onToggleRead != nil ? {
+                        if let pub = publicationsByID[rowData.id] {
+                            Task { await onToggleRead?(pub) }
+                        }
+                    } : nil,
+                    onCategoryTap: onCategoryTap
+                )
+                .tag(rowData.id)
+                .id(rowData.id)  // For ScrollViewReader
             }
-        }
+            // OPTIMIZATION: Disable selection animations for instant visual feedback
+            .animation(nil, value: selection)
+            .transaction { $0.animation = nil }
+            .contextMenu(forSelectionType: UUID.self) { ids in
+                contextMenuItems(for: ids)
+            } primaryAction: { ids in
+                // Double-click to open PDF - O(1) lookup
+                if let first = ids.first,
+                   let publication = publicationsByID[first],
+                   let onOpenPDF = onOpenPDF {
+                    onOpenPDF(publication)
+                }
+            }
+            .onAppear {
+                scrollProxy = proxy
+            }
         #if os(macOS)
         .onDeleteCommand {
             if let onDelete = onDelete {
@@ -637,9 +645,18 @@ public struct PublicationListView: View {
             deleteSelected()
         }
         #endif
+        }  // End ScrollViewReader
     }
 
     // MARK: - Keyboard Navigation
+
+    /// Select a row and scroll to make it visible
+    private func selectAndScrollTo(_ id: UUID) {
+        selection = [id]
+        withAnimation(.easeInOut(duration: 0.15)) {
+            scrollProxy?.scrollTo(id, anchor: .center)
+        }
+    }
 
     /// Navigate to next paper in the filtered list
     private func navigateToNext() {
@@ -649,10 +666,10 @@ public struct PublicationListView: View {
         if let currentID = selection.first,
            let currentIndex = rows.firstIndex(where: { $0.id == currentID }) {
             let nextIndex = min(currentIndex + 1, rows.count - 1)
-            selection = [rows[nextIndex].id]
+            selectAndScrollTo(rows[nextIndex].id)
         } else {
             // No selection, select first
-            selection = [rows[0].id]
+            selectAndScrollTo(rows[0].id)
         }
     }
 
@@ -664,10 +681,10 @@ public struct PublicationListView: View {
         if let currentID = selection.first,
            let currentIndex = rows.firstIndex(where: { $0.id == currentID }) {
             let prevIndex = max(currentIndex - 1, 0)
-            selection = [rows[prevIndex].id]
+            selectAndScrollTo(rows[prevIndex].id)
         } else {
             // No selection, select first
-            selection = [rows[0].id]
+            selectAndScrollTo(rows[0].id)
         }
     }
 
@@ -675,14 +692,14 @@ public struct PublicationListView: View {
     private func navigateToFirst() {
         let rows = filteredRowData
         guard !rows.isEmpty else { return }
-        selection = [rows[0].id]
+        selectAndScrollTo(rows[0].id)
     }
 
     /// Navigate to last paper
     private func navigateToLast() {
         let rows = filteredRowData
         guard !rows.isEmpty else { return }
-        selection = [rows[rows.count - 1].id]
+        selectAndScrollTo(rows[rows.count - 1].id)
     }
 
     /// Navigate to next unread paper
@@ -701,7 +718,7 @@ public struct PublicationListView: View {
         // Search from current position to end
         for i in startIndex..<rows.count {
             if !rows[i].isRead {
-                selection = [rows[i].id]
+                selectAndScrollTo(rows[i].id)
                 return
             }
         }
@@ -709,7 +726,7 @@ public struct PublicationListView: View {
         // Wrap around: search from beginning to current position
         for i in 0..<startIndex {
             if !rows[i].isRead {
-                selection = [rows[i].id]
+                selectAndScrollTo(rows[i].id)
                 return
             }
         }
@@ -731,7 +748,7 @@ public struct PublicationListView: View {
         // Search backwards from current position
         for i in stride(from: startIndex, through: 0, by: -1) {
             if !rows[i].isRead {
-                selection = [rows[i].id]
+                selectAndScrollTo(rows[i].id)
                 return
             }
         }
@@ -739,7 +756,7 @@ public struct PublicationListView: View {
         // Wrap around: search backwards from end
         for i in stride(from: rows.count - 1, through: max(0, startIndex + 1), by: -1) {
             if !rows[i].isRead {
-                selection = [rows[i].id]
+                selectAndScrollTo(rows[i].id)
                 return
             }
         }

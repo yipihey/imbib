@@ -139,7 +139,8 @@ struct SmartSearchEditorView: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 450, idealWidth: 500, minHeight: 450, idealHeight: 550)
+        .frame(minWidth: 450, maxWidth: .infinity, minHeight: 400, maxHeight: .infinity)
+        .frame(idealWidth: 550, idealHeight: 650)
         #endif
     }
 
