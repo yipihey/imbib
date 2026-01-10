@@ -165,6 +165,10 @@ struct SciXLibraryListView: View {
     // MARK: - Data Loading
 
     private func loadPublications() {
+        // Refresh the managed object to get latest relationships from Core Data
+        if let context = library.managedObjectContext {
+            context.refresh(library, mergeChanges: true)
+        }
         publications = Array(library.publications ?? [])
             .sorted { ($0.dateAdded) > ($1.dateAdded) }
     }
