@@ -260,10 +260,10 @@ public actor InboxScheduler {
             return 0
         }
 
-        Logger.inbox.debugCapture(
-            "InboxScheduler cycle \(totalRefreshCycles): checking \(feeds.count) feeds",
-            category: "inbox"
-        )
+        // Only log to system console, not to app console (runs every minute)
+        let cycleNum = totalRefreshCycles
+        let feedCount = feeds.count
+        Logger.inbox.debug("InboxScheduler cycle \(cycleNum): checking \(feedCount) feeds")
 
         // Find feeds that are due
         let dueFeeds = feeds.filter { isDue($0) }
