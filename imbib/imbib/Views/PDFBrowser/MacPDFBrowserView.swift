@@ -230,15 +230,51 @@ struct MacWebViewRepresentable: NSViewRepresentable {
 
             // Check for PDF content type hint in URL
             if let url = navigationAction.request.url {
-                let urlString = url.absoluteString.lowercased()
-                if urlString.hasSuffix(".pdf") {
-                    Logger.pdfBrowser.info("Detected PDF URL, initiating download: \(url.absoluteString)")
+                if looksLikePDFURL(url) {
+                    Logger.pdfBrowser.info("Detected PDF URL pattern, initiating download: \(url.absoluteString)")
                     decisionHandler(.download)
                     return
                 }
             }
 
             decisionHandler(.allow)
+        }
+
+        /// Check if URL looks like it points to a PDF based on common patterns
+        private func looksLikePDFURL(_ url: URL) -> Bool {
+            let urlString = url.absoluteString.lowercased()
+            let path = url.path.lowercased()
+
+            // Direct .pdf extension
+            if urlString.hasSuffix(".pdf") || path.hasSuffix(".pdf") {
+                return true
+            }
+
+            // Common PDF path patterns used by publishers
+            // e.g., /pdf/10.1103/..., /pdfft/..., /doi/pdf/...
+            let pdfPathPatterns = [
+                "/pdf/",           // APS, many publishers
+                "/pdfft/",         // Some publishers
+                "/doi/pdf/",       // Wiley, others
+                "/pdfdirect/",     // Elsevier
+                "/article/pdf/",   // Various
+                "/fulltext/pdf/",  // Various
+            ]
+
+            for pattern in pdfPathPatterns {
+                if path.contains(pattern) {
+                    return true
+                }
+            }
+
+            // Check query parameters
+            if let query = url.query?.lowercased() {
+                if query.contains("pdf") && (query.contains("download") || query.contains("format=pdf")) {
+                    return true
+                }
+            }
+
+            return false
         }
 
         func webView(_ webView: WKWebView,
@@ -418,8 +454,8 @@ struct MacWebViewRepresentable: NSViewRepresentable {
 
         /// Manually capture the current page content as PDF.
         ///
-        /// Uses WKWebView.createPDF() to render the page, then checks if
-        /// the result is a valid PDF or if the page was already displaying a PDF.
+        /// First tries to fetch the actual PDF data from the URL (preserves original).
+        /// Falls back to rendering the page as PDF if direct fetch fails.
         @MainActor
         func captureCurrentContent() async {
             guard let webView = viewModel.webView else {
@@ -428,71 +464,51 @@ struct MacWebViewRepresentable: NSViewRepresentable {
                 return
             }
 
-            Logger.pdfBrowser.info("Starting manual PDF capture")
-
-            do {
-                // First try: Use createPDF to render current page
-                let pdfConfig = WKPDFConfiguration()
-                let pdfData = try await webView.pdf(configuration: pdfConfig)
-
-                // Check if the captured PDF is valid (has %PDF header)
-                if isPDF(data: pdfData) {
-                    // Generate filename from URL or publication
-                    let filename = generateFilename(from: webView.url)
-
-                    await MainActor.run {
-                        viewModel.detectedPDFFilename = filename
-                        viewModel.detectedPDFData = pdfData
-                    }
-
-                    Logger.pdfBrowser.info("Manual capture successful: \(filename), \(pdfData.count) bytes")
-                } else {
-                    // Log diagnostics for failed capture
-                    logDownloadDiagnostics(data: pdfData, filename: "manual-capture")
-
-                    viewModel.errorMessage = "Could not capture PDF content"
-                }
-            } catch {
-                Logger.pdfBrowser.error("Manual capture failed: \(error.localizedDescription)")
-
-                // Fall back to trying direct URL fetch if the page might be an inline PDF
-                await fallbackDirectFetch(webView: webView)
-            }
-        }
-
-        /// Fallback: Try to fetch the PDF directly from the URL.
-        ///
-        /// This works when the page is displaying an inline PDF that createPDF() can't capture.
-        @MainActor
-        private func fallbackDirectFetch(webView: WKWebView) async {
             guard let url = webView.url else {
-                viewModel.errorMessage = "Could not capture PDF content"
+                Logger.pdfBrowser.error("Manual capture failed: no URL")
+                viewModel.errorMessage = "No URL to capture"
                 return
             }
 
-            Logger.pdfBrowser.info("Trying fallback direct fetch: \(url.absoluteString)")
+            Logger.pdfBrowser.info("Starting manual PDF capture for: \(url.absoluteString)")
 
+            // First try: Fetch the actual PDF data from the URL
+            // This preserves the original PDF quality and content
             do {
-                let (data, response) = try await URLSession.shared.data(from: url)
+                let data = try await fetchPDFWithWebViewCookies(url: url, webView: webView)
 
                 if isPDF(data: data) {
-                    let filename = response.suggestedFilename ?? generateFilename(from: url)
-
-                    await MainActor.run {
-                        viewModel.detectedPDFFilename = filename
-                        viewModel.detectedPDFData = data
-                    }
-
-                    Logger.pdfBrowser.info("Fallback fetch successful: \(filename), \(data.count) bytes")
+                    let filename = generateFilename(from: url)
+                    viewModel.detectedPDFFilename = filename
+                    viewModel.detectedPDFData = data
+                    Logger.pdfBrowser.info("Manual capture successful (direct fetch): \(filename), \(data.count) bytes")
+                    return
                 } else {
-                    // Log diagnostics for failed capture
-                    logDownloadDiagnostics(data: data, filename: response.suggestedFilename ?? "capture")
-
-                    viewModel.errorMessage = "Page content is not a PDF"
+                    Logger.pdfBrowser.warning("Direct fetch did not return PDF, trying page render")
+                    logDownloadDiagnostics(data: data, filename: "direct-fetch")
                 }
             } catch {
+                Logger.pdfBrowser.warning("Direct fetch failed: \(error.localizedDescription), trying page render")
+            }
+
+            // Fallback: Render the current page as PDF
+            // This creates a new PDF from the rendered content
+            do {
+                let pdfConfig = WKPDFConfiguration()
+                let pdfData = try await webView.pdf(configuration: pdfConfig)
+
+                if isPDF(data: pdfData) {
+                    let filename = generateFilename(from: url)
+                    viewModel.detectedPDFFilename = filename
+                    viewModel.detectedPDFData = pdfData
+                    Logger.pdfBrowser.info("Manual capture successful (page render): \(filename), \(pdfData.count) bytes")
+                } else {
+                    logDownloadDiagnostics(data: pdfData, filename: "page-render")
+                    viewModel.errorMessage = "Could not capture PDF content"
+                }
+            } catch {
+                Logger.pdfBrowser.error("Page render failed: \(error.localizedDescription)")
                 viewModel.errorMessage = "Could not capture PDF: \(error.localizedDescription)"
-                Logger.pdfBrowser.error("Fallback fetch failed: \(error.localizedDescription)")
             }
         }
 
@@ -531,10 +547,20 @@ struct MacWebViewRepresentable: NSViewRepresentable {
             // Check if the current page's MIME type is PDF
             // This catches inline PDFs that weren't downloaded
             webView.evaluateJavaScript("document.contentType") { [weak self] result, error in
+                guard let self = self else { return }
+
                 if let contentType = result as? String,
                    contentType.lowercased().contains("pdf") {
-                    Logger.pdfBrowser.info("Page content is PDF, attempting capture")
-                    self?.captureInlinePDF(webView)
+                    Logger.pdfBrowser.info("Page content type is PDF, attempting capture")
+                    self.captureInlinePDF(webView)
+                    return
+                }
+
+                // Fallback: Check if URL pattern suggests this is a PDF
+                // This helps when document.contentType isn't accurate (e.g., through proxies)
+                if let url = webView.url, self.looksLikePDFURL(url) {
+                    Logger.pdfBrowser.info("URL pattern suggests PDF, attempting capture: \(url.absoluteString)")
+                    self.captureInlinePDF(webView)
                 }
             }
         }
@@ -545,20 +571,58 @@ struct MacWebViewRepresentable: NSViewRepresentable {
 
             Task {
                 do {
-                    let (data, response) = try await URLSession.shared.data(from: url)
+                    // Try to fetch using a session that shares cookies with the webView
+                    // This helps with authenticated/proxied PDFs
+                    let data = try await fetchPDFWithWebViewCookies(url: url, webView: webView)
 
                     if isPDF(data: data) {
-                        let filename = response.suggestedFilename ?? url.lastPathComponent
+                        let filename = generateFilename(from: url)
                         await MainActor.run {
                             viewModel.detectedPDFFilename = filename
                             viewModel.detectedPDFData = data
                         }
                         Logger.pdfBrowser.info("Captured inline PDF: \(filename), \(data.count) bytes")
+                    } else {
+                        Logger.pdfBrowser.warning("Fetched content is not a PDF")
+                        logDownloadDiagnostics(data: data, filename: url.lastPathComponent)
                     }
                 } catch {
                     Logger.pdfBrowser.error("Failed to capture inline PDF: \(error.localizedDescription)")
                 }
             }
+        }
+
+        /// Fetch PDF data using cookies from the WKWebView's data store
+        private func fetchPDFWithWebViewCookies(url: URL, webView: WKWebView) async throws -> Data {
+            // Get cookies from WKWebView's data store
+            let dataStore = webView.configuration.websiteDataStore
+            let cookies = await dataStore.httpCookieStore.allCookies()
+
+            // Create a URLSession configuration with these cookies
+            let config = URLSessionConfiguration.default
+            config.httpCookieStorage = HTTPCookieStorage()
+            for cookie in cookies {
+                config.httpCookieStorage?.setCookie(cookie)
+            }
+
+            // Also set common headers that might be needed
+            config.httpAdditionalHeaders = [
+                "Accept": "application/pdf,*/*",
+                "User-Agent": webView.value(forKey: "userAgent") as? String ?? "Mozilla/5.0"
+            ]
+
+            let session = URLSession(configuration: config)
+
+            Logger.pdfBrowser.debug("Fetching PDF with \(cookies.count) cookies from webView")
+
+            let (data, response) = try await session.data(from: url)
+
+            // Log response info for debugging
+            if let httpResponse = response as? HTTPURLResponse {
+                Logger.pdfBrowser.debug("Response status: \(httpResponse.statusCode), content-type: \(httpResponse.mimeType ?? "unknown")")
+            }
+
+            return data
         }
     }
 }
