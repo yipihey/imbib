@@ -35,6 +35,8 @@ struct ContentView: View {
     @State private var expandedLibraries: Set<UUID> = []
     /// Whether initial state restoration has completed
     @State private var hasRestoredState = false
+    /// Multi-selection for bulk operations (BibTeX export, etc.)
+    @State private var selectedPublicationIDs = Set<UUID>()
 
     // MARK: - Derived Selection
 
@@ -46,6 +48,16 @@ struct ContentView: View {
     private var displayedPublication: CDPublication? {
         guard let id = displayedPublicationID else { return nil }
         return libraryViewModel.publication(for: id)
+    }
+
+    /// Get the selected publications for multi-selection operations (e.g., BibTeX export).
+    private var selectedPublications: [CDPublication] {
+        selectedPublicationIDs.compactMap { libraryViewModel.publication(for: $0) }
+    }
+
+    /// Whether multiple papers are selected.
+    private var isMultiSelection: Bool {
+        selectedPublicationIDs.count > 1
     }
 
     /// Create a binding that maps UUID to CDPublication for list views.
@@ -309,7 +321,8 @@ struct ContentView: View {
             if let inboxLibrary = InboxManager.shared.inboxLibrary {
                 UnifiedPublicationListWrapper(
                     source: .library(inboxLibrary),
-                    selectedPublication: selectedPublicationBinding
+                    selectedPublication: selectedPublicationBinding,
+                    selectedPublicationIDs: $selectedPublicationIDs
                 )
             } else {
                 ContentUnavailableView(
@@ -323,19 +336,22 @@ struct ContentView: View {
             // Show papers from a specific inbox feed (same as smart search)
             UnifiedPublicationListWrapper(
                 source: .smartSearch(smartSearch),
-                selectedPublication: selectedPublicationBinding
+                selectedPublication: selectedPublicationBinding,
+                selectedPublicationIDs: $selectedPublicationIDs
             )
 
         case .library(let library):
             UnifiedPublicationListWrapper(
                 source: .library(library),
-                selectedPublication: selectedPublicationBinding
+                selectedPublication: selectedPublicationBinding,
+                selectedPublicationIDs: $selectedPublicationIDs
             )
 
         case .unread(let library):
             UnifiedPublicationListWrapper(
                 source: .library(library),
                 selectedPublication: selectedPublicationBinding,
+                selectedPublicationIDs: $selectedPublicationIDs,
                 initialFilterMode: .unread
             )
 
@@ -345,7 +361,8 @@ struct ContentView: View {
         case .smartSearch(let smartSearch):
             UnifiedPublicationListWrapper(
                 source: .smartSearch(smartSearch),
-                selectedPublication: selectedPublicationBinding
+                selectedPublication: selectedPublicationBinding,
+                selectedPublicationIDs: $selectedPublicationIDs
             )
 
         case .collection(let collection):
@@ -367,10 +384,14 @@ struct ContentView: View {
 
     @ViewBuilder
     private var detailView: some View {
+        // Multi-selection: show BibTeX-only view for bulk operations
+        if isMultiSelection {
+            MultiSelectionBibTeXView(publications: selectedPublications)
+        }
         // Guard against deleted Core Data objects - check isDeleted and managedObjectContext
         // DetailView.init is failable and returns nil for deleted publications
         // Uses displayedPublication (deferred) instead of immediate selection for smoother UX
-        if let publication = displayedPublication,
+        else if let publication = displayedPublication,
            !publication.isDeleted,
            publication.managedObjectContext != nil,
            let libraryID = selectedLibraryID,
@@ -629,7 +650,7 @@ struct CollectionListView: View {
 
             if collection.isSmartCollection {
                 // Execute predicate for smart collections
-                result = await PublicationRepository.shared.executeSmartCollection(collection)
+                result = await libraryViewModel.executeSmartCollection(collection)
             } else {
                 // For static collections, use direct relationship
                 result = Array(collection.publications ?? [])

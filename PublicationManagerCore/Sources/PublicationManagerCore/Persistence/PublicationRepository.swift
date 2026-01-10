@@ -1050,6 +1050,45 @@ public actor PublicationRepository {
             self.persistenceController.save()
         }
     }
+
+    // MARK: - Smart Collection Execution
+
+    /// Execute a smart collection query and return matching publications
+    public func executeSmartCollection(_ collection: CDCollection) async -> [CDPublication] {
+        guard collection.isSmartCollection, let predicateString = collection.predicate else {
+            // For static collections, return the assigned publications
+            return Array(collection.publications ?? [])
+        }
+
+        Logger.persistence.debug("Executing smart collection: \(collection.name)")
+        let context = persistenceController.viewContext
+        let library = collection.library
+
+        return await context.perform {
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+
+            // Build compound predicate: user's rules AND library membership
+            var predicates: [NSPredicate] = []
+
+            // Add user's smart collection predicate
+            predicates.append(NSPredicate(format: predicateString))
+
+            // Scope to owning library if present
+            if let library = library {
+                predicates.append(NSPredicate(format: "ANY libraries == %@", library))
+            }
+
+            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+            request.sortDescriptors = [NSSortDescriptor(key: "dateModified", ascending: false)]
+
+            do {
+                return try context.fetch(request)
+            } catch {
+                Logger.persistence.error("Smart collection query failed: \(error.localizedDescription)")
+                return []
+            }
+        }
+    }
 }
 
 // MARK: - Tag Repository

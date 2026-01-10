@@ -208,6 +208,14 @@ struct IOSContentView: View {
         case .collection(let collection):
             IOSCollectionListView(collection: collection, selection: $selectedPublication)
 
+        case .scixLibrary(let library):
+            // TODO: Implement SciX library view
+            ContentUnavailableView(
+                library.name,
+                systemImage: "building.columns",
+                description: Text("SciX library with \(library.documentCount) papers")
+            )
+
         case .none:
             ContentUnavailableView(
                 "No Selection",
@@ -312,6 +320,7 @@ enum SidebarSection: Hashable {
     case search
     case smartSearch(CDSmartSearch)
     case collection(CDCollection)
+    case scixLibrary(CDSciXLibrary)
 }
 
 // MARK: - iOS Library List View (simple wrapper)

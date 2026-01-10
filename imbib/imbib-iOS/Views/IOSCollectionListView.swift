@@ -113,7 +113,7 @@ struct IOSCollectionListView: View {
 
             if collection.isSmartCollection {
                 // Execute predicate for smart collections
-                result = await PublicationRepository.shared.executeSmartCollection(collection)
+                result = await libraryViewModel.executeSmartCollection(collection)
             } else {
                 // For static collections, use direct relationship
                 result = Array(collection.publications ?? [])

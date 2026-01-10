@@ -45,6 +45,12 @@ struct DetailView: View {
     @Environment(LibraryViewModel.self) private var viewModel
     @Environment(LibraryManager.self) private var libraryManager
 
+    // MARK: - File Drop State
+
+    @StateObject private var dropHandler = FileDropHandler()
+    @State private var isDropTargeted = false
+    @State private var dropRefreshID = UUID()
+
     // MARK: - Computed Properties
 
     /// Whether this paper supports editing (local library papers only)
@@ -55,6 +61,11 @@ struct DetailView: View {
     /// Whether this is a persistent (library) paper
     private var isPersistent: Bool {
         paper.sourceType.isPersistent
+    }
+
+    /// The owning library for this publication (for file drop imports)
+    private var owningLibrary: CDLibrary? {
+        publication?.libraries?.first
     }
 
     // MARK: - Initialization
@@ -113,7 +124,7 @@ struct DetailView: View {
 
             Group {
                 if selectedTab == .bibtex {
-                    BibTeXTab(paper: paper, publication: publication)
+                    BibTeXTab(paper: paper, publication: publication, publications: publication.map { [$0] } ?? [])
                 } else {
                     Color.clear
                 }
@@ -173,6 +184,21 @@ struct DetailView: View {
                 selectedTab = .notes
             }
         }
+        // File drop support - allows dropping files to attach them to the publication
+        .modifier(FileDropModifier(
+            publication: publication,
+            library: owningLibrary,
+            handler: dropHandler,
+            isTargeted: $isDropTargeted,
+            onPDFImported: {
+                // Switch to PDF tab when a PDF is imported
+                selectedTab = .pdf
+                // Trigger refresh
+                dropRefreshID = UUID()
+            }
+        ))
+        // Update PDF tab when files are dropped
+        .id(dropRefreshID)
     }
 
     // MARK: - Auto-Mark as Read
@@ -1146,6 +1172,7 @@ struct InfoTab: View {
 struct BibTeXTab: View {
     let paper: any PaperRepresentable
     let publication: CDPublication?
+    let publications: [CDPublication]  // For multi-selection support
 
     @Environment(LibraryViewModel.self) private var viewModel
     @State private var bibtexContent: String = ""
@@ -1153,9 +1180,14 @@ struct BibTeXTab: View {
     @State private var hasChanges = false
     @State private var isLoading = false
 
-    /// Whether editing is enabled (only for library papers)
+    /// Whether editing is enabled (only for single library paper)
     private var canEdit: Bool {
-        publication != nil
+        publication != nil && publications.count <= 1
+    }
+
+    /// Whether multiple papers are selected
+    private var isMultiSelection: Bool {
+        publications.count > 1
     }
 
     var body: some View {
@@ -1218,19 +1250,47 @@ struct BibTeXTab: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(!hasChanges)
             } else {
+                // Multi-selection indicator
+                if isMultiSelection {
+                    Text("\(publications.count) papers selected")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
                 Spacer()
 
+                // Copy button (always visible)
                 Button {
-                    isEditing = true
+                    copyToClipboard()
                 } label: {
-                    Label("Edit", systemImage: "pencil")
+                    Label("Copy", systemImage: "doc.on.doc")
                 }
                 .buttonStyle(.plain)
+                .help("Copy BibTeX to clipboard")
+
+                // Edit button (only for single selection)
+                if !isMultiSelection {
+                    Button {
+                        isEditing = true
+                    } label: {
+                        Label("Edit", systemImage: "pencil")
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .padding(.horizontal)
         .padding(.vertical, 8)
         .background(.bar)
+    }
+
+    private func copyToClipboard() {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(bibtexContent, forType: .string)
+        #else
+        UIPasteboard.general.string = bibtexContent
+        #endif
     }
 
     private func loadBibTeX() {
@@ -1246,7 +1306,12 @@ struct BibTeXTab: View {
     }
 
     private func generateBibTeX() -> String {
-        // ADR-016: All papers are now CDPublication
+        // Multi-selection: export all selected publications
+        if isMultiSelection {
+            let entries = publications.map { $0.toBibTeXEntry() }
+            return BibTeXExporter().export(entries)
+        }
+        // Single paper: ADR-016: All papers are now CDPublication
         if let pub = publication {
             let entry = pub.toBibTeXEntry()
             return BibTeXExporter().export([entry])
@@ -1279,6 +1344,68 @@ struct BibTeXTab: View {
                 logger.error("Failed to parse BibTeX: \(error.localizedDescription)")
             }
         }
+    }
+}
+
+// MARK: - Multi-Selection BibTeX View
+
+/// A simplified view shown when multiple papers are selected.
+/// Only displays combined BibTeX with a Copy button.
+struct MultiSelectionBibTeXView: View {
+    let publications: [CDPublication]
+
+    @State private var bibtexContent: String = ""
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // Header with count and copy button
+            HStack {
+                Text("\(publications.count) papers selected")
+                    .font(.headline)
+
+                Spacer()
+
+                Button {
+                    copyToClipboard()
+                } label: {
+                    Label("Copy All BibTeX", systemImage: "doc.on.doc")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .padding()
+            .background(.bar)
+
+            Divider()
+
+            // BibTeX content
+            ScrollView {
+                Text(bibtexContent)
+                    .font(.system(.body, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+            }
+        }
+        .onAppear {
+            bibtexContent = generateCombinedBibTeX()
+        }
+        .onChange(of: publications.map { $0.id }) { _, _ in
+            bibtexContent = generateCombinedBibTeX()
+        }
+    }
+
+    private func generateCombinedBibTeX() -> String {
+        let entries = publications.map { $0.toBibTeXEntry() }
+        return BibTeXExporter().export(entries)
+    }
+
+    private func copyToClipboard() {
+        #if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(bibtexContent, forType: .string)
+        #else
+        UIPasteboard.general.string = bibtexContent
+        #endif
     }
 }
 
@@ -2275,6 +2402,94 @@ struct FlowLayout: Layout {
         }
 
         return (offsets, CGSize(width: maxWidth, height: currentY + lineHeight))
+    }
+}
+
+// MARK: - File Drop Modifier
+
+/// View modifier that enables file drop support on the detail view.
+/// Dropped files become attachments; PDFs become the preferred PDF.
+private struct FileDropModifier: ViewModifier {
+    let publication: CDPublication?
+    let library: CDLibrary?
+    @ObservedObject var handler: FileDropHandler
+    @Binding var isTargeted: Bool
+    var onPDFImported: (() -> Void)?
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(dropOverlay)
+            .modifier(FileDropTargetModifier(
+                publication: publication,
+                library: library,
+                handler: handler,
+                isTargeted: $isTargeted
+            ))
+            .alert(item: $handler.pendingDuplicate) { pending in
+                Alert(
+                    title: Text("Duplicate File"),
+                    message: Text("'\(pending.sourceURL.lastPathComponent)' appears to be identical to '\(pending.existingFilename)'. Import anyway?"),
+                    primaryButton: .default(Text("Import")) {
+                        handler.resolveDuplicate(proceed: true)
+                    },
+                    secondaryButton: .cancel(Text("Skip")) {
+                        handler.resolveDuplicate(proceed: false)
+                    }
+                )
+            }
+            .onChange(of: handler.isImporting) { wasImporting, isImporting in
+                // When import finishes, check if a PDF was added
+                if wasImporting && !isImporting {
+                    onPDFImported?()
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var dropOverlay: some View {
+        if isTargeted {
+            ZStack {
+                Color.accentColor.opacity(0.1)
+
+                VStack(spacing: 12) {
+                    Image(systemName: "arrow.down.doc")
+                        .font(.system(size: 48))
+                        .foregroundStyle(Color.accentColor)
+
+                    Text("Drop files to attach")
+                        .font(.headline)
+
+                    Text("PDFs will become the preferred PDF")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .padding(24)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+            }
+            .allowsHitTesting(false)
+        }
+    }
+}
+
+/// Helper modifier for applying the file drop target
+private struct FileDropTargetModifier: ViewModifier {
+    let publication: CDPublication?
+    let library: CDLibrary?
+    @ObservedObject var handler: FileDropHandler
+    @Binding var isTargeted: Bool
+
+    func body(content: Content) -> some View {
+        if let pub = publication {
+            content
+                .fileDropTarget(
+                    for: pub,
+                    in: library,
+                    handler: handler,
+                    isTargeted: $isTargeted
+                )
+        } else {
+            content
+        }
     }
 }
 

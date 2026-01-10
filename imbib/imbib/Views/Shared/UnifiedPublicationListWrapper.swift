@@ -65,6 +65,8 @@ struct UnifiedPublicationListWrapper: View {
 
     let source: PublicationSource
     @Binding var selectedPublication: CDPublication?
+    /// Multi-selection IDs for bulk operations
+    @Binding var selectedPublicationIDs: Set<UUID>
 
     /// Initial filter mode (for Unread sidebar item)
     var initialFilterMode: LibraryFilterMode = .all
@@ -78,7 +80,7 @@ struct UnifiedPublicationListWrapper: View {
     // MARK: - Unified State
 
     @State private var publications: [CDPublication] = []
-    @State private var multiSelection = Set<UUID>()
+    // selectedPublicationIDs is now a binding: selectedPublicationIDs
     @State private var isLoading = false
     @State private var error: Error?
     @State private var filterMode: LibraryFilterMode = .all
@@ -204,17 +206,17 @@ struct UnifiedPublicationListWrapper: View {
             }
             // Inbox triage notifications (for menu access)
             .onReceive(NotificationCenter.default.publisher(for: .inboxArchive)) { _ in
-                if isInboxView && !multiSelection.isEmpty {
+                if isInboxView && !selectedPublicationIDs.isEmpty {
                     archiveSelectedToDefaultLibrary()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .inboxDismiss)) { _ in
-                if isInboxView && !multiSelection.isEmpty {
+                if isInboxView && !selectedPublicationIDs.isEmpty {
                     dismissSelectedFromInbox()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .inboxToggleStar)) { _ in
-                if isInboxView && !multiSelection.isEmpty {
+                if isInboxView && !selectedPublicationIDs.isEmpty {
                     toggleStarForSelected()
                 }
             }
@@ -265,7 +267,7 @@ struct UnifiedPublicationListWrapper: View {
     private var listView: some View {
         PublicationListView(
             publications: publications,
-            selection: $multiSelection,
+            selection: $selectedPublicationIDs,
             selectedPublication: $selectedPublication,
             library: currentLibrary,
             allLibraries: libraryManager.libraries,
@@ -520,28 +522,28 @@ struct UnifiedPublicationListWrapper: View {
     // MARK: - Notification Handlers
 
     private func selectAllPublications() {
-        multiSelection = Set(publications.map { $0.id })
+        selectedPublicationIDs = Set(publications.map { $0.id })
     }
 
     private func toggleReadStatusForSelected() {
-        guard !multiSelection.isEmpty else { return }
+        guard !selectedPublicationIDs.isEmpty else { return }
 
         Task {
             // Apple Mail behavior: if ANY are unread, mark ALL as read
             // If ALL are read, mark ALL as unread
-            await libraryViewModel.smartToggleReadStatus(multiSelection)
+            await libraryViewModel.smartToggleReadStatus(selectedPublicationIDs)
             refreshPublicationsList()
         }
     }
 
     private func copySelectedPublications() async {
-        guard !multiSelection.isEmpty else { return }
-        await libraryViewModel.copyToClipboard(multiSelection)
+        guard !selectedPublicationIDs.isEmpty else { return }
+        await libraryViewModel.copyToClipboard(selectedPublicationIDs)
     }
 
     private func cutSelectedPublications() async {
-        guard !multiSelection.isEmpty else { return }
-        await libraryViewModel.cutToClipboard(multiSelection)
+        guard !selectedPublicationIDs.isEmpty else { return }
+        await libraryViewModel.cutToClipboard(selectedPublicationIDs)
         refreshPublicationsList()
     }
 
@@ -549,21 +551,21 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Handle 'A' key - archive selected to default library
     private func handleArchiveKey() -> KeyPress.Result {
-        guard isInboxView, !multiSelection.isEmpty else { return .ignored }
+        guard isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
         archiveSelectedToDefaultLibrary()
         return .handled
     }
 
     /// Handle 'D' key - dismiss selected from inbox
     private func handleDismissKey() -> KeyPress.Result {
-        guard isInboxView, !multiSelection.isEmpty else { return .ignored }
+        guard isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
         dismissSelectedFromInbox()
         return .handled
     }
 
     /// Handle 'S' key - toggle star on selected
     private func handleStarKey() -> KeyPress.Result {
-        guard isInboxView, !multiSelection.isEmpty else { return .ignored }
+        guard isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
         toggleStarForSelected()
         return .handled
     }
@@ -577,37 +579,37 @@ struct UnifiedPublicationListWrapper: View {
 
         let inboxManager = InboxManager.shared
 
-        for uuid in multiSelection {
+        for uuid in selectedPublicationIDs {
             if let publication = publications.first(where: { $0.id == uuid }) {
                 inboxManager.archiveToLibrary(publication, library: defaultLibrary)
             }
         }
 
-        multiSelection.removeAll()
+        selectedPublicationIDs.removeAll()
         refreshPublicationsList()
-        logger.info("Archived \(multiSelection.count) papers to \(defaultLibrary.displayName)")
+        logger.info("Archived \(selectedPublicationIDs.count) papers to \(defaultLibrary.displayName)")
     }
 
     /// Dismiss selected publications from inbox
     private func dismissSelectedFromInbox() {
         let inboxManager = InboxManager.shared
 
-        for uuid in multiSelection {
+        for uuid in selectedPublicationIDs {
             if let publication = publications.first(where: { $0.id == uuid }) {
                 inboxManager.dismissFromInbox(publication)
             }
         }
 
-        multiSelection.removeAll()
+        selectedPublicationIDs.removeAll()
         refreshPublicationsList()
-        logger.info("Dismissed \(multiSelection.count) papers from Inbox")
+        logger.info("Dismissed \(selectedPublicationIDs.count) papers from Inbox")
     }
 
     /// Toggle star status for selected publications
     private func toggleStarForSelected() {
         let context = PersistenceController.shared.viewContext
 
-        for uuid in multiSelection {
+        for uuid in selectedPublicationIDs {
             if let publication = publications.first(where: { $0.id == uuid }) {
                 publication.isStarred.toggle()
             }
@@ -615,7 +617,7 @@ struct UnifiedPublicationListWrapper: View {
 
         try? context.save()
         refreshPublicationsList()
-        logger.info("Toggled star for \(multiSelection.count) papers")
+        logger.info("Toggled star for \(selectedPublicationIDs.count) papers")
     }
 
     // MARK: - Inbox Triage Callback Implementations
@@ -630,7 +632,7 @@ struct UnifiedPublicationListWrapper: View {
             }
         }
 
-        multiSelection.removeAll()
+        selectedPublicationIDs.removeAll()
         refreshPublicationsList()
         logger.info("Archived \(ids.count) papers to \(library.displayName)")
     }
@@ -645,7 +647,7 @@ struct UnifiedPublicationListWrapper: View {
             }
         }
 
-        multiSelection.removeAll()
+        selectedPublicationIDs.removeAll()
         refreshPublicationsList()
         logger.info("Dismissed \(ids.count) papers from Inbox")
     }
@@ -711,7 +713,8 @@ struct UnifiedPublicationListWrapper: View {
         NavigationStack {
             UnifiedPublicationListWrapper(
                 source: .library(library),
-                selectedPublication: .constant(nil)
+                selectedPublication: .constant(nil),
+                selectedPublicationIDs: .constant([])
             )
         }
         .environment(LibraryViewModel())

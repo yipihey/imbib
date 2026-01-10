@@ -84,6 +84,27 @@ public actor AutomationSettingsStore {
         }
     }
 
+    /// Alias for shouldLog (for consistency with iOS settings view)
+    public var isLoggingEnabled: Bool {
+        get async {
+            await settings.logRequests
+        }
+    }
+
+    /// Enable or disable automation
+    public func setEnabled(_ enabled: Bool) async {
+        var current = await settings
+        current.isEnabled = enabled
+        await update(current)
+    }
+
+    /// Enable or disable logging
+    public func setLoggingEnabled(_ enabled: Bool) async {
+        var current = await settings
+        current.logRequests = enabled
+        await update(current)
+    }
+
     // MARK: - Persistence
 
     private func loadFromDefaults() -> AutomationSettings {

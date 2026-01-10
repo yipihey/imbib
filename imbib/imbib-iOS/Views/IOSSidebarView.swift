@@ -213,7 +213,7 @@ struct IOSSidebarView: View {
                     HStack {
                         Label(library.name, systemImage: "building.columns")
                         Spacer()
-                        Text("\(library.numberOfDocuments)")
+                        Text("\(library.documentCount)")
                             .foregroundStyle(.secondary)
                             .font(.caption)
                     }

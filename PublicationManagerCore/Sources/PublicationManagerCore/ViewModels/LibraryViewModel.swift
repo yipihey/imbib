@@ -493,6 +493,13 @@ public final class LibraryViewModel {
         Logger.viewModels.infoCapture("Removed \(toRemove.count) publications from all collections", category: "library")
     }
 
+    // MARK: - Smart Collections
+
+    /// Execute a smart collection query and return matching publications.
+    public func executeSmartCollection(_ collection: CDCollection) async -> [CDPublication] {
+        await repository.executeSmartCollection(collection)
+    }
+
     // MARK: - Enrichment
 
     /// Queue recently added publications for background enrichment.

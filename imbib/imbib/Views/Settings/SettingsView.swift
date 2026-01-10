@@ -52,8 +52,13 @@ struct SettingsView: View {
                 .tabItem { Label("Import/Export", systemImage: "arrow.up.arrow.down") }
                 .tag(SettingsTab.importExport)
                 .help("File format options")
+
+            KeyboardShortcutsSettingsTab()
+                .tabItem { Label("Shortcuts", systemImage: "keyboard") }
+                .tag(SettingsTab.keyboardShortcuts)
+                .help("Customize keyboard shortcuts")
         }
-        .frame(width: 550, height: 500)
+        .frame(width: 650, height: 550)
     }
 }
 
@@ -67,6 +72,7 @@ enum SettingsTab: String, CaseIterable {
     case pdf
     case inbox
     case importExport
+    case keyboardShortcuts
 }
 
 // MARK: - General Settings

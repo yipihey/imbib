@@ -81,6 +81,9 @@ public struct PDFURLResolver {
             category: "pdf"
         )
 
+        // Log all available URLs for debugging
+        logAllAvailableURLs(for: publication, settings: settings)
+
         let links = publication.pdfLinks
 
         // 1. Try OpenAlex first (Open Access - typically free)
@@ -244,6 +247,60 @@ public struct PDFURLResolver {
         }
 
         return sources
+    }
+
+    // MARK: - Debug Logging
+
+    /// Log all available PDF URLs for a publication (for debugging failed downloads)
+    private static func logAllAvailableURLs(for publication: CDPublication, settings: PDFSettings) {
+        let links = publication.pdfLinks
+        let arxivID = publication.arxivID
+        let doi = publication.doi
+        let bibcode = publication.bibcode
+
+        Logger.files.infoCapture("──────────────────────────────────────────", category: "pdf")
+        Logger.files.infoCapture("[PDFURLResolver] Available PDF URLs for '\(publication.citeKey)':", category: "pdf")
+
+        // Log identifiers
+        if let doi = doi {
+            Logger.files.infoCapture("  DOI: \(doi)", category: "pdf")
+        }
+        if let arxivID = arxivID {
+            Logger.files.infoCapture("  arXiv ID: \(arxivID)", category: "pdf")
+        }
+        if let bibcode = bibcode {
+            Logger.files.infoCapture("  Bibcode: \(bibcode)", category: "pdf")
+        }
+
+        // Log all pdfLinks
+        if links.isEmpty {
+            Logger.files.infoCapture("  pdfLinks: (none)", category: "pdf")
+        } else {
+            Logger.files.infoCapture("  pdfLinks (\(links.count) total):", category: "pdf")
+            for (i, link) in links.enumerated() {
+                let sourceID = link.sourceID ?? "unknown"
+                let typeStr = String(describing: link.type)
+                let proxied = settings.proxyEnabled ? " [+proxy]" : ""
+                Logger.files.infoCapture("    [\(i+1)] \(sourceID) (\(typeStr))\(proxied): \(link.url.absoluteString)", category: "pdf")
+            }
+        }
+
+        // Log arXiv URL if available
+        if let arxivID = arxivID, let arxivURL = arXivPDFURL(arxivID: arxivID) {
+            Logger.files.infoCapture("  arXiv PDF: \(arxivURL.absoluteString)", category: "pdf")
+        }
+
+        // Log DOI resolver URL
+        if let doi = doi {
+            Logger.files.infoCapture("  DOI resolver: https://doi.org/\(doi)", category: "pdf")
+        }
+
+        // Log ADS abstract URL
+        if let bibcode = bibcode, let adsURL = adsAbstractURL(bibcode: bibcode) {
+            Logger.files.infoCapture("  ADS abstract: \(adsURL.absoluteString)", category: "pdf")
+        }
+
+        Logger.files.infoCapture("──────────────────────────────────────────", category: "pdf")
     }
 }
 

@@ -72,6 +72,15 @@ struct IOSSettingsView: View {
                     }
                 }
 
+                // Keyboard Shortcuts
+                Section("Keyboard") {
+                    NavigationLink {
+                        IOSKeyboardShortcutsSettingsView()
+                    } label: {
+                        Label("Keyboard Shortcuts", systemImage: "keyboard")
+                    }
+                }
+
                 // Developer Section
                 Section("Developer") {
                     Button {
