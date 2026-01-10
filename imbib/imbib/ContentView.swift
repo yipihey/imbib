@@ -399,6 +399,9 @@ struct ContentView: View {
             return smartSearch.library?.id
         case .collection(let collection):
             return collection.owningLibrary?.id
+        case .scixLibrary(let scixLibrary):
+            // SciX libraries use their own ID (not a local CDLibrary)
+            return scixLibrary.id
         default:
             return nil
         }
