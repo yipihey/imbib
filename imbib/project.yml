@@ -41,6 +41,13 @@ targets:
       - package: PublicationManagerCore
       - target: imbib-ShareExtension
         embed: true
+    info:
+      path: imbib/Resources/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: com.imbib.app
+            CFBundleURLSchemes:
+              - imbib
     settings:
       base:
         MACOSX_DEPLOYMENT_TARGET: "14.0"
@@ -78,6 +85,13 @@ targets:
       - package: PublicationManagerCore
       - target: imbib-iOS-ShareExtension
         embed: true
+    info:
+      path: imbib-iOS/Resources/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: com.imbib.app
+            CFBundleURLSchemes:
+              - imbib
     settings:
       base:
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"

@@ -78,6 +78,8 @@ struct GeneralSettingsTab: View {
     @AppStorage("libraryLocation") private var libraryLocation: String = ""
     @AppStorage("openPDFInExternalViewer") private var openPDFExternally = false
 
+    @State private var automationSettings = AutomationSettings.default
+
     var body: some View {
         Form {
             Section("Library") {
@@ -134,11 +136,37 @@ struct GeneralSettingsTab: View {
                     .foregroundStyle(.secondary)
             }
 
+            Section("Automation") {
+                Toggle("Enable automation API", isOn: $automationSettings.isEnabled)
+                    .help("Allow external programs and AI agents to control imbib via URL schemes")
+                    .onChange(of: automationSettings.isEnabled) { _, _ in
+                        saveAutomationSettings()
+                    }
+
+                Toggle("Log automation requests", isOn: $automationSettings.logRequests)
+                    .help("Record automation commands in the Console window")
+                    .disabled(!automationSettings.isEnabled)
+                    .onChange(of: automationSettings.logRequests) { _, _ in
+                        saveAutomationSettings()
+                    }
+
+                Text("When enabled, imbib responds to `imbib://` URL commands from CLI tools and AI agents")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
         }
         .formStyle(.grouped)
         .padding()
         .task {
             await viewModel.loadSmartSearchSettings()
+            automationSettings = await AutomationSettingsStore.shared.settings
+        }
+    }
+
+    private func saveAutomationSettings() {
+        Task {
+            await AutomationSettingsStore.shared.update(automationSettings)
         }
     }
 

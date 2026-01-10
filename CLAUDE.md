@@ -133,6 +133,29 @@ When adding features to macOS, check iOS parity:
 - 65+ tags with metadata (AU, TI, PY, DO, etc.)
 - See `013-ris-format-support.md` (ADR-013)
 
+### Automation API
+- URL schemes (`imbib://...`) for external control by AI agents and CLI tools
+- Disabled by default for security (enable in Settings > General)
+- CLI tool (`imbib-cli`) for command-line automation
+- Maps to 62+ internal NotificationCenter notifications
+- Key components:
+  - `URLSchemeHandler`: Actor that handles incoming URLs
+  - `URLCommandParser`: Parses URLs into `AutomationCommand` enums
+  - `AutomationSettingsStore`: Persists enable/logging preferences
+- URL format: `imbib://<command>/<subcommand>?param=value`
+- Example URLs:
+  - `imbib://search?query=einstein&source=ads`
+  - `imbib://navigate/inbox`
+  - `imbib://paper/Einstein1905/open-pdf`
+  - `imbib://selected/toggle-read`
+- CLI usage:
+  ```bash
+  imbib search "dark matter" --source ads
+  imbib navigate inbox
+  imbib selected toggle-read
+  imbib paper Einstein1905 open-pdf
+  ```
+
 ## Coding Conventions
 
 ### Swift Style
@@ -342,6 +365,42 @@ When resuming work, check:
 Update the changelog below after significant work:
 
 ## Changelog
+
+### 2026-01-09 (Session 17)
+- Automation API for AI Agents & External Programs
+  - URL scheme support (`imbib://...`) for external control
+  - Disabled by default for security (toggle in Settings > General)
+  - Logging option for debugging automation requests
+- URL Scheme Infrastructure:
+  - Registered `imbib://` scheme in project.yml for macOS and iOS
+  - `URLSchemeHandler`: Actor that parses and executes URL commands
+  - `URLCommandParser`: Parses 30+ command types into `AutomationCommand` enums
+  - `AutomationSettingsStore`: Persists enable/logging preferences
+  - `AutomationResult`: JSON-serializable result type for command responses
+  - `AutomationURLBuilder`: Helper for constructing URLs programmatically
+- Command Categories:
+  - `imbib://search?query=...` - Search online sources
+  - `imbib://navigate/<target>` - Navigate to library/search/inbox/tabs
+  - `imbib://focus/<target>` - Focus sidebar/list/detail/search
+  - `imbib://paper/<citeKey>/<action>` - Paper actions (open, toggle-read, delete, etc.)
+  - `imbib://selected/<action>` - Actions on selected papers
+  - `imbib://inbox/<action>` - Inbox triage (archive, dismiss, star, etc.)
+  - `imbib://pdf/<action>` - PDF viewer (go-to-page, zoom, etc.)
+  - `imbib://app/<action>` - App actions (refresh, toggle-sidebar, etc.)
+  - `imbib://import`, `imbib://export` - Import/export operations
+- CLI Tool (`imbib-cli`):
+  - Separate Swift Package using swift-argument-parser
+  - Full command-line interface for all automation features
+  - Subcommands: search, navigate, focus, paper, selected, inbox, pdf, app, import, export, raw
+  - Uses `NSWorkspace.shared.open(url)` to trigger URL schemes
+- Settings Integration:
+  - Added Automation section to GeneralSettingsTab
+  - "Enable automation API" toggle
+  - "Log automation requests" toggle
+- Added 57 new tests (URLCommandParserTests, AutomationSettingsTests)
+- Files: project.yml, imbibApp.swift, SettingsView.swift,
+  Automation/URLSchemeHandler.swift, Automation/URLCommandParser.swift,
+  Automation/AutomationSettings.swift, imbib-cli/
 
 ### 2026-01-06 (Session 12)
 - Multi-library and multi-collection support

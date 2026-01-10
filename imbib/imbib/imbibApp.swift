@@ -132,6 +132,14 @@ struct imbibApp: App {
                         await shareExtensionHandler?.handlePendingSharedItems()
                     }
                 }
+                .onOpenURL { url in
+                    // Handle automation URL schemes (imbib://...)
+                    if url.scheme == "imbib" {
+                        Task {
+                            await URLSchemeHandler.shared.handle(url)
+                        }
+                    }
+                }
         }
         .commands {
             AppCommands()
