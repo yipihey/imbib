@@ -152,6 +152,16 @@ Drag and drop onto imBib:
 - `.ris` files: Converted to BibTeX and imported
 - `.pdf` files: Metadata extracted if possible, or create blank entry
 
+### From Safari (Share Extension)
+
+Save papers while browsing:
+1. Navigate to a paper page (ADS, arXiv, DOI, journal)
+2. Click the **Share** button
+3. Select **imBib**
+4. Choose a destination library and save
+
+[Full Share Extension Guide →](share-extension)
+
 ---
 
 ## Attaching PDFs

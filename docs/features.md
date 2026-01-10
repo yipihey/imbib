@@ -463,6 +463,37 @@ All attachments are exported as `Bdsk-File-*` fields:
 
 ---
 
+## Share Extension
+
+Save papers directly from Safari or any app with a Share button.
+
+### How It Works
+
+1. Visit a paper page (ADS abstract, arXiv, journal)
+2. Click/tap the Share button
+3. Select imBib
+4. Review metadata and choose library
+5. Save
+
+### Supported Sources
+
+| Source | Recognition |
+|--------|-------------|
+| NASA ADS | Abstract pages (`ui.adsabs.harvard.edu/abs/...`) |
+| arXiv | Abstract pages (`arxiv.org/abs/...`) |
+| DOI | Resolver URLs (`doi.org/10.xxxx/...`) |
+| Journals | Publisher article pages |
+
+### Installation
+
+**macOS**: System Settings → Privacy & Security → Extensions → Share Menu → Enable imBib
+
+**iOS**: Share sheet → More → Enable imBib
+
+[Full Share Extension Guide →](share-extension)
+
+---
+
 ## Keyboard Shortcuts
 
 imBib is designed for keyboard-first navigation.
@@ -471,20 +502,66 @@ imBib is designed for keyboard-first navigation.
 
 ---
 
+## iOS Companion App
+
+imBib includes a full-featured iOS app for iPhone and iPad.
+
+### Feature Parity
+
+The iOS app shares the same core functionality as macOS:
+- Full library browsing and search
+- Smart Searches with auto-refresh
+- Inbox triage (star, archive, dismiss)
+- PDF viewing with reading position sync
+- BibTeX viewing and editing
+- Notes
+
+### Sync
+
+Your library syncs automatically between devices via iCloud:
+- Papers, PDFs, and metadata
+- Reading positions
+- Smart Search results
+- Inbox state
+
+Changes made on any device appear everywhere within seconds.
+
+### iOS-Specific Features
+
+- **Share Extension**: Save papers from Safari, ADS, or arXiv directly to imBib
+- **Spotlight Search**: Find papers via iOS system search
+- **Widgets**: Quick access to Inbox count and recent papers
+- **Handoff**: Continue reading on Mac where you left off on iPad
+
+### Requirements
+
+- iOS 17.0 or later
+- iPhone or iPad
+- iCloud account (for sync)
+
+---
+
 ## Data & Privacy
 
 ### Local Storage
 
-All data stays on your Mac:
+All data stays on your devices:
+
+**macOS:**
 - BibTeX files in your chosen locations
 - PDFs in library `Papers/` folders
 - Settings in `~/Library/Preferences/`
+
+**iOS:**
+- Data in app container
+- Synced via iCloud (optional)
 
 ### No Cloud Required
 
 imBib works fully offline. Online features:
 - Search queries to ADS, arXiv, etc.
 - PDF downloads from publishers
+- iCloud sync (optional, for multi-device)
 - Share extension (optional)
 
 ### Backup

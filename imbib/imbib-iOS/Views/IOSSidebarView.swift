@@ -24,6 +24,11 @@ struct IOSSidebarView: View {
     @Binding var selection: SidebarSection?
     var onNavigateToSmartSearch: ((CDSmartSearch) -> Void)?  // Callback for iPhone navigation
 
+    // MARK: - Observed Objects
+
+    /// Observe SciXLibraryRepository for SciX libraries
+    @ObservedObject private var scixRepository = SciXLibraryRepository.shared
+
     // MARK: - State
 
     @State private var showNewLibrarySheet = false
@@ -33,23 +38,21 @@ struct IOSSidebarView: View {
     @State private var selectedLibraryForAction: CDLibrary?
     @State private var editingSmartSearch: CDSmartSearch?
     @State private var refreshID = UUID()  // Used to force list refresh
+    @State private var hasSciXAPIKey = false  // Whether SciX/ADS API key is configured
+
+    // Section ordering (persisted, synced with macOS)
+    @State private var sectionOrder: [SidebarSectionType] = SidebarSectionOrderStore.loadOrderSync()
 
     // MARK: - Body
 
     var body: some View {
         List(selection: $selection) {
-            // Inbox Section
+            // Inbox Section (always at top, not reorderable)
             inboxSection
 
-            // Search Section
-            Section {
-                Label("Search", systemImage: "magnifyingglass")
-                    .tag(SidebarSection.search)
-            }
-
-            // Libraries
-            ForEach(libraryManager.libraries.filter { !$0.isInbox }) { library in
-                librarySection(for: library)
+            // Reorderable sections
+            ForEach(sectionOrder) { sectionType in
+                sectionView(for: sectionType)
             }
             .id(refreshID)  // Force refresh when smart searches change
         }
@@ -57,6 +60,17 @@ struct IOSSidebarView: View {
         .onReceive(NotificationCenter.default.publisher(for: .NSManagedObjectContextDidSave)) { _ in
             // Refresh when Core Data saves (new smart search, collection, etc.)
             refreshID = UUID()
+        }
+        .task {
+            // Check for ADS API key (SciX uses ADS API)
+            if let _ = await CredentialManager.shared.apiKey(for: "ads") {
+                hasSciXAPIKey = true
+                scixRepository.loadLibraries()
+                // Optionally trigger background refresh
+                Task.detached {
+                    try? await SciXSyncManager.shared.pullLibraries()
+                }
+            }
         }
         .navigationTitle("imbib")
         .toolbar {
@@ -168,6 +182,128 @@ struct IOSSidebarView: View {
         }
     }
 
+    // MARK: - Section Views
+
+    /// Returns the appropriate section view for a given section type
+    @ViewBuilder
+    private func sectionView(for sectionType: SidebarSectionType) -> some View {
+        switch sectionType {
+        case .libraries:
+            librariesSection
+        case .scixLibraries:
+            scixLibrariesSection
+        case .search:
+            searchSection
+        }
+    }
+
+    /// Libraries section
+    private var librariesSection: some View {
+        ForEach(libraryManager.libraries.filter { !$0.isInbox }) { library in
+            librarySection(for: library)
+        }
+    }
+
+    /// SciX Libraries section (only visible if API key configured and libraries exist)
+    @ViewBuilder
+    private var scixLibrariesSection: some View {
+        if hasSciXAPIKey && !scixRepository.libraries.isEmpty {
+            Section {
+                ForEach(scixRepository.libraries, id: \.id) { library in
+                    HStack {
+                        Label(library.name, systemImage: "building.columns")
+                        Spacer()
+                        Text("\(library.numberOfDocuments)")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+                    .tag(SidebarSection.scixLibrary(library))
+                }
+            } header: {
+                sectionHeader(for: .scixLibraries)
+            }
+        }
+    }
+
+    /// Search section
+    private var searchSection: some View {
+        Section {
+            Label("Search", systemImage: "magnifyingglass")
+                .tag(SidebarSection.search)
+        } header: {
+            sectionHeader(for: .search)
+        }
+    }
+
+    // MARK: - Section Header with Reorder Menu
+
+    @ViewBuilder
+    private func sectionHeader(for sectionType: SidebarSectionType) -> some View {
+        HStack {
+            Text(sectionType.displayName)
+            Spacer()
+            Menu {
+                let currentIndex = sectionOrder.firstIndex(of: sectionType) ?? 0
+
+                Button {
+                    moveSection(sectionType, direction: .up)
+                } label: {
+                    Label("Move Up", systemImage: "arrow.up")
+                }
+                .disabled(currentIndex == 0)
+
+                Button {
+                    moveSection(sectionType, direction: .down)
+                } label: {
+                    Label("Move Down", systemImage: "arrow.down")
+                }
+                .disabled(currentIndex >= sectionOrder.count - 1)
+
+                Divider()
+
+                Button {
+                    Task {
+                        await SidebarSectionOrderStore.shared.reset()
+                        sectionOrder = SidebarSectionOrderStore.defaultOrder
+                    }
+                } label: {
+                    Label("Reset Order", systemImage: "arrow.counterclockwise")
+                }
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private enum MoveDirection {
+        case up, down
+    }
+
+    private func moveSection(_ sectionType: SidebarSectionType, direction: MoveDirection) {
+        guard let currentIndex = sectionOrder.firstIndex(of: sectionType) else { return }
+
+        let newIndex: Int
+        switch direction {
+        case .up:
+            newIndex = max(0, currentIndex - 1)
+        case .down:
+            newIndex = min(sectionOrder.count - 1, currentIndex + 1)
+        }
+
+        guard newIndex != currentIndex else { return }
+
+        withAnimation {
+            sectionOrder.remove(at: currentIndex)
+            sectionOrder.insert(sectionType, at: newIndex)
+        }
+
+        Task {
+            await SidebarSectionOrderStore.shared.save(sectionOrder)
+        }
+    }
+
     // MARK: - Inbox Section
 
     @ViewBuilder
@@ -211,18 +347,19 @@ struct IOSSidebarView: View {
     @ViewBuilder
     private func librarySection(for library: CDLibrary) -> some View {
         Section {
-            // All Publications
+            // All Publications (includes smart search results)
             HStack {
                 Label("All Publications", systemImage: "books.vertical")
                 Spacer()
-                Text("\(library.publications?.count ?? 0)")
+                Text("\(allPublications(for: library).count)")
                     .foregroundStyle(.secondary)
                     .font(.caption)
             }
             .tag(SidebarSection.library(library))
 
-            // Unread
-            let unreadCount = library.publications?.filter { !$0.isRead }.count ?? 0
+            // Unread (from all publications including smart search results)
+            let allPubs = allPublications(for: library)
+            let unreadCount = allPubs.filter { !$0.isRead }.count
             if unreadCount > 0 {
                 HStack {
                     Label("Unread", systemImage: "circle.fill")
@@ -305,6 +442,30 @@ struct IOSSidebarView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Helpers
+
+    /// Returns all publications for a library, including those from smart search results
+    private func allPublications(for library: CDLibrary) -> Set<CDPublication> {
+        var allPubs = Set<CDPublication>()
+
+        // Direct library publications
+        if let directPubs = library.publications as? Set<CDPublication> {
+            allPubs.formUnion(directPubs.filter { !$0.isDeleted })
+        }
+
+        // Publications from smart searches
+        if let smartSearches = library.smartSearches as? Set<CDSmartSearch> {
+            for smartSearch in smartSearches {
+                if let collection = smartSearch.resultCollection,
+                   let collectionPubs = collection.publications {
+                    allPubs.formUnion(collectionPubs.filter { !$0.isDeleted })
+                }
+            }
+        }
+
+        return allPubs
     }
 
     // MARK: - Actions

@@ -63,6 +63,15 @@ struct IOSSettingsView: View {
                     }
                 }
 
+                // Automation Settings
+                Section("Automation") {
+                    NavigationLink {
+                        IOSAutomationSettingsView()
+                    } label: {
+                        Label("Automation API", systemImage: "terminal")
+                    }
+                }
+
                 // Developer Section
                 Section("Developer") {
                     Button {
@@ -639,6 +648,67 @@ extension CDMutedItem.MuteType {
         case .bibcode: return "Bibcode"
         case .venue: return "Venue"
         case .arxivCategory: return "arXiv Category"
+        }
+    }
+}
+
+// MARK: - Automation Settings
+
+struct IOSAutomationSettingsView: View {
+    @State private var automationEnabled = false
+    @State private var loggingEnabled = false
+
+    var body: some View {
+        List {
+            Section {
+                Toggle("Enable Automation API", isOn: $automationEnabled)
+            } header: {
+                Text("URL Scheme")
+            } footer: {
+                Text("Allow external apps and scripts to control imBib via the imbib:// URL scheme.")
+            }
+
+            Section {
+                Toggle("Log Automation Requests", isOn: $loggingEnabled)
+            } header: {
+                Text("Debugging")
+            } footer: {
+                Text("Log all incoming automation requests to the console for debugging.")
+            }
+
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Example URLs:")
+                        .font(.headline)
+
+                    Group {
+                        Text("imbib://search?query=dark+matter")
+                        Text("imbib://navigate/inbox")
+                        Text("imbib://selected/toggle-read")
+                    }
+                    .font(.caption)
+                    .fontDesign(.monospaced)
+                    .foregroundStyle(.secondary)
+                }
+                .padding(.vertical, 4)
+            } header: {
+                Text("Documentation")
+            }
+        }
+        .navigationTitle("Automation")
+        .task {
+            automationEnabled = await AutomationSettingsStore.shared.isEnabled
+            loggingEnabled = await AutomationSettingsStore.shared.isLoggingEnabled
+        }
+        .onChange(of: automationEnabled) { _, newValue in
+            Task {
+                await AutomationSettingsStore.shared.setEnabled(newValue)
+            }
+        }
+        .onChange(of: loggingEnabled) { _, newValue in
+            Task {
+                await AutomationSettingsStore.shared.setLoggingEnabled(newValue)
+            }
         }
     }
 }

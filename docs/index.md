@@ -3,11 +3,17 @@ layout: default
 title: Home
 ---
 
+<p align="center">
+  <img src="assets/images/logo.png" alt="imBib" width="128" height="128">
+</p>
+
 # imBib
 
-**A modern reference manager for macOS, built for researchers who use BibTeX.**
+**Search everywhere. Inbox what matters.**
 
-imBib combines the power of desktop reference management with seamless access to online databases like NASA ADS, arXiv, Crossref, and more.
+*Your research inbox. Every database. One library.*
+
+imBib is a reference manager for macOS and iOS that combines unified search across NASA ADS, arXiv, Crossref, and more with an email-style inbox for triaging new papers.
 
 ---
 
@@ -71,6 +77,7 @@ Designed by researchers, for researchers. No bloat, no subscription, no cloud lo
 | **RIS Support** | Import/export EndNote and Zotero formats |
 | **Keyboard-Driven** | Full keyboard navigation and shortcuts |
 | **Automation API** | URL schemes for scripting and AI integration |
+| **iOS Companion** | Full-featured iPhone and iPad app with sync |
 
 [Full Feature Documentation →](features)
 
@@ -78,8 +85,13 @@ Designed by researchers, for researchers. No bloat, no subscription, no cloud lo
 
 ## System Requirements
 
+**macOS:**
 - macOS 14.0 (Sonoma) or later
 - Apple Silicon or Intel Mac
+
+**iOS:**
+- iOS 17.0 or later
+- iPhone and iPad
 
 ---
 
