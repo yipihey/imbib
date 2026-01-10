@@ -141,8 +141,13 @@ public actor SmartSearchProvider {
             // Limit results (SourceManager already limits, but ensure consistency)
             let limitedResults = Array(results.prefix(Int(currentMaxResults)))
 
+            // Log arXiv ID range to verify we're getting recent papers
+            let arxivIDs = results.compactMap { $0.arxivID }.sorted()
+            let firstID = arxivIDs.first ?? "none"
+            let lastID = arxivIDs.last ?? "none"
             Logger.smartSearch.infoCapture(
-                "Smart search '\(name)' returned \(results.count) results in \(String(format: "%.0f", searchTime))ms",
+                "Smart search '\(name)' returned \(results.count) results in \(String(format: "%.0f", searchTime))ms " +
+                "(arXiv range: \(firstID) to \(lastID))",
                 category: "smartsearch"
             )
 

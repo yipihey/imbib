@@ -792,6 +792,18 @@ public actor PublicationRepository {
                     }
                 }
 
+                // Log unmatched results for debugging
+                let unmatchedCount = results.count - existing.count
+                if unmatchedCount > 0 {
+                    let unmatchedSample = results.filter { existing[$0.id] == nil }.prefix(5)
+                    let sampleIDs = unmatchedSample.map { $0.arxivID ?? $0.id }.joined(separator: ", ")
+                    Logger.persistence.infoCapture(
+                        "Batch find: \(unmatchedCount) unmatched results, sample: \(sampleIDs)",
+                        category: "batch"
+                    )
+                }
+
+
                 Logger.persistence.debugCapture(
                     "Batch find: \(results.count) results → \(found.count) DB → \(existing.count) mapped " +
                     "(DOI:\(matchesByDOI) arXiv:\(matchesByArxiv) bibcode:\(matchesByBibcode) SS:\(matchesBySS) OA:\(matchesByOA))",
