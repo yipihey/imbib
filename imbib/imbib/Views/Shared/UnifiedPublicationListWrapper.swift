@@ -391,12 +391,27 @@ struct UnifiedPublicationListWrapper: View {
     private func refreshPublicationsList() {
         switch source {
         case .library(let library):
-            guard let nsSet = library.publications as? NSSet else {
-                publications = []
-                return
+            // Start with publications directly in the library
+            var allPublications = Set<CDPublication>()
+
+            if let nsSet = library.publications as? NSSet {
+                let directPubs = nsSet.compactMap { $0 as? CDPublication }
+                    .filter { !$0.isDeleted && $0.managedObjectContext != nil }
+                allPublications.formUnion(directPubs)
             }
-            var result = nsSet.compactMap { $0 as? CDPublication }
-                .filter { !$0.isDeleted && $0.managedObjectContext != nil }
+
+            // Also include publications from all smart searches associated with this library
+            if let smartSearches = library.smartSearches as? Set<CDSmartSearch> {
+                for smartSearch in smartSearches {
+                    if let collection = smartSearch.resultCollection,
+                       let collectionPubs = collection.publications {
+                        let validPubs = collectionPubs.filter { !$0.isDeleted && $0.managedObjectContext != nil }
+                        allPublications.formUnion(validPubs)
+                    }
+                }
+            }
+
+            var result = Array(allPublications)
 
             // Apply filter mode (skip for Inbox - papers should stay visible after being read)
             if filterMode == .unread && !library.isInbox {
@@ -404,7 +419,7 @@ struct UnifiedPublicationListWrapper: View {
             }
 
             publications = result.sorted { $0.dateAdded > $1.dateAdded }
-            logger.info("Refreshed library publications: \(self.publications.count) items")
+            logger.info("Refreshed library publications: \(self.publications.count) items (including smart search results)")
 
         case .smartSearch(let smartSearch):
             guard let collection = smartSearch.resultCollection else {

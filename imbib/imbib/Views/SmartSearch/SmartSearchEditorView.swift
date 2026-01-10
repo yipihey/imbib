@@ -36,6 +36,9 @@ struct SmartSearchEditorView: View {
     @State private var autoRefreshEnabled: Bool = false
     @State private var refreshInterval: RefreshIntervalPreset = .daily
 
+    // Raw query visibility (expanded by default to show generated query)
+    @State private var isRawQueryExpanded: Bool = true
+
     // MARK: - Initialization
 
     init(
@@ -64,11 +67,16 @@ struct SmartSearchEditorView: View {
                 }
 
                 Section("Query") {
-                    QueryBuilderView(state: $queryBuilderState, rawQuery: $query, isManuallyEditing: $isManuallyEditing)
-                        .onChange(of: queryBuilderState.source) { _, newSource in
-                            let sourceID = newSource == .arXiv ? "arxiv" : "ads"
-                            selectedSourceIDs = [sourceID]
-                        }
+                    QueryBuilderView(
+                        state: $queryBuilderState,
+                        rawQuery: $query,
+                        isManuallyEditing: $isManuallyEditing,
+                        isRawQueryExpanded: $isRawQueryExpanded
+                    )
+                    .onChange(of: queryBuilderState.source) { _, newSource in
+                        let sourceID = newSource == .arXiv ? "arxiv" : "ads"
+                        selectedSourceIDs = [sourceID]
+                    }
                 }
 
                 Section("Sources") {
@@ -151,7 +159,6 @@ struct SmartSearchEditorView: View {
 
         if let smartSearch {
             name = smartSearch.name
-            query = smartSearch.query
             selectedSourceIDs = Set(smartSearch.sources)
 
             // Parse existing query into query builder
@@ -159,10 +166,18 @@ struct SmartSearchEditorView: View {
             let source: QuerySource = smartSearch.sources.contains("ads") ? .ads : .arXiv
             queryBuilderState = QueryBuilderState.parse(query: smartSearch.query, source: source)
 
+            // IMPORTANT: Set query to the REGENERATED version to fix any malformed queries
+            // This ensures field:value format is correct (e.g., author:"Name" not "author: Name")
+            query = queryBuilderState.generateQuery()
+
             // Load inbox settings
             feedsToInbox = smartSearch.feedsToInbox
             autoRefreshEnabled = smartSearch.autoRefreshEnabled
             refreshInterval = RefreshIntervalPreset(rawValue: smartSearch.refreshIntervalSeconds) ?? .daily
+
+            // Reset isManuallyEditing since we just loaded/regenerated the query
+            // (onChange of query may have set this to true during load)
+            isManuallyEditing = false
         } else {
             // Apply defaults for new smart search
             feedsToInbox = defaultFeedsToInbox

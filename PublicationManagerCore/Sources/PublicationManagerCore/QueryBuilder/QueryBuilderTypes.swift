@@ -439,9 +439,15 @@ public struct QueryBuilderState: Sendable {
 
     /// Parse a raw query string into terms (best effort)
     public static func parse(query: String, source: QuerySource) -> QueryBuilderState {
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        var trimmed = query.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else {
             return QueryBuilderState(source: source)
+        }
+
+        // Remove outer quotes if the entire query is quoted (malformed input)
+        // e.g., "author: Name" → author: Name
+        if trimmed.hasPrefix("\"") && trimmed.hasSuffix("\"") && trimmed.count > 2 {
+            trimmed = String(trimmed.dropFirst().dropLast()).trimmingCharacters(in: .whitespaces)
         }
 
         // Detect match type from query

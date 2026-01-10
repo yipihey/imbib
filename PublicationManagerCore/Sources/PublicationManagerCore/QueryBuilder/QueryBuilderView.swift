@@ -14,13 +14,19 @@ public struct QueryBuilderView: View {
     @Binding var state: QueryBuilderState
     @Binding var rawQuery: String
     @Binding var isManuallyEditing: Bool
-    @State private var isRawQueryExpanded = false
+    @Binding var isRawQueryExpanded: Bool
     @State private var isSyncing = false  // Prevents feedback loop when syncing
 
-    public init(state: Binding<QueryBuilderState>, rawQuery: Binding<String>, isManuallyEditing: Binding<Bool>) {
+    public init(
+        state: Binding<QueryBuilderState>,
+        rawQuery: Binding<String>,
+        isManuallyEditing: Binding<Bool>,
+        isRawQueryExpanded: Binding<Bool> = .constant(false)
+    ) {
         self._state = state
         self._rawQuery = rawQuery
         self._isManuallyEditing = isManuallyEditing
+        self._isRawQueryExpanded = isRawQueryExpanded
     }
 
     public var body: some View {

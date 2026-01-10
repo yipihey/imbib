@@ -45,41 +45,21 @@ struct SidebarView: View {
     @State private var showingNewInboxFeed = false
     @State private var hasSciXAPIKey = false  // Whether SciX API key is configured
 
+    // Section ordering (persisted)
+    @State private var sectionOrder: [SidebarSectionType] = SidebarSectionOrderStore.loadOrderSync()
+
     // MARK: - Body
 
     var body: some View {
         VStack(spacing: 0) {
             // Main list
             List(selection: $selection) {
-                // Inbox Section (at top)
+                // Inbox Section (always at top, not reorderable)
                 inboxSection
 
-                // Libraries Section
-                Section("Libraries") {
-                    ForEach(libraryManager.libraries.filter { !$0.isInbox }, id: \.id) { library in
-                        libraryDisclosureGroup(for: library)
-                    }
-                    .onMove { indices, destination in
-                        libraryManager.moveLibraries(from: indices, to: destination)
-                    }
-                }
-
-                // SciX Libraries Section (online collaborative libraries)
-                // Only show if user has configured their SciX API key
-                if hasSciXAPIKey && !scixRepository.libraries.isEmpty {
-                    Section {
-                        ForEach(scixRepository.libraries, id: \.id) { library in
-                            scixLibraryRow(for: library)
-                        }
-                    } header: {
-                        scixLibrariesSectionHeader
-                    }
-                }
-
-                // Search Section
-                Section("Search") {
-                    Label("Search Sources", systemImage: "magnifyingglass")
-                        .tag(SidebarSection.search)
+                // Reorderable sections (right-click section header to reorder)
+                ForEach(sectionOrder) { sectionType in
+                    sectionView(for: sectionType)
                 }
             }
             .listStyle(.sidebar)
@@ -164,6 +144,143 @@ struct SidebarView: View {
             refreshTrigger = UUID()
         }
         .id(refreshTrigger)  // Re-render when refreshTrigger changes
+    }
+
+    // MARK: - Section Views
+
+    /// Returns the appropriate section view for a given section type
+    @ViewBuilder
+    private func sectionView(for sectionType: SidebarSectionType) -> some View {
+        switch sectionType {
+        case .libraries:
+            librariesSection
+        case .scixLibraries:
+            scixLibrariesSection
+        case .search:
+            searchSection
+        }
+    }
+
+    /// Libraries section content
+    private var librariesSection: some View {
+        Section {
+            ForEach(libraryManager.libraries.filter { !$0.isInbox }, id: \.id) { library in
+                libraryDisclosureGroup(for: library)
+            }
+            .onMove { indices, destination in
+                libraryManager.moveLibraries(from: indices, to: destination)
+            }
+        } header: {
+            sectionHeader(for: .libraries)
+        }
+    }
+
+    /// SciX Libraries section content (only visible if API key configured and libraries exist)
+    @ViewBuilder
+    private var scixLibrariesSection: some View {
+        if hasSciXAPIKey && !scixRepository.libraries.isEmpty {
+            Section {
+                ForEach(scixRepository.libraries, id: \.id) { library in
+                    scixLibraryRow(for: library)
+                }
+            } header: {
+                HStack {
+                    scixLibrariesSectionHeader
+                    Spacer()
+                    sectionReorderMenu(for: .scixLibraries)
+                }
+            }
+        }
+    }
+
+    /// Search section content
+    private var searchSection: some View {
+        Section {
+            Label("Search Sources", systemImage: "magnifyingglass")
+                .tag(SidebarSection.search)
+        } header: {
+            sectionHeader(for: .search)
+        }
+    }
+
+    // MARK: - Section Reordering
+
+    /// Section header with reorder menu
+    @ViewBuilder
+    private func sectionHeader(for sectionType: SidebarSectionType) -> some View {
+        HStack {
+            Text(sectionType.displayName)
+            Spacer()
+            sectionReorderMenu(for: sectionType)
+        }
+    }
+
+    /// Menu for reordering a section
+    @ViewBuilder
+    private func sectionReorderMenu(for sectionType: SidebarSectionType) -> some View {
+        Menu {
+            let currentIndex = sectionOrder.firstIndex(of: sectionType) ?? 0
+
+            Button {
+                moveSection(sectionType, direction: .up)
+            } label: {
+                Label("Move Up", systemImage: "arrow.up")
+            }
+            .disabled(currentIndex == 0)
+
+            Button {
+                moveSection(sectionType, direction: .down)
+            } label: {
+                Label("Move Down", systemImage: "arrow.down")
+            }
+            .disabled(currentIndex >= sectionOrder.count - 1)
+
+            Divider()
+
+            Button {
+                Task {
+                    await SidebarSectionOrderStore.shared.reset()
+                    sectionOrder = SidebarSectionOrderStore.defaultOrder
+                }
+            } label: {
+                Label("Reset Order", systemImage: "arrow.counterclockwise")
+            }
+        } label: {
+            Image(systemName: "line.3.horizontal")
+                .font(.caption)
+                .foregroundColor(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Reorder sidebar sections")
+    }
+
+    /// Move a section up or down
+    private func moveSection(_ sectionType: SidebarSectionType, direction: MoveDirection) {
+        guard let currentIndex = sectionOrder.firstIndex(of: sectionType) else { return }
+
+        let newIndex: Int
+        switch direction {
+        case .up:
+            newIndex = max(0, currentIndex - 1)
+        case .down:
+            newIndex = min(sectionOrder.count - 1, currentIndex + 1)
+        }
+
+        guard newIndex != currentIndex else { return }
+
+        withAnimation {
+            sectionOrder.remove(at: currentIndex)
+            sectionOrder.insert(sectionType, at: newIndex)
+        }
+
+        Task {
+            await SidebarSectionOrderStore.shared.save(sectionOrder)
+        }
+    }
+
+    private enum MoveDirection {
+        case up, down
     }
 
     // MARK: - Library Disclosure Group
@@ -709,13 +826,36 @@ struct SidebarView: View {
     }
 
     private func unreadCount(for library: CDLibrary) -> Int? {
-        // Count unread publications in this library
-        guard let publications = library.publications as? Set<CDPublication> else { return nil }
-        return publications.filter { !$0.isRead }.count
+        // Count unread publications in this library (including smart search results)
+        let allPubs = allPublications(for: library)
+        guard !allPubs.isEmpty else { return nil }
+        return allPubs.filter { !$0.isRead }.count
     }
 
     private func publicationCount(for library: CDLibrary) -> Int {
-        (library.publications as? Set<CDPublication>)?.count ?? 0
+        allPublications(for: library).count
+    }
+
+    /// Get all publications for a library, including smart search results
+    private func allPublications(for library: CDLibrary) -> Set<CDPublication> {
+        var allPubs = Set<CDPublication>()
+
+        // Direct library publications
+        if let directPubs = library.publications as? Set<CDPublication> {
+            allPubs.formUnion(directPubs.filter { !$0.isDeleted })
+        }
+
+        // Publications from smart searches
+        if let smartSearches = library.smartSearches as? Set<CDSmartSearch> {
+            for smartSearch in smartSearches {
+                if let collection = smartSearch.resultCollection,
+                   let collectionPubs = collection.publications {
+                    allPubs.formUnion(collectionPubs.filter { !$0.isDeleted })
+                }
+            }
+        }
+
+        return allPubs
     }
 
     private func publicationCount(for collection: CDCollection) -> Int {
