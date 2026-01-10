@@ -387,6 +387,8 @@ struct ContentView: View {
         // Multi-selection: show BibTeX-only view for bulk operations
         if isMultiSelection {
             MultiSelectionBibTeXView(publications: selectedPublications)
+                // Force view recreation when selection changes
+                .id(selectedPublicationIDs)
         }
         // Guard against deleted Core Data objects - check isDeleted and managedObjectContext
         // DetailView.init is failable and returns nil for deleted publications

@@ -1354,7 +1354,16 @@ struct BibTeXTab: View {
 struct MultiSelectionBibTeXView: View {
     let publications: [CDPublication]
 
-    @State private var bibtexContent: String = ""
+    /// Combined BibTeX content - computed directly from publications
+    private var bibtexContent: String {
+        guard !publications.isEmpty else { return "" }
+        let entries = publications.compactMap { pub -> BibTeXEntry? in
+            guard !pub.isDeleted, pub.managedObjectContext != nil else { return nil }
+            return pub.toBibTeXEntry()
+        }
+        guard !entries.isEmpty else { return "" }
+        return BibTeXExporter().export(entries)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1371,6 +1380,7 @@ struct MultiSelectionBibTeXView: View {
                     Label("Copy All BibTeX", systemImage: "doc.on.doc")
                 }
                 .buttonStyle(.borderedProminent)
+                .disabled(bibtexContent.isEmpty)
             }
             .padding()
             .background(.bar)
@@ -1378,25 +1388,22 @@ struct MultiSelectionBibTeXView: View {
             Divider()
 
             // BibTeX content
-            ScrollView {
-                Text(bibtexContent)
-                    .font(.system(.body, design: .monospaced))
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
+            if bibtexContent.isEmpty {
+                ContentUnavailableView(
+                    "No BibTeX",
+                    systemImage: "doc.text",
+                    description: Text("Could not generate BibTeX for selected papers")
+                )
+            } else {
+                ScrollView {
+                    Text(bibtexContent)
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                }
             }
         }
-        .onAppear {
-            bibtexContent = generateCombinedBibTeX()
-        }
-        .onChange(of: publications.map { $0.id }) { _, _ in
-            bibtexContent = generateCombinedBibTeX()
-        }
-    }
-
-    private func generateCombinedBibTeX() -> String {
-        let entries = publications.map { $0.toBibTeXEntry() }
-        return BibTeXExporter().export(entries)
     }
 
     private func copyToClipboard() {
