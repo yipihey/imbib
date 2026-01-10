@@ -109,6 +109,7 @@ struct DetailView: View {
             .id(pubID)  // Stable identity per publication
             .tabItem { Label("Info", systemImage: "info.circle") }
             .tag(DetailTab.info)
+            .help("Publication details and abstract")
 
             Group {
                 if selectedTab == .bibtex {
@@ -120,6 +121,7 @@ struct DetailView: View {
             .id(pubID)
             .tabItem { Label("BibTeX", systemImage: "chevron.left.forwardslash.chevron.right") }
             .tag(DetailTab.bibtex)
+            .help("View and edit citation")
 
             Group {
                 if selectedTab == .pdf {
@@ -131,6 +133,7 @@ struct DetailView: View {
             .id(pubID)
             .tabItem { Label("PDF", systemImage: "doc.richtext") }
             .tag(DetailTab.pdf)
+            .help("View attached PDF")
 
             // Notes tab only for persistent papers
             if canEdit, let pub = publication {
@@ -144,6 +147,7 @@ struct DetailView: View {
                 .id(pubID)
                 .tabItem { Label("Notes", systemImage: "note.text") }
                 .tag(DetailTab.notes)
+                .help("Reading notes")
             }
         }
         .navigationTitle(paper.title)
@@ -207,6 +211,7 @@ struct DetailView: View {
                 } label: {
                     Label("Open PDF", systemImage: "doc.richtext")
                 }
+                .help("Open PDF with default app")
             }
 
             // Copy BibTeX button
@@ -215,12 +220,14 @@ struct DetailView: View {
             } label: {
                 Label("Copy BibTeX", systemImage: "doc.on.doc")
             }
+            .help("Copy citation to clipboard")
 
             // Open in Browser (for papers with web URL)
             if let webURL = publication?.webURLObject {
                 Link(destination: webURL) {
                     Label("Open in Browser", systemImage: "safari")
                 }
+                .help("Open paper's web page")
             }
 
             // Share button (for library papers)
@@ -228,6 +235,7 @@ struct DetailView: View {
                 ShareLink(item: pub.citeKey) {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
+                .help("Share or export reference")
             }
         }
     }
@@ -507,15 +515,19 @@ struct InfoTab: View {
             FlowLayout(spacing: 12) {
                 if let doi = paper.doi {
                     identifierLink("DOI", value: doi, url: "https://doi.org/\(doi)")
+                        .help("Open DOI resolver")
                 }
                 if let arxivID = paper.arxivID {
                     identifierLink("arXiv", value: arxivID, url: "https://arxiv.org/abs/\(arxivID)")
+                        .help("Open on arXiv")
                 }
                 if let bibcode = paper.bibcode {
                     identifierLink("ADS", value: bibcode, url: "https://ui.adsabs.harvard.edu/abs/\(bibcode)")
+                        .help("Open on NASA ADS")
                 }
                 if let pmid = paper.pmid {
                     identifierLink("PubMed", value: pmid, url: "https://pubmed.ncbi.nlm.nih.gov/\(pmid)")
+                        .help("Open on PubMed")
                 }
             }
         }
@@ -561,6 +573,7 @@ struct InfoTab: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.blue)
+                .help("Attach files to this paper")
             }
 
             // Drop zone / file list
@@ -712,9 +725,15 @@ struct InfoTab: View {
         HStack {
             FileTypeIcon(linkedFile: file, size: 18)
 
-            Text(file.effectiveDisplayName)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(file.effectiveDisplayName)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+
+                Text("Added \(file.dateAdded.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
 
             Spacer()
 
@@ -1372,6 +1391,7 @@ struct PDFTab: View {
                 Task { await downloadPDF() }
             }
             .buttonStyle(.borderedProminent)
+            .help("Retry PDF download")
 
             #if os(macOS)
             Button("Open in Browser") {
@@ -1385,6 +1405,7 @@ struct PDFTab: View {
                 showFileImporter = true
             }
             .buttonStyle(.bordered)
+            .help("Attach a local PDF file")
         }
     }
 
@@ -1398,6 +1419,7 @@ struct PDFTab: View {
                 Task { await downloadPDF() }
             }
             .buttonStyle(.borderedProminent)
+            .help("Download PDF from online source")
 
             #if os(macOS)
             Button("Open in Browser") {
@@ -1411,6 +1433,7 @@ struct PDFTab: View {
                 showFileImporter = true
             }
             .buttonStyle(.bordered)
+            .help("Attach a local PDF file")
         }
     }
 

@@ -26,6 +26,8 @@ struct ViewingSettingsTab: View {
                 Toggle("Show title", isOn: $settings.showTitle)
                 Toggle("Show venue (journal/source)", isOn: $settings.showVenue)
                 Toggle("Show citation count", isOn: $settings.showCitationCount)
+                Toggle("Show date added", isOn: $settings.showDateAdded)
+                    .help("Show when the paper was added (time, yesterday, or date)")
                 Toggle("Show unread indicator", isOn: $settings.showUnreadIndicator)
                 Toggle("Show attachment indicator", isOn: $settings.showAttachmentIndicator)
 

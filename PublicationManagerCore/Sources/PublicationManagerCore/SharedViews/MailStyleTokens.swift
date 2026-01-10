@@ -79,4 +79,41 @@ public enum MailStyleTokens {
 
     /// Maximum lines for authors
     public static let authorLineLimit = 1
+
+    // MARK: - Date Formatting
+
+    /// Format a date in Apple Mail style (time/yesterday/weekday/date)
+    ///
+    /// - Today: "10:30 AM"
+    /// - Yesterday: "Yesterday"
+    /// - Within past week: "Monday"
+    /// - Older: "Jan 5"
+    ///
+    /// - Parameter date: The date to format
+    /// - Returns: Formatted date string
+    public static func formatRelativeDate(_ date: Date) -> String {
+        let calendar = Calendar.current
+        let now = Date()
+
+        // Today: show time only
+        if calendar.isDateInToday(date) {
+            return date.formatted(date: .omitted, time: .shortened)
+        }
+
+        // Yesterday
+        if calendar.isDateInYesterday(date) {
+            return "Yesterday"
+        }
+
+        // Within past week: show weekday name
+        let daysAgo = calendar.dateComponents([.day], from: date, to: now).day ?? 0
+        if daysAgo < 7 {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "EEEE"  // Full weekday name
+            return formatter.string(from: date)
+        }
+
+        // Older: show abbreviated date
+        return date.formatted(.dateTime.month(.abbreviated).day())
+    }
 }

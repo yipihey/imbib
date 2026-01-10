@@ -128,13 +128,19 @@ public struct MailStylePublicationRow: View, Equatable {
 
             // Content
             VStack(alignment: .leading, spacing: contentSpacing) {
-                // Row 1: Authors [· Year] + [Citation Count]
+                // Row 1: Authors [· Year] + [Date Added] [Citation Count]
                 HStack {
                     Text(authorYearString)
                         .font(isUnread ? MailStyleTokens.authorFontUnread : MailStyleTokens.authorFont)
                         .lineLimit(MailStyleTokens.authorLineLimit)
 
                     Spacer()
+
+                    if settings.showDateAdded {
+                        Text(MailStyleTokens.formatRelativeDate(data.dateAdded))
+                            .font(MailStyleTokens.dateFont)
+                            .foregroundStyle(MailStyleTokens.secondaryTextColor)
+                    }
 
                     if settings.showCitationCount && data.citationCount > 0 {
                         Text("\(data.citationCount)")

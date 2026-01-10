@@ -62,6 +62,7 @@ struct PDFSettingsTab: View {
             .onChange(of: autoDownloadEnabled) { _, newValue in
                 Task { await saveAutoDownloadSetting() }
             }
+            .help("Download PDFs automatically when viewing papers")
     }
 
     // MARK: - Source Priority Section
@@ -90,6 +91,7 @@ struct PDFSettingsTab: View {
                     sourcePriority = priority
                     Task { await saveSourcePriority() }
                 }
+                .help(priority == .preprint ? "Try free preprints (arXiv) first" : "Try publisher version first")
             }
         }
     }
@@ -102,6 +104,7 @@ struct PDFSettingsTab: View {
                 .onChange(of: proxyEnabled) { _, _ in
                     Task { await saveProxySettings() }
                 }
+                .help("Route publisher requests through your institution's proxy")
 
             if proxyEnabled {
                 VStack(alignment: .leading, spacing: 8) {
@@ -114,6 +117,7 @@ struct PDFSettingsTab: View {
                                 await saveProxySettings()
                             }
                         }
+                        .help("Your institution's proxy prefix")
 
                     Text("Enter your institution's proxy URL prefix")
                         .font(.caption)
@@ -150,6 +154,7 @@ struct PDFSettingsTab: View {
             }
             .buttonStyle(.plain)
             .foregroundStyle(Color.accentColor)
+            .help("Choose from common institutions")
         }
     }
 

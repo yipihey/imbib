@@ -72,6 +72,9 @@ public struct ListViewSettings: Codable, Equatable, Sendable {
     /// Show arXiv category chips for papers with categories
     public var showCategories: Bool
 
+    /// Show date added in top-right corner (Apple Mail style: time/yesterday/date)
+    public var showDateAdded: Bool
+
     // MARK: - Content Limits
 
     /// Number of abstract preview lines (0 = hidden)
@@ -92,6 +95,7 @@ public struct ListViewSettings: Codable, Equatable, Sendable {
         showUnreadIndicator: Bool = true,
         showAttachmentIndicator: Bool = true,
         showCategories: Bool = true,
+        showDateAdded: Bool = true,
         abstractLineLimit: Int = 2,
         rowDensity: RowDensity = .default
     ) {
@@ -102,6 +106,7 @@ public struct ListViewSettings: Codable, Equatable, Sendable {
         self.showUnreadIndicator = showUnreadIndicator
         self.showAttachmentIndicator = showAttachmentIndicator
         self.showCategories = showCategories
+        self.showDateAdded = showDateAdded
         self.abstractLineLimit = max(0, min(10, abstractLineLimit))
         self.rowDensity = rowDensity
     }

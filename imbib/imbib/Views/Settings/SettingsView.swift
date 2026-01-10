@@ -21,30 +21,37 @@ struct SettingsView: View {
             GeneralSettingsTab()
                 .tabItem { Label("General", systemImage: "gear") }
                 .tag(SettingsTab.general)
+                .help("App preferences")
 
             ViewingSettingsTab()
                 .tabItem { Label("Viewing", systemImage: "eye") }
                 .tag(SettingsTab.viewing)
+                .help("List display options")
 
             NotesSettingsTab()
                 .tabItem { Label("Notes", systemImage: "note.text") }
                 .tag(SettingsTab.notes)
+                .help("Note editor settings")
 
             SourcesSettingsTab()
                 .tabItem { Label("Sources", systemImage: "globe") }
                 .tag(SettingsTab.sources)
+                .help("API keys for online sources")
 
             PDFSettingsTab()
                 .tabItem { Label("PDF", systemImage: "doc.richtext") }
                 .tag(SettingsTab.pdf)
+                .help("PDF download settings")
 
             InboxSettingsTab()
                 .tabItem { Label("Inbox", systemImage: "tray") }
                 .tag(SettingsTab.inbox)
+                .help("Feed subscriptions and mute rules")
 
             ImportExportSettingsTab()
                 .tabItem { Label("Import/Export", systemImage: "arrow.up.arrow.down") }
                 .tag(SettingsTab.importExport)
+                .help("File format options")
         }
         .frame(width: 550, height: 500)
     }
@@ -225,6 +232,7 @@ struct SourceCredentialRow: View {
                 if let url = info.registrationURL {
                     Link("Get API Key", destination: url)
                         .font(.caption)
+                        .help("Get API key from source website")
                 }
 
                 // Error message
@@ -257,10 +265,24 @@ struct SourceCredentialRow: View {
             Circle()
                 .fill(statusColor)
                 .frame(width: 8, height: 8)
+                .help(statusTooltip)
 
             Text(statusText)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    private var statusTooltip: String {
+        switch info.status {
+        case .valid, .optionalValid:
+            return "API key configured"
+        case .missing, .invalid:
+            return "API key required"
+        case .optionalMissing:
+            return "Optional - enhances results"
+        case .notRequired:
+            return "No credentials needed"
         }
     }
 
@@ -379,6 +401,7 @@ struct InboxSettingsTab: View {
                         Text(preset.displayName).tag(preset)
                     }
                 }
+                .help("Hide papers older than this")
 
                 Text("Papers older than this limit (based on when they were added to the Inbox) will be hidden")
                     .font(.caption)
@@ -413,6 +436,7 @@ struct InboxSettingsTab: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .help("Choose what type of content to mute")
 
                 HStack {
                     TextField(placeholderText, text: $newMuteValue)
@@ -422,6 +446,7 @@ struct InboxSettingsTab: View {
                         addMuteRule()
                     }
                     .disabled(newMuteValue.isEmpty)
+                    .help("Add this mute rule")
                 }
 
                 Text(helpText)
@@ -434,6 +459,7 @@ struct InboxSettingsTab: View {
                     clearAllMutedItems()
                 }
                 .disabled(mutedItems.isEmpty)
+                .help("Remove all mute rules")
             }
         }
         .formStyle(.grouped)

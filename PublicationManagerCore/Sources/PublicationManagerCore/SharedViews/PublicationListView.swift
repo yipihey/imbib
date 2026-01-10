@@ -507,10 +507,12 @@ public struct PublicationListView: View {
                             .foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
+                    .help("Clear search")
                 }
             }
             .padding(6)
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+            .help("Filter by title, author, or cite key")
 
             Spacer()
 
@@ -552,6 +554,7 @@ public struct PublicationListView: View {
                 .foregroundStyle(.secondary)
                 .menuStyle(.borderlessButton)
                 .fixedSize()
+                .help("Change sort order")
             }
         }
         .padding(.horizontal, 12)

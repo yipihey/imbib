@@ -204,9 +204,11 @@ struct SidebarView: View {
                         .background(Color.blue)
                         .foregroundColor(.white)
                         .clipShape(Capsule())
+                        .help("Unread papers in this library")
                 }
             }
             .tag(SidebarSection.unread(library))
+            .help("Papers you haven't read yet")
 
             // Smart Searches for this library (use repository for change observation)
             let librarySmartSearches = smartSearchRepository.smartSearches.filter { $0.library?.id == library.id }
@@ -327,6 +329,7 @@ struct SidebarView: View {
             // Cloud icon (different from local libraries)
             Image(systemName: "cloud")
                 .foregroundColor(.blue)
+                .help("Cloud-synced library from NASA ADS/SciX")
 
             Text(library.displayName)
 
@@ -336,12 +339,14 @@ struct SidebarView: View {
             Image(systemName: library.permissionLevelEnum.icon)
                 .font(.caption)
                 .foregroundColor(.secondary)
+                .help(permissionTooltip(library.permissionLevelEnum))
 
             // Pending changes indicator
             if library.hasPendingChanges {
                 Image(systemName: "arrow.up.circle.fill")
                     .font(.caption)
                     .foregroundColor(.orange)
+                    .help("Changes pending sync to SciX")
             }
 
             // Paper count
@@ -568,6 +573,7 @@ struct SidebarView: View {
             ForEach(inboxFeeds, id: \.id) { feed in
                 HStack {
                     Label(feed.name, systemImage: "antenna.radiowaves.left.and.right")
+                        .help("Papers matching this feed appear in Inbox")
                     Spacer()
                     // Show unread count for this feed
                     let unreadCount = unreadCountForFeed(feed)
@@ -606,6 +612,7 @@ struct SidebarView: View {
                     .foregroundStyle(.secondary)
             }
             .buttonStyle(.plain)
+            .help("Create a new inbox feed from a search query")
         }
     }
 
@@ -659,6 +666,16 @@ struct SidebarView: View {
     }
 
     // MARK: - Helpers
+
+    /// Convert permission level to tooltip string
+    private func permissionTooltip(_ level: CDSciXLibrary.PermissionLevel) -> String {
+        switch level {
+        case .owner: return "Owner"
+        case .admin: return "Admin"
+        case .write: return "Can edit"
+        case .read: return "Read only"
+        }
+    }
 
     private func expansionBinding(for libraryID: UUID) -> Binding<Bool> {
         Binding(
@@ -901,6 +918,7 @@ struct SmartSearchRow: View {
                 }
             } icon: {
                 Image(systemName: "magnifyingglass.circle.fill")
+                    .help("Smart search - auto-updating query")
             }
             Spacer()
             if count > 0 {
@@ -940,6 +958,7 @@ struct CollectionRow: View {
                 }
             } icon: {
                 Image(systemName: collection.isSmartCollection ? "folder.badge.gearshape" : "folder")
+                    .help(collection.isSmartCollection ? "Smart collection - auto-populated by filter rules" : "Collection")
             }
             Spacer()
             if count > 0 {
