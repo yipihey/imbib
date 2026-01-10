@@ -140,8 +140,9 @@ public actor SciXLibraryService {
 
     /// Fetch details for a specific library including bibcodes
     public func fetchLibraryDetails(id: String) async throws -> SciXLibraryDetailResponse {
-        // Use raw=true to get the exact list of bibcodes saved in the library
-        let (data, _) = try await makeRequest(path: "/libraries/\(id)?raw=true")
+        // Don't use raw=true - it returns solr as a string which breaks decoding
+        // The documents array is available in both cases
+        let (data, _) = try await makeRequest(path: "/libraries/\(id)")
 
         // Log raw response for debugging
         if let rawJSON = String(data: data, encoding: .utf8) {

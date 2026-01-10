@@ -49,19 +49,37 @@ public struct SciXLibraryDetailMetadata: Codable, Sendable {
     public let date_last_modified: String
     public let permission: String
     public let owner: String?
+    public let num_users: Int?
 }
 
 /// Solr query information for library contents
 public struct SciXLibrarySolr: Codable, Sendable {
-    public let q: String?                    // Query with bibcodes
+    public let responseHeader: SciXSolrHeader?
+    public let response: SciXSolrResponse?
+}
+
+/// Solr response header
+public struct SciXSolrHeader: Codable, Sendable {
+    public let status: Int?
+    public let QTime: Int?
+}
+
+/// Solr response with documents
+public struct SciXSolrResponse: Codable, Sendable {
+    public let numFound: Int?
     public let start: Int?
-    public let rows: Int?
+    public let docs: [SciXSolrDoc]?
+}
+
+/// Individual document in solr response
+public struct SciXSolrDoc: Codable, Sendable {
+    public let bibcode: String?
 }
 
 /// Update timestamps
 public struct SciXLibraryUpdates: Codable, Sendable {
-    public let num_updated: Int
-    public let duplicates_removed: Int
+    public let num_updated: Int?
+    public let duplicates_removed: Int?
     public let update_list: [String]?
 }
 
