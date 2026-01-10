@@ -169,29 +169,17 @@ public actor SciXLibraryService {
             return documents
         }
 
-        // Fallback: Parse from solr.q query string
-        if let solr = details.solr, let query = solr.q {
-            let parsed = parseBibcodesFromQuery(query)
-            Logger.scix.debug("Parsed \(parsed.count) bibcodes from solr.q")
-            return parsed
+        // Fallback: Extract from solr.response.docs
+        if let docs = details.solr?.response?.docs {
+            let bibcodes = docs.compactMap { $0.bibcode }
+            if !bibcodes.isEmpty {
+                Logger.scix.debug("Found \(bibcodes.count) bibcodes in solr.response.docs")
+                return bibcodes
+            }
         }
 
         Logger.scix.warning("No bibcodes found in library response")
         return []
-    }
-
-    private func parseBibcodesFromQuery(_ query: String) -> [String] {
-        // Query format: "identifier:(2024ApJ...abc OR 2023MNRAS...def OR ...)"
-        guard query.hasPrefix("identifier:(") else { return [] }
-
-        let inner = query
-            .replacingOccurrences(of: "identifier:(", with: "")
-            .replacingOccurrences(of: ")", with: "")
-
-        return inner
-            .components(separatedBy: " OR ")
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
     }
 
     // MARK: - Library Creation
