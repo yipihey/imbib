@@ -623,11 +623,6 @@ struct UnifiedPublicationListWrapper: View {
     /// Archive publications to a target library (adds to target AND removes from current).
     /// Selects the next paper in the list after archiving.
     private func archiveToLibrary(ids: Set<UUID>, targetLibrary: CDLibrary) async {
-        guard let sourceLibrary = currentLibrary else {
-            logger.warning("Cannot archive - no source library")
-            return
-        }
-
         // Find next paper to select before removing current selection
         let nextPaperID = findNextPaperAfter(ids: ids)
 
@@ -639,10 +634,28 @@ struct UnifiedPublicationListWrapper: View {
                     inboxManager.archiveToLibrary(publication, library: targetLibrary)
                 }
             }
-        } else {
+            logger.info("Archived \(ids.count) papers from Inbox to \(targetLibrary.displayName)")
+        } else if case .smartSearch(let smartSearch) = source {
+            // For smart searches: add to target library, remove from result collection
+            await libraryViewModel.addToLibrary(ids, library: targetLibrary)
+
+            // Remove from smart search result collection
+            if let resultCollection = smartSearch.resultCollection {
+                let pubs = ids.compactMap { id in publications.first(where: { $0.id == id }) }
+                for pub in pubs {
+                    pub.removeFromCollection(resultCollection)
+                }
+                try? PersistenceController.shared.viewContext.save()
+            }
+            logger.info("Archived \(ids.count) papers from smart search '\(smartSearch.name)' to \(targetLibrary.displayName)")
+        } else if let sourceLibrary = currentLibrary {
             // For regular libraries: add to target, remove from source
             await libraryViewModel.addToLibrary(ids, library: targetLibrary)
             await libraryViewModel.removeFromLibrary(ids, library: sourceLibrary)
+            logger.info("Archived \(ids.count) papers from \(sourceLibrary.displayName) to \(targetLibrary.displayName)")
+        } else {
+            logger.warning("Cannot archive - no source library")
+            return
         }
 
         // Select next paper (or clear if none left)
@@ -656,7 +669,6 @@ struct UnifiedPublicationListWrapper: View {
         }
 
         refreshPublicationsList()
-        logger.info("Archived \(ids.count) papers from \(sourceLibrary.displayName) to \(targetLibrary.displayName)")
     }
 
     /// Find the next paper ID to select after removing the given IDs.
