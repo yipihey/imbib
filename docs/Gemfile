@@ -1,12 +1,4 @@
 source "https://rubygems.org"
 
-gem "jekyll", "~> 4.3"
-gem "jekyll-remote-theme"
-gem "jekyll-seo-tag"
+gem "github-pages", group: :jekyll_plugins
 gem "webrick"
-
-# Required for Ruby 4.0+ (removed from stdlib)
-gem "logger"
-gem "csv"
-gem "base64"
-gem "bigdecimal"
