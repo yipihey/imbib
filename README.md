@@ -1,77 +1,100 @@
-# Architecture Decision Records
+<p align="center">
+  <img src="docs/assets/images/logo.png" alt="imbib" width="128" height="128">
+</p>
 
-This directory contains Architecture Decision Records (ADRs) documenting significant technical decisions for PublicationManager.
+<h1 align="center">imbib</h1>
 
-## Index
+<p align="center">
+  <strong>Subscribe to Science.</strong><br>
+  <em>Your research inbox. Every database. One library.</em>
+</p>
 
-| ADR | Title | Status | Date |
-|-----|-------|--------|------|
-| [001](001-core-data-over-swiftdata.md) | Core Data over SwiftData | Accepted | 2026-01-04 |
-| [002](002-bibtex-source-of-truth.md) | BibTeX as Source of Truth | Accepted | 2026-01-04 |
-| [003](003-plugin-architecture.md) | Hybrid Plugin Architecture | Accepted | 2026-01-04 |
-| [004](004-human-readable-pdf-names.md) | Human-Readable PDF Filenames | Accepted | 2026-01-04 |
-| [005](005-swiftui-frontend.md) | SwiftUI for Cross-Platform UI | Accepted | 2026-01-04 |
-| [006](006-ios-file-handling.md) | iOS File Handling Strategy | Accepted | 2026-01-04 |
-| [007](007-conflict-resolution.md) | Conflict Resolution Strategy | Accepted | 2026-01-04 |
-| [008](008-api-key-management.md) | API Key Management | Accepted | 2026-01-04 |
-| [009](009-deduplication-service.md) | Cross-Source Deduplication | Accepted | 2026-01-04 |
-| [010](010-bibtex-parser-strategy.md) | BibTeX Parser Strategy | Accepted | 2026-01-04 |
+<p align="center">
+  <a href="https://github.com/yipihey/imbib/releases">Download</a> &bull;
+  <a href="https://yipihey.github.io/imbib/">Documentation</a> &bull;
+  <a href="https://github.com/yipihey/imbib/issues">Report Issue</a>
+</p>
 
-## What is an ADR?
+---
 
-An Architecture Decision Record captures a significant architectural decision along with its context and consequences. We use ADRs to:
+**imbib** is a reference manager for macOS and iOS that combines unified search across NASA ADS, arXiv, Crossref, and more with an email-style inbox for triaging new papers.
 
-- Document why we made certain choices
-- Help new contributors understand the codebase
-- Provide context for Claude Code sessions
-- Enable revisiting decisions when circumstances change
+## Why imbib?
 
-## ADR Template
+- **BibTeX-Native** - Your `.bib` files remain the source of truth. Full BibDesk compatibility.
+- **Unified Search** - Search ADS, arXiv, Crossref, Semantic Scholar, OpenAlex, and DBLP from one interface. Results are deduplicated automatically.
+- **Smart Searches** - Save queries that refresh automatically and feed new papers to your Inbox.
+- **Inbox Triage** - Star, archive, or dismiss papers with keyboard shortcuts. Like email, but for science.
+- **Browser Extensions** - Save papers from Safari, Chrome, Firefox, or Edge with one click.
+- **No Cloud Lock-in** - Your data stays on your devices. Sync via iCloud if you want.
 
-```markdown
-# ADR-NNN: Title
+## Installation
 
-## Status
+### macOS
 
-[Proposed | Accepted | Deprecated | Superseded by ADR-XXX]
+1. Download the latest release from [Releases](https://github.com/yipihey/imbib/releases)
+2. Move `imbib.app` to `/Applications`
+3. Launch imbib
 
-## Date
+### iOS
 
-YYYY-MM-DD
+Coming to TestFlight soon.
 
-## Context
+## Quick Start
 
-What is the issue that we're seeing that is motivating this decision?
+1. **Create a library** - Choose a folder for your `.bib` file and PDFs
+2. **Search for papers** - Use the search bar (ADS and arXiv enabled by default)
+3. **Import papers** - Click to add papers to your library
+4. **Attach PDFs** - Drag-and-drop or download from publishers
 
-## Decision
+[Full Getting Started Guide](https://yipihey.github.io/imbib/getting-started)
 
-What is the change that we're proposing and/or doing?
+## Features
 
-## Rationale
+| Feature | Description |
+|---------|-------------|
+| Multiple Libraries | Organize papers by project, topic, or collaboration |
+| Smart Searches | Saved queries with auto-refresh and Inbox feeding |
+| Collections | Manual folders within libraries |
+| Inbox Triage | Star, archive, or dismiss papers efficiently |
+| PDF Viewer | Built-in viewer with reading position memory |
+| BibTeX Editor | Syntax-highlighted editing with validation |
+| RIS Support | Import/export EndNote and Zotero formats |
+| Browser Extensions | Save papers from Safari, Chrome, Firefox, or Edge |
+| Keyboard-Driven | Full keyboard navigation and shortcuts |
+| Automation API | URL schemes for scripting and AI integration |
+| iOS Companion | Full-featured iPhone and iPad app with sync |
 
-Why is this the best choice among the alternatives?
+## System Requirements
 
-## Consequences
+- **macOS**: 14.0 (Sonoma) or later, Apple Silicon or Intel
+- **iOS**: 17.0 or later
 
-What are the positive and negative results of this decision?
+## Documentation
 
-## Alternatives Considered
+Full documentation is available at [yipihey.github.io/imbib](https://yipihey.github.io/imbib/):
 
-What other options were evaluated?
-```
+- [Getting Started](https://yipihey.github.io/imbib/getting-started)
+- [Features](https://yipihey.github.io/imbib/features)
+- [Keyboard Shortcuts](https://yipihey.github.io/imbib/keyboard-shortcuts)
+- [Browser Extensions](https://yipihey.github.io/imbib/share-extension)
+- [Automation API](https://yipihey.github.io/imbib/automation)
 
-## Adding a New ADR
+## Contributing
 
-1. Create a new file: `NNN-short-title.md`
-2. Use the next sequential number
-3. Fill in the template
-4. Add to the index in this README
-5. Reference in `CLAUDE.md` if relevant to ongoing development
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
-## Superseding an ADR
+- Building from source
+- Architecture overview
+- Coding conventions
+- How to add new features
 
-If a decision is revisited:
+## License
 
-1. Update the original ADR status to `Superseded by ADR-XXX`
-2. Create new ADR explaining the change
-3. Reference the original ADR in the new one's context
+MIT License - see [LICENSE](LICENSE) for details.
+
+---
+
+<p align="center">
+  Built by researchers, for researchers.
+</p>
