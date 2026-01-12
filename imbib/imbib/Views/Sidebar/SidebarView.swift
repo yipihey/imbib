@@ -31,8 +31,10 @@ struct SidebarView: View {
 
     // MARK: - State
     @State private var showingNewSmartSearch = false
+    @State private var smartSearchTargetLibrary: CDLibrary?  // Library for new smart search
     @State private var editingSmartSearch: CDSmartSearch?
     @State private var showingNewSmartCollection = false
+    @State private var smartCollectionTargetLibrary: CDLibrary?  // Library for new smart collection
     @State private var editingCollection: CDCollection?
     @State private var showingNewLibrary = false
     @State private var libraryToDelete: CDLibrary?
@@ -73,7 +75,7 @@ struct SidebarView: View {
         .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         #endif
         .sheet(isPresented: $showingNewSmartSearch) {
-            if let library = selectedLibrary {
+            if let library = smartSearchTargetLibrary {
                 SmartSearchEditorView(smartSearch: nil, library: library) {
                     // Reload all smart searches to update sidebar
                     smartSearchRepository.loadSmartSearches(for: nil)
@@ -96,7 +98,7 @@ struct SidebarView: View {
             NewLibrarySheet()
         }
         .sheet(isPresented: $showingNewSmartCollection) {
-            if let library = selectedLibrary {
+            if let library = smartCollectionTargetLibrary {
                 SmartCollectionEditor(isPresented: $showingNewSmartCollection) { name, predicate in
                     Task {
                         await createSmartCollection(name: name, predicate: predicate, in: library)
@@ -369,11 +371,13 @@ struct SidebarView: View {
             // Add buttons for smart search and collection
             Menu {
                 Button {
+                    smartSearchTargetLibrary = library
                     showingNewSmartSearch = true
                 } label: {
                     Label("New Smart Search", systemImage: "magnifyingglass.circle")
                 }
                 Button {
+                    smartCollectionTargetLibrary = library
                     showingNewSmartCollection = true
                 } label: {
                     Label("New Smart Collection", systemImage: "folder.badge.gearshape")
