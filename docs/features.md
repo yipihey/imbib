@@ -463,17 +463,40 @@ All attachments are exported as `Bdsk-File-*` fields:
 
 ---
 
-## Share Extension
+## Browser Extensions
 
-Save papers directly from Safari or any app with a Share button.
+Save papers directly from your browser while browsing academic sites.
 
-### How It Works
+### Safari Extension
 
-1. Visit a paper page (ADS abstract, arXiv, journal)
-2. Click/tap the Share button
-3. Select imBib
+Uses the native Share sheet for seamless integration:
+
+1. Visit a paper page (ADS, arXiv, journal)
+2. Click/tap the **Share** button
+3. Select **imbib**
 4. Review metadata and choose library
-5. Save
+5. Click **Save**
+
+**Installation (macOS):** System Settings → Privacy & Security → Extensions → Share Menu → Enable imbib
+
+**Installation (iOS):** Share sheet → More → Enable imbib
+
+### Chrome, Firefox & Edge Extension
+
+Lightweight popup for one-click imports:
+
+1. Visit a paper page
+2. Click the **imbib** icon in toolbar
+3. Review detected metadata
+4. Click **Import**
+
+**Requirements:** imbib must be running with Automation API enabled (Settings → General).
+
+**Installation (Chrome/Edge):**
+1. Go to `chrome://extensions/`
+2. Enable Developer mode
+3. Click "Load unpacked"
+4. Select `imbib/imbibBrowserExtension/`
 
 ### Supported Sources
 
@@ -482,15 +505,10 @@ Save papers directly from Safari or any app with a Share button.
 | NASA ADS | Abstract pages (`ui.adsabs.harvard.edu/abs/...`) |
 | arXiv | Abstract pages (`arxiv.org/abs/...`) |
 | DOI | Resolver URLs (`doi.org/10.xxxx/...`) |
-| Journals | Publisher article pages |
+| PubMed | Article pages (`pubmed.ncbi.nlm.nih.gov/...`) |
+| Journals | Embedded meta tags (Highwire, Dublin Core) |
 
-### Installation
-
-**macOS**: System Settings → Privacy & Security → Extensions → Share Menu → Enable imBib
-
-**iOS**: Share sheet → More → Enable imBib
-
-[Full Share Extension Guide →](share-extension)
+[Full Browser Extensions Guide →](share-extension)
 
 ---
 

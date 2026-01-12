@@ -23,6 +23,9 @@ public enum AutomationCommand: Sendable {
     /// Import RIS data
     case importRIS(data: Data?, filePath: String?, libraryID: UUID?)
 
+    /// Import from browser extension with metadata
+    case importFromExtension(item: [String: String])
+
     /// Export library to specified format
     case exportLibrary(libraryID: UUID?, format: ExportFormat)
 
@@ -325,6 +328,13 @@ public struct URLCommandParser {
     }
 
     private func parseImportCommand(_ params: [String: String]) throws -> AutomationCommand {
+        // Check if this is a browser extension import (has sourceType parameter)
+        if params["sourceType"] != nil {
+            // Pass all parameters as the import item
+            return .importFromExtension(item: params)
+        }
+
+        // Standard file/data import
         let format = params["format"] ?? "bibtex"
         let libraryID = params["library"].flatMap { UUID(uuidString: $0) }
         let filePath = params["file"]

@@ -15,8 +15,39 @@ import AppKit
 
 private let appLogger = Logger(subsystem: "com.imbib.app", category: "app")
 
+// MARK: - App Delegate for URL Scheme Handling
+
+#if os(macOS)
+class AppDelegate: NSObject, NSApplicationDelegate {
+    private func debugLog(_ message: String) {
+        // Use NSLog which works in sandboxed apps and shows in Console.app
+        NSLog("[DEBUG] %@", message)
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        debugLog("AppDelegate.applicationDidFinishLaunching called")
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        debugLog("AppDelegate.application(open:) called with \(urls.count) URLs")
+        for url in urls {
+            debugLog("Processing URL: \(url.absoluteString)")
+            if url.scheme == "imbib" {
+                Task {
+                    await URLSchemeHandler.shared.handle(url)
+                }
+            }
+        }
+    }
+}
+#endif
+
 @main
 struct imbibApp: App {
+
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    #endif
 
     // MARK: - State
 
@@ -74,10 +105,20 @@ struct imbibApp: App {
         // Note: Cannot use _shareExtensionHandler here because LibraryManager is @State
         // Will be set in onAppear instead
 
+        // Set up Darwin notification observers for extensions (before Task)
+        // This must be done early, before the app might receive notifications
+        ShareExtensionHandler.setupDarwinNotificationObserver()
+        SafariImportHandler.shared.setupNotificationObserver()
+
         // Register built-in sources and start enrichment
         Task {
             await sourceManager.registerBuiltInSources()
             appLogger.info("Built-in sources registered")
+
+            // Sync known identifiers to App Group for Safari extension duplicate detection
+            await SafariImportHandler.shared.syncKnownIdentifiers()
+            await SafariImportHandler.shared.syncAvailableLibraries()
+            appLogger.info("Safari extension App Group synced")
 
             // Register browser URL providers for interactive PDF downloads
             await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
@@ -122,9 +163,10 @@ struct imbibApp: App {
                             sourceManager: searchViewModel.sourceManager
                         )
                     }
-                    // Process any pending shared URLs from share extension
+                    // Process any pending imports from extensions
                     Task {
                         await shareExtensionHandler?.handlePendingSharedItems()
+                        await SafariImportHandler.shared.processPendingImports()
                     }
                 }
                 .onReceive(NotificationCenter.default.publisher(for: ShareExtensionService.sharedURLReceivedNotification)) { _ in
@@ -132,6 +174,7 @@ struct imbibApp: App {
                         await shareExtensionHandler?.handlePendingSharedItems()
                     }
                 }
+                #if os(iOS)
                 .onOpenURL { url in
                     // Handle automation URL schemes (imbib://...)
                     if url.scheme == "imbib" {
@@ -140,6 +183,7 @@ struct imbibApp: App {
                         }
                     }
                 }
+                #endif
         }
         .commands {
             AppCommands()

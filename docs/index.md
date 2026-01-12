@@ -75,6 +75,7 @@ Designed by researchers, for researchers. No bloat, no subscription, no cloud lo
 | **PDF Viewer** | Built-in viewer with reading position memory |
 | **BibTeX Editor** | Syntax-highlighted editing with validation |
 | **RIS Support** | Import/export EndNote and Zotero formats |
+| **Browser Extensions** | Save papers from Safari, Chrome, Firefox, or Edge |
 | **Keyboard-Driven** | Full keyboard navigation and shortcuts |
 | **Automation API** | URL schemes for scripting and AI integration |
 | **iOS Companion** | Full-featured iPhone and iPad app with sync |
@@ -99,5 +100,6 @@ Designed by researchers, for researchers. No bloat, no subscription, no cloud lo
 
 - [GitHub Repository](https://github.com/yipihey/imbib)
 - [Report an Issue](https://github.com/yipihey/imbib/issues)
+- [Browser Extensions](share-extension)
 - [Keyboard Shortcuts](keyboard-shortcuts)
 - [Automation API](automation)

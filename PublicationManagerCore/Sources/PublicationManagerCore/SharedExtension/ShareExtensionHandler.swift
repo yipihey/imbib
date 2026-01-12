@@ -33,6 +33,34 @@ public final class ShareExtensionHandler {
         self.repository = repository
     }
 
+    // MARK: - Darwin Notification Observer
+
+    /// Set up Darwin notification observer for cross-process notifications from the share extension.
+    ///
+    /// Call this once on app startup. The Darwin notification from the extension will be
+    /// converted to a local `NotificationCenter` notification that the app can observe.
+    public static func setupDarwinNotificationObserver() {
+        let darwinName = "com.imbib.sharedURLReceived" as CFString
+
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            nil,
+            { _, _, _, _, _ in
+                // Convert Darwin notification to local NotificationCenter notification
+                // This runs on an arbitrary thread, so dispatch to main
+                DispatchQueue.main.async {
+                    Logger.shareExtension.infoCapture("Received Darwin notification from share extension", category: "shareext")
+                    NotificationCenter.default.post(name: ShareExtensionService.sharedURLReceivedNotification, object: nil)
+                }
+            },
+            darwinName,
+            nil,
+            .deliverImmediately
+        )
+
+        Logger.shareExtension.infoCapture("Darwin notification observer registered for share extension", category: "shareext")
+    }
+
     // MARK: - Public API
 
     /// Process all pending shared items from the share extension.

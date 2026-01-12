@@ -41,6 +41,8 @@ targets:
       - package: PublicationManagerCore
       - target: imbib-ShareExtension
         embed: true
+      - target: imbib-SafariExtension
+        embed: true
     info:
       path: imbib/Resources/Info.plist
       properties:
@@ -84,6 +86,8 @@ targets:
     dependencies:
       - package: PublicationManagerCore
       - target: imbib-iOS-ShareExtension
+        embed: true
+      - target: imbib-iOS-SafariExtension
         embed: true
     info:
       path: imbib-iOS/Resources/Info.plist
@@ -161,6 +165,87 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     entitlements:
       path: imbib-iOS/ShareExtension/ShareExtension.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.imbib.app
+
+  # macOS Safari Extension
+  imbib-SafariExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: imbibSafariExtension/SafariWebExtensionHandler.swift
+      - path: imbibSafariExtension/manifest.json
+        buildPhase: resources
+      - path: imbibSafariExtension/background.js
+        buildPhase: resources
+      - path: imbibSafariExtension/_locales
+        type: folder
+        buildPhase: resources
+      - path: imbibSafariExtension/content
+        type: folder
+        buildPhase: resources
+      - path: imbibSafariExtension/images
+        type: folder
+        buildPhase: resources
+      - path: imbibSafariExtension/popup
+        type: folder
+        buildPhase: resources
+    dependencies: []
+    settings:
+      base:
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.safari-extension
+        PRODUCT_NAME: imbib Safari Extension
+        INFOPLIST_FILE: imbibSafariExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: imbibSafariExtension/imbibSafariExtension.entitlements
+        SKIP_INSTALL: YES
+        LD_RUNPATH_SEARCH_PATHS: "$(inherited) @executable_path/../Frameworks @executable_path/../../../../Frameworks"
+        OTHER_LDFLAGS: "-framework SafariServices"
+    entitlements:
+      path: imbibSafariExtension/imbibSafariExtension.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.application-groups:
+          - group.com.imbib.app
+
+  # iOS Safari Extension
+  imbib-iOS-SafariExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: imbibSafariExtension/SafariWebExtensionHandler.swift
+      - path: imbibSafariExtension/manifest.json
+        buildPhase: resources
+      - path: imbibSafariExtension/background.js
+        buildPhase: resources
+      - path: imbibSafariExtension/_locales
+        type: folder
+        buildPhase: resources
+      - path: imbibSafariExtension/content
+        type: folder
+        buildPhase: resources
+      - path: imbibSafariExtension/images
+        type: folder
+        buildPhase: resources
+      - path: imbibSafariExtension/popup
+        type: folder
+        buildPhase: resources
+    dependencies: []
+    settings:
+      base:
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        PRODUCT_BUNDLE_IDENTIFIER: com.imbib.app.ios.safari-extension
+        PRODUCT_NAME: imbib Safari Extension
+        INFOPLIST_FILE: imbibSafariExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: imbibSafariExtension/imbibSafariExtension-iOS.entitlements
+        SKIP_INSTALL: YES
+        TARGETED_DEVICE_FAMILY: "1,2"
+        OTHER_LDFLAGS: "-framework SafariServices"
+    entitlements:
+      path: imbibSafariExtension/imbibSafariExtension-iOS.entitlements
       properties:
         com.apple.security.application-groups:
           - group.com.imbib.app

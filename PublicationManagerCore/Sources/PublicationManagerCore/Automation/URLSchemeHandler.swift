@@ -51,9 +51,14 @@ public actor URLSchemeHandler {
     /// - Returns: The result of executing the command
     @discardableResult
     public func handle(_ url: URL) async -> AutomationResult {
+        NSLog("[DEBUG] URLSchemeHandler.handle called with: %@", url.absoluteString)
+
         // Check if automation is enabled
-        guard await AutomationSettingsStore.shared.isEnabled else {
+        let isEnabled = await AutomationSettingsStore.shared.isEnabled
+        NSLog("[DEBUG] Automation enabled: %d", isEnabled ? 1 : 0)
+        guard isEnabled else {
             automationLogger.warning("Automation request rejected: API disabled. URL: \(url.absoluteString)")
+            NSLog("[DEBUG] Automation disabled, rejecting")
             return .failure(command: url.host ?? "unknown", error: AutomationError.disabled.localizedDescription)
         }
 
@@ -66,12 +71,15 @@ public actor URLSchemeHandler {
         let command: AutomationCommand
         do {
             command = try parser.parse(url)
+            NSLog("[DEBUG] Parsed command successfully")
         } catch {
             automationLogger.error("Failed to parse automation URL: \(error.localizedDescription)")
+            NSLog("[DEBUG] Parse error: %@", error.localizedDescription)
             return .failure(command: url.host ?? "unknown", error: error.localizedDescription)
         }
 
         // Execute the command
+        NSLog("[DEBUG] Executing command...")
         return await execute(command)
     }
 
@@ -100,6 +108,28 @@ public actor URLSchemeHandler {
                 await postNotification(.importBibTeX)
             }
             return .success(command: "importRIS")
+
+        case .importFromExtension(let item):
+            NSLog("[DEBUG] importFromExtension case reached")
+            // Convert [String: String] to [String: Any] for SafariImportHandler
+            var importItem: [String: Any] = [:]
+            for (key, value) in item {
+                if key == "authors" {
+                    // Authors are pipe-separated in the URL
+                    importItem["authors"] = value.split(separator: "|").map(String.init)
+                } else {
+                    importItem[key] = value
+                }
+            }
+            NSLog("[DEBUG] Import item: %@", importItem.description)
+            do {
+                try await SafariImportHandler.shared.processImportItem(importItem)
+                NSLog("[DEBUG] Import succeeded")
+                return .success(command: "importFromExtension", result: ["imported": AnyCodable(true)])
+            } catch {
+                NSLog("[DEBUG] Import failed: %@", error.localizedDescription)
+                return .failure(command: "importFromExtension", error: error.localizedDescription)
+            }
 
         case .exportLibrary(_, let format):
             await postNotification(.exportBibTeX, userInfo: ["format": format.rawValue])
