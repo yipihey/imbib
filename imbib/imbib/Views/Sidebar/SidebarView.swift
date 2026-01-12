@@ -30,11 +30,10 @@ struct SidebarView: View {
     @ObservedObject private var scixRepository = SciXLibraryRepository.shared
 
     // MARK: - State
-    @State private var showingNewSmartSearch = false
-    @State private var smartSearchTargetLibrary: CDLibrary?  // Library for new smart search
+    // Note: Using item-based sheets to avoid race conditions with separate bool + optional state
+    @State private var newSmartSearchLibrary: CDLibrary?  // Non-nil triggers sheet for this library
     @State private var editingSmartSearch: CDSmartSearch?
-    @State private var showingNewSmartCollection = false
-    @State private var smartCollectionTargetLibrary: CDLibrary?  // Library for new smart collection
+    @State private var newSmartCollectionLibrary: CDLibrary?  // Non-nil triggers sheet for this library
     @State private var editingCollection: CDCollection?
     @State private var showingNewLibrary = false
     @State private var libraryToDelete: CDLibrary?
@@ -74,12 +73,10 @@ struct SidebarView: View {
         #if os(macOS)
         .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         #endif
-        .sheet(isPresented: $showingNewSmartSearch) {
-            if let library = smartSearchTargetLibrary {
-                SmartSearchEditorView(smartSearch: nil, library: library) {
-                    // Reload all smart searches to update sidebar
-                    smartSearchRepository.loadSmartSearches(for: nil)
-                }
+        .sheet(item: $newSmartSearchLibrary) { library in
+            SmartSearchEditorView(smartSearch: nil, library: library) {
+                // Reload all smart searches to update sidebar
+                smartSearchRepository.loadSmartSearches(for: nil)
             }
         }
         .sheet(item: $editingSmartSearch) { smartSearch in
@@ -97,13 +94,12 @@ struct SidebarView: View {
         .sheet(isPresented: $showingNewLibrary) {
             NewLibrarySheet()
         }
-        .sheet(isPresented: $showingNewSmartCollection) {
-            if let library = smartCollectionTargetLibrary {
-                SmartCollectionEditor(isPresented: $showingNewSmartCollection) { name, predicate in
-                    Task {
-                        await createSmartCollection(name: name, predicate: predicate, in: library)
-                    }
+        .sheet(item: $newSmartCollectionLibrary) { library in
+            SmartCollectionEditor(isPresented: .constant(true)) { name, predicate in
+                Task {
+                    await createSmartCollection(name: name, predicate: predicate, in: library)
                 }
+                newSmartCollectionLibrary = nil  // Dismiss sheet
             }
         }
         .sheet(item: $editingCollection) { collection in
@@ -371,14 +367,12 @@ struct SidebarView: View {
             // Add buttons for smart search and collection
             Menu {
                 Button {
-                    smartSearchTargetLibrary = library
-                    showingNewSmartSearch = true
+                    newSmartSearchLibrary = library
                 } label: {
                     Label("New Smart Search", systemImage: "magnifyingglass.circle")
                 }
                 Button {
-                    smartCollectionTargetLibrary = library
-                    showingNewSmartCollection = true
+                    newSmartCollectionLibrary = library
                 } label: {
                     Label("New Smart Collection", systemImage: "folder.badge.gearshape")
                 }
