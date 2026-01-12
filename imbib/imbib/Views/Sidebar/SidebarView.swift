@@ -388,7 +388,17 @@ struct SidebarView: View {
             .buttonStyle(.plain)
         } label: {
             // Library header - also a drop target
+            // Clicking the header selects "All Publications" and expands the library
             libraryHeaderDropTarget(for: library)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    // Select this library's "All Publications"
+                    selection = .library(library)
+                    // Expand if not already expanded
+                    if !expandedLibraries.contains(library.id) {
+                        expandedLibraries.insert(library.id)
+                    }
+                }
                 .contextMenu {
                     Button("Delete Library", role: .destructive) {
                         libraryToDelete = library
@@ -669,7 +679,7 @@ struct SidebarView: View {
         Section("Inbox") {
             // Inbox header with unread badge
             HStack {
-                Label("All Papers", systemImage: "tray.full")
+                Label("All Publications", systemImage: "tray.full")
                 Spacer()
                 if inboxUnreadCount > 0 {
                     Text("\(inboxUnreadCount)")
