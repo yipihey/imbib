@@ -552,25 +552,41 @@ struct UnifiedPublicationListWrapper: View {
         refreshPublicationsList()
     }
 
+    // MARK: - Text Field Focus Detection
+
+    /// Check if a text field is currently focused (to avoid intercepting text input)
+    private func isTextFieldFocused() -> Bool {
+        #if os(macOS)
+        guard let window = NSApp.keyWindow,
+              let firstResponder = window.firstResponder else {
+            return false
+        }
+        // NSTextView is used by TextEditor, TextField, and other text controls
+        return firstResponder is NSTextView
+        #else
+        return false  // iOS uses different focus management
+        #endif
+    }
+
     // MARK: - Inbox Triage Handlers
 
     /// Handle 'A' key - archive selected to default library
     private func handleArchiveKey() -> KeyPress.Result {
-        guard isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
+        guard !isTextFieldFocused(), isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
         archiveSelectedToDefaultLibrary()
         return .handled
     }
 
     /// Handle 'D' key - dismiss selected from inbox
     private func handleDismissKey() -> KeyPress.Result {
-        guard isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
+        guard !isTextFieldFocused(), isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
         dismissSelectedFromInbox()
         return .handled
     }
 
     /// Handle 'S' key - toggle star on selected
     private func handleStarKey() -> KeyPress.Result {
-        guard isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
+        guard !isTextFieldFocused(), isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
         toggleStarForSelected()
         return .handled
     }
