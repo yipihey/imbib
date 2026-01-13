@@ -63,6 +63,8 @@ struct imbibApp: App {
     // MARK: - Initialization
 
     init() {
+        let appStart = CFAbsoluteTimeGetCurrent()
+
         // Check for development mode flag
         #if os(macOS)
         isEditingDefaultSet = CommandLine.arguments.contains("--edit-default-set")
@@ -75,19 +77,20 @@ struct imbibApp: App {
         appLogger.info("imbib app initializing...")
 
         // Use shared credential manager singleton for persistence
+        var stepStart = CFAbsoluteTimeGetCurrent()
         let credentialManager = CredentialManager.shared
         let sourceManager = SourceManager(credentialManager: credentialManager)
         let repository = PublicationRepository()
         let deduplicationService = DeduplicationService()
-
-        appLogger.info("Created shared dependencies")
+        appLogger.info("⏱ Created shared dependencies: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms")
 
         // Initialize LibraryManager first
+        stepStart = CFAbsoluteTimeGetCurrent()
         _libraryManager = State(initialValue: LibraryManager())
-
-        appLogger.info("LibraryManager initialized")
+        appLogger.info("⏱ LibraryManager initialized: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms")
 
         // Initialize ViewModels
+        stepStart = CFAbsoluteTimeGetCurrent()
         _libraryViewModel = State(initialValue: LibraryViewModel(repository: repository))
         _searchViewModel = State(initialValue: SearchViewModel(
             sourceManager: sourceManager,
@@ -98,8 +101,7 @@ struct imbibApp: App {
             sourceManager: sourceManager,
             credentialManager: credentialManager
         ))
-
-        appLogger.info("ViewModels initialized")
+        appLogger.info("⏱ ViewModels initialized: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms")
 
         // Initialize share extension handler (needs sourceManager)
         // Note: Cannot use _shareExtensionHandler here because LibraryManager is @State
@@ -107,18 +109,15 @@ struct imbibApp: App {
 
         // Set up Darwin notification observers for extensions (before Task)
         // This must be done early, before the app might receive notifications
+        appLogger.info("⏱ Before Darwin notification setup")
         ShareExtensionHandler.setupDarwinNotificationObserver()
         SafariImportHandler.shared.setupNotificationObserver()
+        appLogger.info("⏱ After Darwin notification setup")
 
         // Register built-in sources and start enrichment
         Task {
             await sourceManager.registerBuiltInSources()
             appLogger.info("Built-in sources registered")
-
-            // Sync known identifiers to App Group for Safari extension duplicate detection
-            await SafariImportHandler.shared.syncKnownIdentifiers()
-            await SafariImportHandler.shared.syncAvailableLibraries()
-            appLogger.info("Safari extension App Group synced")
 
             // Register browser URL providers for interactive PDF downloads
             await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
@@ -142,7 +141,7 @@ struct imbibApp: App {
             appLogger.info("InboxCoordinator started")
         }
 
-        appLogger.info("imbib app initialization complete")
+        appLogger.info("⏱ TOTAL app init: \(Int((CFAbsoluteTimeGetCurrent() - appStart) * 1000))ms")
     }
 
     // MARK: - Body
@@ -163,11 +162,10 @@ struct imbibApp: App {
                             sourceManager: searchViewModel.sourceManager
                         )
                     }
-                    // Process any pending imports from extensions
-                    Task {
-                        await shareExtensionHandler?.handlePendingSharedItems()
-                        await SafariImportHandler.shared.processPendingImports()
-                    }
+                    // Note: App Group access is deferred until the Safari extension is actually used.
+                    // This avoids the TCC "access data from other apps" dialog at startup.
+                    // When a Darwin notification arrives from the extension, we process imports
+                    // and sync data back to the App Group at that time.
                 }
                 .onReceive(NotificationCenter.default.publisher(for: ShareExtensionService.sharedURLReceivedNotification)) { _ in
                     Task {

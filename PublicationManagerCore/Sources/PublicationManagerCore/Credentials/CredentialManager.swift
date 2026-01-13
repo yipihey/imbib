@@ -30,16 +30,24 @@ public actor CredentialManager: CredentialProviding {
 
     // MARK: - Properties
 
-    private let keychain: KeychainSwift
+    /// Lazily initialized keychain to defer access until actually needed.
+    /// This prevents the "access data from other apps" dialog at startup.
+    private var _keychain: KeychainSwift?
+    private var keychain: KeychainSwift {
+        if let k = _keychain { return k }
+        let k = KeychainSwift()
+        k.accessGroup = nil  // Use app's default keychain (works in sandbox)
+        k.synchronizable = false  // Don't sync credentials to iCloud
+        _keychain = k
+        return k
+    }
     private let keyPrefix: String
 
     // MARK: - Initialization
 
     public init(keyPrefix: String = "com.imbib.credentials") {
-        self.keychain = KeychainSwift()
-        self.keychain.accessGroup = nil  // Use app's default keychain (works in sandbox)
         self.keyPrefix = keyPrefix
-        keychain.synchronizable = false  // Don't sync credentials to iCloud
+        // Don't initialize keychain here - defer until first use
     }
 
     // MARK: - Storage

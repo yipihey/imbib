@@ -89,9 +89,12 @@ struct ContentView: View {
     // MARK: - Body
 
     var body: some View {
+        let _ = contentLogger.info("⏱ ContentView.body START")
         NavigationSplitView(columnVisibility: $columnVisibility) {
+            let _ = contentLogger.info("⏱ SidebarView creating")
             SidebarView(selection: $selectedSection, expandedLibraries: $expandedLibraries)
         } content: {
+            let _ = contentLogger.info("⏱ contentList creating")
             contentList
         } detail: {
             detailView
@@ -132,12 +135,14 @@ struct ContentView: View {
             PDFBatchDownloadView(publications: data.publications, library: data.library)
         }
         .task {
+            // Load publications for the lookup cache (improves navigation speed)
+            // This runs async after the UI is visible, so it doesn't block startup
             await libraryViewModel.loadPublications()
             // Restore app state after publications are loaded
             await restoreAppState()
         }
         .onAppear {
-            contentLogger.info("ContentView appeared - main window is visible")
+            contentLogger.info("⏱ ContentView.onAppear - window visible")
         }
         .onChange(of: selectedSection) { oldValue, newValue in
             // ADR-016: All sections now use CDPublication

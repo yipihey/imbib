@@ -23,8 +23,20 @@ public actor SafariImportHandler {
     // MARK: - Properties
 
     private let logger = Logger(subsystem: "com.imbib", category: "safari-import")
-    private let defaults: UserDefaults?
     private let appGroupID = "group.com.imbib.app"
+
+    /// Lazily initialized to defer App Group access until actually needed.
+    /// This prevents the "access data from other apps" dialog at startup.
+    private var _defaults: UserDefaults??  // Double optional: nil = not yet tried, .some(nil) = tried and failed
+    private var defaults: UserDefaults? {
+        if let cached = _defaults { return cached }
+        let d = UserDefaults(suiteName: appGroupID)
+        _defaults = d
+        if d == nil {
+            logger.error("Failed to access App Group: \(self.appGroupID)")
+        }
+        return d
+    }
 
     private var isProcessing = false
 
@@ -38,11 +50,7 @@ public actor SafariImportHandler {
     // MARK: - Initialization
 
     private init() {
-        self.defaults = UserDefaults(suiteName: appGroupID)
-
-        if defaults == nil {
-            logger.error("Failed to access App Group: \(self.appGroupID)")
-        }
+        // Don't access App Group here - defer until first use
     }
 
     // MARK: - Queue Processing
@@ -368,7 +376,13 @@ public actor SafariImportHandler {
             nil,
             { _, _, _, _, _ in
                 Task {
+                    // Process any pending imports from the Safari extension
                     await SafariImportHandler.shared.processPendingImports()
+                    // Sync data back to App Group for future extension use
+                    // This is the first time we access the App Group, so TCC dialog
+                    // may appear here (only when user actually uses the extension)
+                    await SafariImportHandler.shared.syncKnownIdentifiers()
+                    await SafariImportHandler.shared.syncAvailableLibraries()
                 }
             },
             name,
