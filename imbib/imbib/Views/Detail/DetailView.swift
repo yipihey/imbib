@@ -290,9 +290,45 @@ struct DetailView: View {
                 .help("Open paper's web page")
             }
 
-            // Share button (for library papers)
+            // Share menu (for library papers)
             if let pub = publication {
-                ShareLink(item: pub.citeKey) {
+                Menu {
+                    // Quick share (text only - for iMessage, WhatsApp, etc.)
+                    ShareLink(
+                        item: shareText(for: pub),
+                        subject: Text(pub.title ?? "Paper"),
+                        message: Text(shareText(for: pub))
+                    ) {
+                        Label("Share Text...", systemImage: "text.bubble")
+                    }
+
+                    Divider()
+
+                    // Copy actions
+                    Button {
+                        copyBibTeX()
+                    } label: {
+                        Label("Copy BibTeX", systemImage: "doc.on.doc")
+                    }
+
+                    Button {
+                        copyLink(for: pub)
+                    } label: {
+                        Label("Copy Link", systemImage: "link")
+                    }
+
+                    #if os(macOS)
+                    Divider()
+
+                    // Email with attachments (macOS only)
+                    Button {
+                        shareViaEmail(pub)
+                    } label: {
+                        Label("Email with PDF & BibTeX...", systemImage: "envelope.badge.fill")
+                    }
+                    .disabled(pub.linkedFiles?.isEmpty ?? true)
+                    #endif
+                } label: {
                     Label("Share", systemImage: "square.and.arrow.up")
                 }
                 .help("Share or export reference")
@@ -330,6 +366,156 @@ struct DetailView: View {
             NSPasteboard.general.setString(bibtex, forType: .string)
             #endif
         }
+    }
+
+    private func copyLink(for pub: CDPublication) {
+        var link: String?
+
+        // Prefer DOI
+        if let doi = pub.doi, !doi.isEmpty {
+            link = "https://doi.org/\(doi)"
+        }
+        // Then arXiv
+        else if let arxivID = pub.arxivID, !arxivID.isEmpty {
+            link = "https://arxiv.org/abs/\(arxivID)"
+        }
+        // Then ADS bibcode
+        else if let bibcode = pub.originalSourceID, bibcode.count == 19 {
+            link = "https://ui.adsabs.harvard.edu/abs/\(bibcode)"
+        }
+        // Then any explicit URL field
+        else if let urlString = pub.fields["url"], !urlString.isEmpty {
+            link = urlString
+        }
+
+        if let link {
+            #if os(macOS)
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(link, forType: .string)
+            #endif
+        }
+    }
+
+    #if os(macOS)
+    private func shareViaEmail(_ pub: CDPublication) {
+        // Build email body with abstract
+        var body: [String] = []
+
+        // Title
+        body.append(pub.title ?? "Untitled")
+        body.append("")
+
+        // Authors
+        let authors = pub.sortedAuthors.map { $0.displayName }
+        if !authors.isEmpty {
+            body.append("Authors: \(authors.joined(separator: ", "))")
+        }
+
+        // Year and venue
+        if pub.year > 0 {
+            let venue = pub.fields["journal"] ?? pub.fields["booktitle"] ?? ""
+            if !venue.isEmpty {
+                body.append("Published: \(venue), \(pub.year)")
+            } else {
+                body.append("Year: \(pub.year)")
+            }
+        }
+
+        // URL
+        if let doi = pub.doi, !doi.isEmpty {
+            body.append("Link: https://doi.org/\(doi)")
+        } else if let arxivID = pub.arxivID, !arxivID.isEmpty {
+            body.append("Link: https://arxiv.org/abs/\(arxivID)")
+        } else if let bibcode = pub.originalSourceID, bibcode.count == 19 {
+            body.append("Link: https://ui.adsabs.harvard.edu/abs/\(bibcode)")
+        }
+
+        // Abstract
+        if let abstract = pub.abstract, !abstract.isEmpty {
+            body.append("")
+            body.append("Abstract:")
+            body.append(abstract)
+        }
+
+        // Citation key
+        body.append("")
+        body.append("---")
+        body.append("Citation key: \(pub.citeKey)")
+
+        let emailBody = body.joined(separator: "\n")
+
+        // Build items to share
+        var items: [Any] = [emailBody]
+
+        // Add PDF attachments
+        if let linkedFiles = pub.linkedFiles {
+            for file in linkedFiles where file.isPDF {
+                if let url = PDFManager.shared.resolveURL(for: file, in: libraryManager.activeLibrary) {
+                    items.append(url)
+                }
+            }
+        }
+
+        // Create temporary BibTeX file
+        let bibtex = BibTeXExporter().export([pub.toBibTeXEntry()])
+        let tempBibURL = FileManager.default.temporaryDirectory.appendingPathComponent("\(pub.citeKey).bib")
+        if let _ = try? bibtex.write(to: tempBibURL, atomically: true, encoding: .utf8) {
+            items.append(tempBibURL)
+        }
+
+        // Show sharing service picker
+        guard let window = NSApp.keyWindow,
+              let contentView = window.contentView else { return }
+
+        let picker = NSSharingServicePicker(items: items)
+        picker.show(relativeTo: .zero, of: contentView, preferredEdge: .minY)
+    }
+    #endif
+
+    /// Generate share text for a publication (used by ShareLink)
+    private func shareText(for pub: CDPublication) -> String {
+        var lines: [String] = []
+
+        // Title
+        lines.append(pub.title ?? "Untitled")
+
+        // Authors
+        let authors = pub.sortedAuthors.map { $0.displayName }
+        if !authors.isEmpty {
+            lines.append(authors.joined(separator: ", "))
+        }
+
+        // Year and venue (journal or booktitle)
+        var yearVenue: [String] = []
+        if pub.year > 0 {
+            yearVenue.append("(\(pub.year))")
+        }
+        let venue = pub.fields["journal"] ?? pub.fields["booktitle"]
+        if let venue, !venue.isEmpty {
+            yearVenue.append(venue)
+        }
+        if !yearVenue.isEmpty {
+            lines.append(yearVenue.joined(separator: " "))
+        }
+
+        // URL (prefer DOI, then arXiv, then ADS)
+        if let doi = pub.doi, !doi.isEmpty {
+            lines.append("")
+            lines.append("https://doi.org/\(doi)")
+        } else if let arxivID = pub.arxivID, !arxivID.isEmpty {
+            lines.append("")
+            lines.append("https://arxiv.org/abs/\(arxivID)")
+        } else if let bibcode = pub.originalSourceID, bibcode.count == 19 {
+            // ADS bibcode format
+            lines.append("")
+            lines.append("https://ui.adsabs.harvard.edu/abs/\(bibcode)")
+        }
+
+        // Citation key for reference
+        lines.append("")
+        lines.append("Citation key: \(pub.citeKey)")
+
+        return lines.joined(separator: "\n")
     }
 }
 
