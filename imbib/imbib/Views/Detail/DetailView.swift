@@ -713,6 +713,11 @@ struct InfoTab: View {
 
             Spacer()
 
+            // Date added
+            Text(file.dateAdded, style: .date)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+
             // File size (use cached or compute)
             Text(file.fileSize > 0 ? file.formattedFileSize : getFileSizeString(for: file))
                 .font(.caption)

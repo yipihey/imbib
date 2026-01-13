@@ -29,6 +29,8 @@ private struct FilterCacheKey: Equatable {
     let disableUnreadFilter: Bool
     let searchQuery: String
     let sortOrder: LibrarySortOrder
+    let searchInPDFs: Bool
+    let pdfMatchCount: Int  // Track PDF matches by count (Set isn't Equatable for hash)
 }
 
 /// Memoization cache for filtered row data.
@@ -175,6 +177,18 @@ public struct PublicationListView: View {
     @State private var sortOrder: LibrarySortOrder = .dateAdded
     @State private var hasLoadedState: Bool = false
 
+    /// Whether to include PDF content in search (uses Spotlight on macOS, PDFKit on iOS)
+    @State private var searchInPDFs: Bool = false
+
+    /// Publication IDs that match the PDF content search (async populated)
+    @State private var pdfSearchMatches: Set<UUID> = []
+
+    /// Task for ongoing PDF search (cancelled when query changes)
+    @State private var pdfSearchTask: Task<Void, Never>?
+
+    /// Whether PDF search is in progress
+    @State private var isPDFSearching: Bool = false
+
     /// Cached row data - rebuilt when publications change
     @State private var rowDataCache: [UUID: PublicationRowData] = [:]
 
@@ -207,7 +221,9 @@ public struct PublicationListView: View {
             showUnreadOnly: showUnreadOnly,
             disableUnreadFilter: disableUnreadFilter,
             searchQuery: searchQuery,
-            sortOrder: sortOrder
+            sortOrder: sortOrder,
+            searchInPDFs: searchInPDFs,
+            pdfMatchCount: pdfSearchMatches.count
         )
 
         // Return cached result if inputs haven't changed
@@ -224,13 +240,21 @@ public struct PublicationListView: View {
             result = result.filter { !$0.isRead }
         }
 
-        // Filter by search query
+        // Filter by search query (metadata + optionally PDF content)
         if !searchQuery.isEmpty {
             let query = searchQuery.lowercased()
             result = result.filter { rowData in
-                rowData.title.lowercased().contains(query) ||
-                rowData.authorString.lowercased().contains(query) ||
-                rowData.citeKey.lowercased().contains(query)
+                // Always check metadata fields
+                let matchesMetadata = rowData.title.lowercased().contains(query) ||
+                    rowData.authorString.lowercased().contains(query) ||
+                    rowData.citeKey.lowercased().contains(query)
+
+                // If PDF search is enabled, also include PDF content matches
+                if searchInPDFs && pdfSearchMatches.contains(rowData.id) {
+                    return true
+                }
+
+                return matchesMetadata
             }
         }
 
@@ -394,6 +418,47 @@ public struct PublicationListView: View {
         .onChange(of: showUnreadOnly) { _, _ in
             if hasLoadedState {
                 debouncedSaveState()
+            }
+        }
+        .onChange(of: searchQuery) { _, newQuery in
+            // Trigger PDF search if enabled and query changed
+            if searchInPDFs && !newQuery.isEmpty {
+                triggerPDFSearch()
+            } else if newQuery.isEmpty {
+                // Clear PDF matches when query is cleared
+                pdfSearchMatches.removeAll()
+            }
+        }
+    }
+
+    // MARK: - PDF Search
+
+    /// Trigger an async PDF content search
+    private func triggerPDFSearch() {
+        // Cancel any existing search
+        pdfSearchTask?.cancel()
+
+        guard !searchQuery.isEmpty else {
+            pdfSearchMatches.removeAll()
+            return
+        }
+
+        isPDFSearching = true
+
+        pdfSearchTask = Task {
+            let matches = await PDFSearchService.shared.search(
+                query: searchQuery,
+                in: publications,
+                library: library
+            )
+
+            // Check if task was cancelled
+            guard !Task.isCancelled else { return }
+
+            await MainActor.run {
+                pdfSearchMatches = matches
+                isPDFSearching = false
+                filterCache.invalidate()  // Force recompute with new PDF matches
             }
         }
     }
@@ -564,6 +629,28 @@ public struct PublicationListView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .help("Search scope: \(filterScope.rawValue)")
+
+            // PDF search toggle
+            Button {
+                searchInPDFs.toggle()
+                if searchInPDFs && !searchQuery.isEmpty {
+                    triggerPDFSearch()
+                } else if !searchInPDFs {
+                    pdfSearchMatches.removeAll()
+                    filterCache.invalidate()
+                }
+            } label: {
+                HStack(spacing: 2) {
+                    Image(systemName: "doc.text.magnifyingglass")
+                    if isPDFSearching {
+                        ProgressView()
+                            .controlSize(.mini)
+                    }
+                }
+            }
+            .foregroundStyle(searchInPDFs ? .blue : .secondary)
+            .help(searchInPDFs ? "Disable PDF content search" : "Include PDF content in search")
+            .buttonStyle(.plain)
 
             Spacer()
 

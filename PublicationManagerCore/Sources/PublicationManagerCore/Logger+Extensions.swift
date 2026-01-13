@@ -33,9 +33,10 @@ public extension Logger {
 
     static let bibtex = Logger(subsystem: subsystem, category: "bibtex")
 
-    // MARK: - Sources
+    // MARK: - Sources & Search
 
     static let sources = Logger(subsystem: subsystem, category: "sources")
+    static let search = Logger(subsystem: subsystem, category: "search")
     static let network = Logger(subsystem: subsystem, category: "network")
     static let rateLimiter = Logger(subsystem: subsystem, category: "ratelimit")
     static let deduplication = Logger(subsystem: subsystem, category: "dedup")
