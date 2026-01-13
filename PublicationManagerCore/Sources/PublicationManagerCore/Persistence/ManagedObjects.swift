@@ -598,7 +598,9 @@ public extension CDCollection {
 
     /// Parse predicate string to NSPredicate
     var nsPredicate: NSPredicate? {
-        guard isSmartCollection, let predicateString = predicate else {
+        guard isSmartCollection,
+              let predicateString = predicate,
+              !predicateString.isEmpty else {
             return nil
         }
         return NSPredicate(format: predicateString)

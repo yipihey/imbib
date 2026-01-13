@@ -1105,8 +1105,10 @@ public actor PublicationRepository {
 
     /// Execute a smart collection query and return matching publications
     public func executeSmartCollection(_ collection: CDCollection) async -> [CDPublication] {
-        guard collection.isSmartCollection, let predicateString = collection.predicate else {
-            // For static collections, return the assigned publications
+        guard collection.isSmartCollection,
+              let predicateString = collection.predicate,
+              !predicateString.isEmpty else {
+            // For static collections or empty predicate, return the assigned publications
             return Array(collection.publications ?? [])
         }
 
@@ -1279,8 +1281,10 @@ public actor CollectionRepository {
 
     /// Execute a smart collection query
     public func executeSmartCollection(_ collection: CDCollection) async -> [CDPublication] {
-        guard collection.isSmartCollection, let predicateString = collection.predicate else {
-            // For static collections, return the assigned publications
+        guard collection.isSmartCollection,
+              let predicateString = collection.predicate,
+              !predicateString.isEmpty else {
+            // For static collections or empty predicate, return the assigned publications
             return Array(collection.publications ?? [])
         }
 
