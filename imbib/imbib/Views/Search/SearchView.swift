@@ -179,6 +179,7 @@ struct SearchResultsListView: View {
                 emptyStateMessage: "No Results",
                 emptyStateDescription: "Enter a query to search across multiple sources.",
                 listID: libraryManager.activeLibrary?.lastSearchCollection.map { .lastSearch($0.id) },
+                filterScope: .constant(.current),  // Search results are already filtered
                 onDelete: { ids in
                     await libraryViewModel.delete(ids: ids)
                 },

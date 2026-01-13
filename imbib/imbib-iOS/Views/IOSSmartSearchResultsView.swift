@@ -21,6 +21,7 @@ struct SmartSearchResultsView: View {
     @State private var multiSelection = Set<UUID>()
     @State private var isRefreshing = false
     @State private var errorMessage: String?
+    @State private var filterScope: FilterScope = .current
 
     var body: some View {
         PublicationListView(
@@ -34,6 +35,7 @@ struct SmartSearchResultsView: View {
             emptyStateMessage: "No Results",
             emptyStateDescription: "This smart search has no matching papers.",
             listID: .smartSearch(smartSearch.id),
+            filterScope: $filterScope,
             onDelete: { ids in
                 await libraryViewModel.delete(ids: ids)
                 await refreshResults()

@@ -335,6 +335,7 @@ struct IOSLibraryListView: View {
 
     @State private var publications: [CDPublication] = []
     @State private var multiSelection = Set<UUID>()
+    @State private var filterScope: FilterScope = .current
 
     var body: some View {
         PublicationListView(
@@ -348,6 +349,7 @@ struct IOSLibraryListView: View {
             emptyStateMessage: "No Publications",
             emptyStateDescription: "Import BibTeX files or search online to add papers.",
             listID: .library(library.id),
+            filterScope: $filterScope,
             onDelete: { ids in
                 await libraryViewModel.delete(ids: ids)
                 refreshPublications()

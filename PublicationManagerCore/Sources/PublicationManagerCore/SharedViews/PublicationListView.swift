@@ -8,6 +8,18 @@
 import SwiftUI
 import OSLog
 
+// MARK: - Filter Scope
+
+/// Scope for filtering publications in the search field
+public enum FilterScope: String, CaseIterable, Identifiable {
+    case current = "Current"
+    case allLibraries = "All Libraries"
+    case inbox = "Inbox"
+    case everything = "Everything"
+
+    public var id: String { rawValue }
+}
+
 // MARK: - Filter Cache
 
 /// Cache key for memoizing filtered row data
@@ -94,6 +106,9 @@ public struct PublicationListView: View {
     /// When true, the unread filter is disabled and all papers are shown.
     /// Used for Inbox view where papers should remain visible after being marked as read.
     public var disableUnreadFilter: Bool = false
+
+    /// Binding to the filter scope (controls which publications are searched)
+    @Binding public var filterScope: FilterScope
 
     // MARK: - Callbacks
 
@@ -258,6 +273,7 @@ public struct PublicationListView: View {
         emptyStateDescription: String = "Import a BibTeX file or search online sources to add publications.",
         listID: ListViewID? = nil,
         disableUnreadFilter: Bool = false,
+        filterScope: Binding<FilterScope>,
         onDelete: ((Set<UUID>) async -> Void)? = nil,
         onToggleRead: ((CDPublication) async -> Void)? = nil,
         onCopy: ((Set<UUID>) async -> Void)? = nil,
@@ -290,6 +306,7 @@ public struct PublicationListView: View {
         self.emptyStateDescription = emptyStateDescription
         self.listID = listID
         self.disableUnreadFilter = disableUnreadFilter
+        self._filterScope = filterScope
         self.onDelete = onDelete
         self.onToggleRead = onToggleRead
         self.onCopy = onCopy
@@ -521,6 +538,32 @@ public struct PublicationListView: View {
             .padding(6)
             .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
             .help("Filter by title, author, or cite key")
+
+            // Scope picker (search across different sources)
+            Menu {
+                ForEach(FilterScope.allCases) { scope in
+                    Button {
+                        filterScope = scope
+                    } label: {
+                        if scope == filterScope {
+                            Label(scope.rawValue, systemImage: "checkmark")
+                        } else {
+                            Text(scope.rawValue)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 2) {
+                    Text(filterScope.rawValue)
+                        .font(.caption)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                }
+                .foregroundColor(filterScope == .current ? Color.secondary : Color.blue)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Search scope: \(filterScope.rawValue)")
 
             Spacer()
 
@@ -1096,6 +1139,7 @@ public struct PublicationListView: View {
         selectedPublication: .constant(nil),
         showImportButton: true,
         showSortMenu: true,
+        filterScope: .constant(.current),
         onImport: { print("Import tapped") }
     )
 }

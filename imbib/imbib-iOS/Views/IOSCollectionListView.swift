@@ -30,6 +30,7 @@ struct IOSCollectionListView: View {
     @State private var publications: [CDPublication] = []
     @State private var multiSelection = Set<UUID>()
     @State private var filterMode: LibraryFilterMode = .all
+    @State private var filterScope: FilterScope = .current
 
     // MARK: - Body
 
@@ -45,6 +46,7 @@ struct IOSCollectionListView: View {
             emptyStateMessage: "No Publications",
             emptyStateDescription: "Add publications to this collection.",
             listID: .collection(collection.id),
+            filterScope: $filterScope,
             onDelete: { ids in
                 await libraryViewModel.delete(ids: ids)
                 refreshPublications()

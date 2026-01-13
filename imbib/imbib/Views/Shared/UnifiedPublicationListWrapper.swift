@@ -87,6 +87,7 @@ struct UnifiedPublicationListWrapper: View {
     @State private var isLoading = false
     @State private var error: Error?
     @State private var filterMode: LibraryFilterMode = .all
+    @State private var filterScope: FilterScope = .current
     @State private var provider: SmartSearchProvider?
     @StateObject private var dropHandler = FileDropHandler()
 
@@ -158,6 +159,12 @@ struct UnifiedPublicationListWrapper: View {
     }
 
     var body: some View {
+        bodyContent
+    }
+
+    /// Main body content separated to help compiler type-checking
+    @ViewBuilder
+    private var bodyContent: some View {
         contentView
             .navigationTitle(navigationTitle)
             .toolbar { toolbarContent }
@@ -168,10 +175,8 @@ struct UnifiedPublicationListWrapper: View {
             .onKeyPress(.init("s")) { handleStarKey() }
             .task(id: source.id) {
                 filterMode = initialFilterMode
-                // Always show cached results immediately (instant)
+                filterScope = .current  // Reset scope on navigation
                 refreshPublicationsList()
-
-                // For smart searches, queue high-priority background refresh if stale
                 if case .smartSearch(let smartSearch) = source {
                     await queueBackgroundRefreshIfNeeded(smartSearch)
                 }
@@ -179,50 +184,36 @@ struct UnifiedPublicationListWrapper: View {
             .onChange(of: filterMode) { _, _ in
                 refreshPublicationsList()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
-                toggleReadStatusForSelected()
+            .onChange(of: filterScope) { _, _ in
+                refreshPublicationsList()
             }
-            .onReceive(NotificationCenter.default.publisher(for: .copyPublications)) { _ in
-                Task { await copySelectedPublications() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .cutPublications)) { _ in
-                Task { await cutSelectedPublications() }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .pastePublications)) { _ in
-                Task {
-                    try? await libraryViewModel.pasteFromClipboard()
-                    refreshPublicationsList()
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .selectAllPublications)) { _ in
-                selectAllPublications()
-            }
-            // Listen for background smart search refresh completion
-            .onReceive(NotificationCenter.default.publisher(for: .smartSearchRefreshCompleted)) { notification in
-                if case .smartSearch(let smartSearch) = source,
-                   let completedID = notification.object as? UUID,
-                   completedID == smartSearch.id {
-                    logger.info("Background refresh completed for '\(smartSearch.name)', refreshing UI")
+            .modifier(NotificationModifiers(
+                onToggleReadStatus: toggleReadStatusForSelected,
+                onCopyPublications: { Task { await copySelectedPublications() } },
+                onCutPublications: { Task { await cutSelectedPublications() } },
+                onPastePublications: {
+                    Task {
+                        try? await libraryViewModel.pasteFromClipboard()
+                        refreshPublicationsList()
+                    }
+                },
+                onSelectAll: selectAllPublications
+            ))
+            .modifier(SmartSearchRefreshModifier(
+                source: source,
+                onRefreshComplete: { smartSearchName in
+                    logger.info("Background refresh completed for '\(smartSearchName)', refreshing UI")
                     isBackgroundRefreshing = false
                     refreshPublicationsList()
                 }
-            }
-            // Inbox triage notifications (for menu access)
-            .onReceive(NotificationCenter.default.publisher(for: .inboxArchive)) { _ in
-                if isInboxView && !selectedPublicationIDs.isEmpty {
-                    archiveSelectedToDefaultLibrary()
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .inboxDismiss)) { _ in
-                if isInboxView && !selectedPublicationIDs.isEmpty {
-                    dismissSelectedFromInbox()
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .inboxToggleStar)) { _ in
-                if isInboxView && !selectedPublicationIDs.isEmpty {
-                    toggleStarForSelected()
-                }
-            }
+            ))
+            .modifier(InboxTriageModifier(
+                isInboxView: isInboxView,
+                hasSelection: !selectedPublicationIDs.isEmpty,
+                onArchive: archiveSelectedToDefaultLibrary,
+                onDismiss: dismissSelectedFromInbox,
+                onToggleStar: toggleStarForSelected
+            ))
             .alert("Duplicate File", isPresented: $showDuplicateAlert) {
                 Button("Skip") {
                     dropHandler.resolveDuplicate(proceed: false)
@@ -280,6 +271,7 @@ struct UnifiedPublicationListWrapper: View {
             emptyStateDescription: emptyDescription,
             listID: listID,
             disableUnreadFilter: false,
+            filterScope: $filterScope,
             onDelete: { ids in
                 await libraryViewModel.delete(ids: ids)
                 refreshPublicationsList()
@@ -396,6 +388,24 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Refresh publications from data source (synchronous read)
     private func refreshPublicationsList() {
+        // Handle cross-scope fetching
+        switch filterScope {
+        case .current:
+            refreshCurrentScopePublications()
+        case .allLibraries:
+            publications = fetchAllLibrariesPublications()
+            logger.info("Refreshed all libraries: \(self.publications.count) items")
+        case .inbox:
+            publications = fetchInboxPublications()
+            logger.info("Refreshed inbox: \(self.publications.count) items")
+        case .everything:
+            publications = fetchEverythingPublications()
+            logger.info("Refreshed everything: \(self.publications.count) items")
+        }
+    }
+
+    /// Refresh publications for the current source (library or smart search)
+    private func refreshCurrentScopePublications() {
         switch source {
         case .library(let library):
             // Start with publications directly in the library
@@ -444,6 +454,86 @@ struct UnifiedPublicationListWrapper: View {
             publications = result.sorted { $0.dateAdded > $1.dateAdded }
             logger.info("Refreshed smart search publications: \(self.publications.count) items")
         }
+    }
+
+    /// Fetch all publications from all non-inbox libraries
+    private func fetchAllLibrariesPublications() -> [CDPublication] {
+        var allPublications = Set<CDPublication>()
+
+        for library in libraryManager.libraries where !library.isInbox {
+            if let nsSet = library.publications as? NSSet {
+                let pubs = nsSet.compactMap { $0 as? CDPublication }
+                    .filter { !$0.isDeleted && $0.managedObjectContext != nil }
+                allPublications.formUnion(pubs)
+            }
+
+            // Include smart search results
+            if let smartSearches = library.smartSearches as? Set<CDSmartSearch> {
+                for smartSearch in smartSearches {
+                    if let collection = smartSearch.resultCollection,
+                       let collectionPubs = collection.publications {
+                        let validPubs = collectionPubs.filter { !$0.isDeleted && $0.managedObjectContext != nil }
+                        allPublications.formUnion(validPubs)
+                    }
+                }
+            }
+        }
+
+        return Array(allPublications).sorted { $0.dateAdded > $1.dateAdded }
+    }
+
+    /// Fetch all publications from the Inbox library
+    private func fetchInboxPublications() -> [CDPublication] {
+        guard let inboxLibrary = libraryManager.libraries.first(where: { $0.isInbox }) else {
+            return []
+        }
+
+        var allPublications = Set<CDPublication>()
+
+        if let nsSet = inboxLibrary.publications as? NSSet {
+            let pubs = nsSet.compactMap { $0 as? CDPublication }
+                .filter { !$0.isDeleted && $0.managedObjectContext != nil }
+            allPublications.formUnion(pubs)
+        }
+
+        // Include inbox smart search results
+        if let smartSearches = inboxLibrary.smartSearches as? Set<CDSmartSearch> {
+            for smartSearch in smartSearches {
+                if let collection = smartSearch.resultCollection,
+                   let collectionPubs = collection.publications {
+                    let validPubs = collectionPubs.filter { !$0.isDeleted && $0.managedObjectContext != nil }
+                    allPublications.formUnion(validPubs)
+                }
+            }
+        }
+
+        return Array(allPublications).sorted { $0.dateAdded > $1.dateAdded }
+    }
+
+    /// Fetch all publications from all libraries including Inbox
+    private func fetchEverythingPublications() -> [CDPublication] {
+        var allPublications = Set<CDPublication>()
+
+        for library in libraryManager.libraries {
+            if let nsSet = library.publications as? NSSet {
+                let pubs = nsSet.compactMap { $0 as? CDPublication }
+                    .filter { !$0.isDeleted && $0.managedObjectContext != nil }
+                allPublications.formUnion(pubs)
+            }
+
+            // Include smart search results
+            if let smartSearches = library.smartSearches as? Set<CDSmartSearch> {
+                for smartSearch in smartSearches {
+                    if let collection = smartSearch.resultCollection,
+                       let collectionPubs = collection.publications {
+                        let validPubs = collectionPubs.filter { !$0.isDeleted && $0.managedObjectContext != nil }
+                        allPublications.formUnion(validPubs)
+                    }
+                }
+            }
+        }
+
+        return Array(allPublications).sorted { $0.dateAdded > $1.dateAdded }
     }
 
     /// Refresh from network (async operation with loading state)
@@ -787,6 +877,81 @@ struct UnifiedPublicationListWrapper: View {
             NSWorkspace.shared.open(pdfURL)
             #endif
         }
+    }
+}
+
+// MARK: - View Modifiers (extracted to help compiler type-checking)
+
+/// Handles notification subscriptions for clipboard and selection operations
+private struct NotificationModifiers: ViewModifier {
+    let onToggleReadStatus: () -> Void
+    let onCopyPublications: () -> Void
+    let onCutPublications: () -> Void
+    let onPastePublications: () -> Void
+    let onSelectAll: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
+                onToggleReadStatus()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .copyPublications)) { _ in
+                onCopyPublications()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .cutPublications)) { _ in
+                onCutPublications()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .pastePublications)) { _ in
+                onPastePublications()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .selectAllPublications)) { _ in
+                onSelectAll()
+            }
+    }
+}
+
+/// Handles smart search refresh completion notifications
+private struct SmartSearchRefreshModifier: ViewModifier {
+    let source: PublicationSource
+    let onRefreshComplete: (String) -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .smartSearchRefreshCompleted)) { notification in
+                if case .smartSearch(let smartSearch) = source,
+                   let completedID = notification.object as? UUID,
+                   completedID == smartSearch.id {
+                    onRefreshComplete(smartSearch.name)
+                }
+            }
+    }
+}
+
+/// Handles inbox triage notification subscriptions
+private struct InboxTriageModifier: ViewModifier {
+    let isInboxView: Bool
+    let hasSelection: Bool
+    let onArchive: () -> Void
+    let onDismiss: () -> Void
+    let onToggleStar: () -> Void
+
+    func body(content: Content) -> some View {
+        content
+            .onReceive(NotificationCenter.default.publisher(for: .inboxArchive)) { _ in
+                if isInboxView && hasSelection {
+                    onArchive()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .inboxDismiss)) { _ in
+                if isInboxView && hasSelection {
+                    onDismiss()
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .inboxToggleStar)) { _ in
+                if isInboxView && hasSelection {
+                    onToggleStar()
+                }
+            }
     }
 }
 

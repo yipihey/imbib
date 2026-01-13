@@ -584,6 +584,7 @@ struct CollectionListView: View {
     @State private var publications: [CDPublication] = []
     @State private var multiSelection = Set<UUID>()
     @State private var filterMode: LibraryFilterMode = .all
+    @State private var filterScope: FilterScope = .current
     @StateObject private var dropHandler = FileDropHandler()
 
     // State for duplicate file alert
@@ -604,6 +605,7 @@ struct CollectionListView: View {
             emptyStateMessage: "No Publications",
             emptyStateDescription: "Drag publications to this collection.",
             listID: .collection(collection.id),
+            filterScope: $filterScope,
             onDelete: { ids in
                 await libraryViewModel.delete(ids: ids)
                 refreshPublications()

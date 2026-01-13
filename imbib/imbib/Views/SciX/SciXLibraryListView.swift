@@ -65,6 +65,7 @@ struct SciXLibraryListView: View {
                     emptyStateMessage: "No Papers",
                     emptyStateDescription: "This SciX library is empty.",
                     listID: .scixLibrary(library.id),
+                    filterScope: .constant(.current),  // SciX libraries are remote, scope doesn't apply
                     onDelete: nil,  // SciX deletion handled via pending changes
                     onAddToLibrary: { ids, targetLibrary in
                         await copyToLocalLibrary(ids: ids, library: targetLibrary)
