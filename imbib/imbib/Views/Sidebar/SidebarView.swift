@@ -86,7 +86,11 @@ struct SidebarView: View {
             }
         }
         .sheet(isPresented: $showingNewInboxFeed) {
-            SmartSearchEditorView(smartSearch: nil, library: nil, defaultFeedsToInbox: true) {
+            SmartSearchEditorView(
+                smartSearch: nil,
+                library: libraryManager.libraries.first(where: { $0.isInbox }),
+                defaultFeedsToInbox: true
+            ) {
                 // Reload all smart searches to update sidebar
                 smartSearchRepository.loadSmartSearches(for: nil)
             }

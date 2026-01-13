@@ -105,25 +105,28 @@ struct SmartSearchEditorView: View {
                     }
                 }
 
-                Section {
-                    Toggle("Feed to Inbox", isOn: $feedsToInbox)
+                // Only show Inbox options for feeds in the Inbox library
+                if library?.isInbox == true {
+                    Section {
+                        Toggle("Feed to Inbox", isOn: $feedsToInbox)
 
-                    if feedsToInbox {
-                        Toggle("Auto-Refresh", isOn: $autoRefreshEnabled)
+                        if feedsToInbox {
+                            Toggle("Auto-Refresh", isOn: $autoRefreshEnabled)
 
-                        if autoRefreshEnabled {
-                            Picker("Refresh Interval", selection: $refreshInterval) {
-                                ForEach(RefreshIntervalPreset.allCases, id: \.self) { preset in
-                                    Text(preset.displayName).tag(preset)
+                            if autoRefreshEnabled {
+                                Picker("Refresh Interval", selection: $refreshInterval) {
+                                    ForEach(RefreshIntervalPreset.allCases, id: \.self) { preset in
+                                        Text(preset.displayName).tag(preset)
+                                    }
                                 }
                             }
                         }
-                    }
-                } header: {
-                    Text("Inbox")
-                } footer: {
-                    if feedsToInbox {
-                        Text("Papers from this search will be added to your Inbox for triage.")
+                    } header: {
+                        Text("Inbox")
+                    } footer: {
+                        if feedsToInbox {
+                            Text("Papers from this search will be added to your Inbox for triage.")
+                        }
                     }
                 }
             }
