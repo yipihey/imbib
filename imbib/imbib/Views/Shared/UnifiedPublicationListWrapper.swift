@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PublicationManagerCore
+import CoreData
 import OSLog
 
 private let logger = Logger(subsystem: "com.imbib.app", category: "publicationlist")
@@ -417,13 +418,26 @@ struct UnifiedPublicationListWrapper: View {
                 allPublications.formUnion(directPubs)
             }
 
-            // Also include publications from all smart searches associated with this library
-            if let smartSearches = library.smartSearches as? Set<CDSmartSearch> {
-                for smartSearch in smartSearches {
+            // For Inbox: Include ALL feeds (feedsToInbox=true) regardless of library relationship
+            // This handles feeds created before the library relationship fix
+            if library.isInbox {
+                let allFeeds = fetchAllInboxFeeds()
+                for smartSearch in allFeeds {
                     if let collection = smartSearch.resultCollection,
                        let collectionPubs = collection.publications {
                         let validPubs = collectionPubs.filter { !$0.isDeleted && $0.managedObjectContext != nil }
                         allPublications.formUnion(validPubs)
+                    }
+                }
+            } else {
+                // For regular libraries: include smart searches associated with this library
+                if let smartSearches = library.smartSearches as? Set<CDSmartSearch> {
+                    for smartSearch in smartSearches {
+                        if let collection = smartSearch.resultCollection,
+                           let collectionPubs = collection.publications {
+                            let validPubs = collectionPubs.filter { !$0.isDeleted && $0.managedObjectContext != nil }
+                            allPublications.formUnion(validPubs)
+                        }
                     }
                 }
             }
@@ -482,7 +496,7 @@ struct UnifiedPublicationListWrapper: View {
         return Array(allPublications).sorted { $0.dateAdded > $1.dateAdded }
     }
 
-    /// Fetch all publications from the Inbox library
+    /// Fetch all publications from the Inbox library (including ALL inbox feeds)
     private func fetchInboxPublications() -> [CDPublication] {
         guard let inboxLibrary = libraryManager.libraries.first(where: { $0.isInbox }) else {
             return []
@@ -490,24 +504,39 @@ struct UnifiedPublicationListWrapper: View {
 
         var allPublications = Set<CDPublication>()
 
+        // Direct publications in Inbox
         if let nsSet = inboxLibrary.publications as? NSSet {
             let pubs = nsSet.compactMap { $0 as? CDPublication }
                 .filter { !$0.isDeleted && $0.managedObjectContext != nil }
             allPublications.formUnion(pubs)
         }
 
-        // Include inbox smart search results
-        if let smartSearches = inboxLibrary.smartSearches as? Set<CDSmartSearch> {
-            for smartSearch in smartSearches {
-                if let collection = smartSearch.resultCollection,
-                   let collectionPubs = collection.publications {
-                    let validPubs = collectionPubs.filter { !$0.isDeleted && $0.managedObjectContext != nil }
-                    allPublications.formUnion(validPubs)
-                }
+        // Include ALL feeds (feedsToInbox=true) regardless of library relationship
+        // This handles feeds created before the library relationship fix
+        let allFeeds = fetchAllInboxFeeds()
+        for smartSearch in allFeeds {
+            if let collection = smartSearch.resultCollection,
+               let collectionPubs = collection.publications {
+                let validPubs = collectionPubs.filter { !$0.isDeleted && $0.managedObjectContext != nil }
+                allPublications.formUnion(validPubs)
             }
         }
 
         return Array(allPublications).sorted { $0.dateAdded > $1.dateAdded }
+    }
+
+    /// Fetch all smart searches marked as feeds (feedsToInbox=true)
+    private func fetchAllInboxFeeds() -> [CDSmartSearch] {
+        let context = PersistenceController.shared.viewContext
+        let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
+        request.predicate = NSPredicate(format: "feedsToInbox == YES")
+
+        do {
+            return try context.fetch(request)
+        } catch {
+            logger.error("Failed to fetch inbox feeds: \(error.localizedDescription)")
+            return []
+        }
     }
 
     /// Fetch all publications from all libraries including Inbox
