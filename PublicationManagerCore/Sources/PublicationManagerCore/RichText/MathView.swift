@@ -87,6 +87,12 @@ struct MathViewRepresentable: NSViewRepresentable {
         configureLabel(label)
     }
 
+    /// Report intrinsic content size to SwiftUI for proper layout in WrappingHStack
+    @MainActor
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: MTMathUILabel, context: Context) -> CGSize? {
+        return nsView.intrinsicContentSize
+    }
+
     private func configureLabel(_ label: MTMathUILabel) {
         label.latex = latex
         label.fontSize = fontSize
@@ -114,6 +120,12 @@ struct MathViewRepresentable: UIViewRepresentable {
 
     func updateUIView(_ label: MTMathUILabel, context: Context) {
         configureLabel(label)
+    }
+
+    /// Report intrinsic content size to SwiftUI for proper layout in WrappingHStack
+    @MainActor
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: MTMathUILabel, context: Context) -> CGSize? {
+        return uiView.intrinsicContentSize
     }
 
     private func configureLabel(_ label: MTMathUILabel) {
