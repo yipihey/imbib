@@ -45,9 +45,13 @@ struct SidebarView: View {
     @State private var renamingCollection: CDCollection?  // Collection being renamed inline
     @State private var showingNewInboxFeed = false
     @State private var hasSciXAPIKey = false  // Whether SciX API key is configured
+    @State private var explorationRefreshTrigger = UUID()  // Refresh exploration section
+    @State private var explorationMultiSelection: Set<UUID> = []  // Multi-selection for bulk delete (Option+click)
+    @State private var lastSelectedExplorationID: UUID?  // For Shift+click range selection
 
-    // Section ordering (persisted)
+    // Section ordering and collapsed state (persisted)
     @State private var sectionOrder: [SidebarSectionType] = SidebarSectionOrderStore.loadOrderSync()
+    @State private var collapsedSections: Set<SidebarSectionType> = SidebarCollapsedStateStore.loadCollapsedSync()
 
     // MARK: - Body
 
@@ -55,13 +59,12 @@ struct SidebarView: View {
         VStack(spacing: 0) {
             // Main list
             List(selection: $selection) {
-                // Inbox Section (always at top, not reorderable)
-                inboxSection
-
-                // Reorderable sections (right-click section header to reorder)
+                // All sections in user-defined order, all collapsible and moveable
                 ForEach(sectionOrder) { sectionType in
                     sectionView(for: sectionType)
+                        .id(sectionType == .exploration ? explorationRefreshTrigger : nil)
                 }
+                .onMove(perform: moveSections)
             }
             .listStyle(.sidebar)
 
@@ -145,6 +148,17 @@ struct SidebarView: View {
             // Force re-render to update unread counts
             refreshTrigger = UUID()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .explorationLibraryDidChange)) { _ in
+            // Refresh exploration section
+            explorationRefreshTrigger = UUID()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToCollection)) { notification in
+            // Navigate to the collection in the sidebar
+            if let collection = notification.userInfo?["collection"] as? CDCollection {
+                selection = .collection(collection)
+                explorationRefreshTrigger = UUID()
+            }
+        }
         .id(refreshTrigger)  // Re-render when refreshTrigger changes
     }
 
@@ -154,135 +168,314 @@ struct SidebarView: View {
     @ViewBuilder
     private func sectionView(for sectionType: SidebarSectionType) -> some View {
         switch sectionType {
+        case .inbox:
+            collapsibleSection(for: .inbox) {
+                inboxSectionContent
+            }
         case .libraries:
-            librariesSection
+            collapsibleSection(for: .libraries) {
+                librariesSectionContent
+            }
         case .scixLibraries:
-            scixLibrariesSection
+            if hasSciXAPIKey && !scixRepository.libraries.isEmpty {
+                collapsibleSection(for: .scixLibraries) {
+                    scixLibrariesSectionContent
+                }
+            }
         case .search:
-            searchSection
+            collapsibleSection(for: .search) {
+                searchSectionContent
+            }
+        case .exploration:
+            if let library = libraryManager.explorationLibrary,
+               let collections = library.collections,
+               !collections.isEmpty {
+                collapsibleSection(for: .exploration) {
+                    explorationSectionContent
+                }
+            }
         }
     }
 
-    /// Libraries section content
-    private var librariesSection: some View {
-        Section {
-            ForEach(libraryManager.libraries.filter { !$0.isInbox }, id: \.id) { library in
-                libraryDisclosureGroup(for: library)
-            }
-            .onMove { indices, destination in
-                libraryManager.moveLibraries(from: indices, to: destination)
-            }
-        } header: {
-            sectionHeader(for: .libraries)
-        }
-    }
-
-    /// SciX Libraries section content (only visible if API key configured and libraries exist)
+    /// Wraps section content in a collapsible Section with standard header
     @ViewBuilder
-    private var scixLibrariesSection: some View {
-        if hasSciXAPIKey && !scixRepository.libraries.isEmpty {
-            Section {
-                ForEach(scixRepository.libraries, id: \.id) { library in
-                    scixLibraryRow(for: library)
+    private func collapsibleSection<Content: View>(
+        for sectionType: SidebarSectionType,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let isCollapsed = collapsedSections.contains(sectionType)
+
+        Section {
+            if !isCollapsed {
+                content()
+            }
+        } header: {
+            HStack(spacing: 4) {
+                // Collapse/expand button
+                Button {
+                    toggleSectionCollapsed(sectionType)
+                } label: {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12)
                 }
-            } header: {
-                HStack {
-                    scixLibrariesSectionHeader
-                    Spacer()
-                    sectionReorderMenu(for: .scixLibraries)
+                .buttonStyle(.plain)
+
+                // Section title
+                Text(sectionType.displayName)
+
+                Spacer()
+
+                // Additional header content based on section type
+                sectionHeaderExtras(for: sectionType)
+            }
+        }
+    }
+
+    /// Toggle collapsed state for a section
+    private func toggleSectionCollapsed(_ sectionType: SidebarSectionType) {
+        if collapsedSections.contains(sectionType) {
+            collapsedSections.remove(sectionType)
+        } else {
+            collapsedSections.insert(sectionType)
+        }
+        // Persist
+        Task {
+            await SidebarCollapsedStateStore.shared.save(collapsedSections)
+        }
+    }
+
+    /// Additional header content for specific section types
+    @ViewBuilder
+    private func sectionHeaderExtras(for sectionType: SidebarSectionType) -> some View {
+        switch sectionType {
+        case .inbox:
+            // Add feed button
+            Button {
+                showingNewInboxFeed = true
+            } label: {
+                Image(systemName: "plus.circle")
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .help("Add Inbox Feed")
+        case .libraries:
+            // Add library button
+            Button {
+                showingNewLibrary = true
+            } label: {
+                Image(systemName: "plus.circle")
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .help("Add Library")
+        case .exploration:
+            // Show selection count when multi-selected
+            if explorationMultiSelection.count > 1 {
+                Text("\(explorationMultiSelection.count) selected")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    /// Libraries section content (without Section wrapper)
+    @ViewBuilder
+    private var librariesSectionContent: some View {
+        ForEach(libraryManager.libraries.filter { !$0.isInbox }, id: \.id) { library in
+            libraryDisclosureGroup(for: library)
+        }
+        .onMove { indices, destination in
+            libraryManager.moveLibraries(from: indices, to: destination)
+        }
+    }
+
+    /// SciX Libraries section content (without Section wrapper)
+    @ViewBuilder
+    private var scixLibrariesSectionContent: some View {
+        ForEach(scixRepository.libraries, id: \.id) { library in
+            scixLibraryRow(for: library)
+        }
+    }
+
+    /// Search section content (without Section wrapper)
+    @ViewBuilder
+    private var searchSectionContent: some View {
+        Label("Search Sources", systemImage: "magnifyingglass")
+            .tag(SidebarSection.search)
+    }
+
+    /// Exploration section content (without Section wrapper)
+    @ViewBuilder
+    private var explorationSectionContent: some View {
+        if let library = libraryManager.explorationLibrary,
+           let collections = library.collections,
+           !collections.isEmpty {
+            let flatCollections = flattenedExplorationCollections(from: collections)
+            ForEach(flatCollections, id: \.id) { collection in
+                explorationCollectionRow(collection, allCollections: flatCollections)
+            }
+        }
+    }
+
+    /// Delete all selected exploration collections
+    private func deleteSelectedExplorationCollections() {
+        // Clear main selection if any selected collection is being deleted
+        if case .collection(let selected) = selection,
+           explorationMultiSelection.contains(selected.id) {
+            selection = nil
+        }
+
+        // Delete all selected collections
+        if let library = libraryManager.explorationLibrary,
+           let collections = library.collections {
+            for collection in collections where explorationMultiSelection.contains(collection.id) {
+                libraryManager.deleteExplorationCollection(collection)
+            }
+        }
+
+        explorationMultiSelection.removeAll()
+        lastSelectedExplorationID = nil
+        explorationRefreshTrigger = UUID()
+    }
+
+    /// Flatten collection hierarchy into a list with proper ordering
+    private func flattenedExplorationCollections(from collections: Set<CDCollection>) -> [CDCollection] {
+        var result: [CDCollection] = []
+
+        func addWithChildren(_ collection: CDCollection) {
+            result.append(collection)
+            for child in collection.sortedChildren {
+                addWithChildren(child)
+            }
+        }
+
+        // Start with root collections
+        for collection in Array(collections).filter({ $0.parentCollection == nil }).sorted(by: { $0.name < $1.name }) {
+            addWithChildren(collection)
+        }
+
+        return result
+    }
+
+    /// Row for an exploration collection (with indentation based on depth)
+    /// Uses Finder-style selection: Option+click to toggle, Shift+click for range
+    @ViewBuilder
+    private func explorationCollectionRow(_ collection: CDCollection, allCollections: [CDCollection]) -> some View {
+        let isMultiSelected = explorationMultiSelection.contains(collection.id)
+
+        HStack {
+            // Indent based on depth
+            if collection.depth > 0 {
+                Spacer()
+                    .frame(width: CGFloat(collection.depth) * 12)
+            }
+
+            Label {
+                Text(collection.name)
+            } icon: {
+                Image(systemName: "doc.text.magnifyingglass")
+            }
+
+            Spacer()
+
+            if collection.matchingPublicationCount > 0 {
+                CountBadge(count: collection.matchingPublicationCount)
+            }
+        }
+        .contentShape(Rectangle())
+        // Visual feedback for multi-selection
+        .listRowBackground(
+            isMultiSelected
+                ? Color.accentColor.opacity(0.2)
+                : nil
+        )
+        .gesture(
+            TapGesture()
+                .modifiers(.option)
+                .onEnded { _ in
+                    // Option+click: Toggle selection
+                    if explorationMultiSelection.contains(collection.id) {
+                        explorationMultiSelection.remove(collection.id)
+                    } else {
+                        explorationMultiSelection.insert(collection.id)
+                    }
+                    lastSelectedExplorationID = collection.id
+                }
+        )
+        .simultaneousGesture(
+            TapGesture()
+                .modifiers(.shift)
+                .onEnded { _ in
+                    // Shift+click: Range selection
+                    handleShiftClick(collection: collection, allCollections: allCollections)
+                }
+        )
+        .onTapGesture {
+            // Normal click: Clear multi-selection and navigate
+            explorationMultiSelection.removeAll()
+            explorationMultiSelection.insert(collection.id)
+            lastSelectedExplorationID = collection.id
+            selection = .collection(collection)
+        }
+        .tag(SidebarSection.collection(collection))
+        .contextMenu {
+            if explorationMultiSelection.count > 1 && explorationMultiSelection.contains(collection.id) {
+                // Multi-selection context menu
+                Button("Delete \(explorationMultiSelection.count) Items", role: .destructive) {
+                    deleteSelectedExplorationCollections()
+                }
+            } else {
+                // Single item context menu
+                Button("Delete", role: .destructive) {
+                    deleteExplorationCollection(collection)
                 }
             }
         }
     }
 
-    /// Search section content
-    private var searchSection: some View {
-        Section {
-            Label("Search Sources", systemImage: "magnifyingglass")
-                .tag(SidebarSection.search)
-        } header: {
-            sectionHeader(for: .search)
+    /// Handle Shift+click for range selection in exploration section
+    private func handleShiftClick(collection: CDCollection, allCollections: [CDCollection]) {
+        guard let lastID = lastSelectedExplorationID,
+              let lastIndex = allCollections.firstIndex(where: { $0.id == lastID }),
+              let currentIndex = allCollections.firstIndex(where: { $0.id == collection.id }) else {
+            // No previous selection, just select this one
+            explorationMultiSelection.insert(collection.id)
+            lastSelectedExplorationID = collection.id
+            return
         }
+
+        // Select range from last to current
+        let range = min(lastIndex, currentIndex)...max(lastIndex, currentIndex)
+        for i in range {
+            explorationMultiSelection.insert(allCollections[i].id)
+        }
+    }
+
+    /// Delete an exploration collection
+    private func deleteExplorationCollection(_ collection: CDCollection) {
+        // Clear selection if this collection is selected
+        if case .collection(let selected) = selection, selected.id == collection.id {
+            selection = nil
+        }
+
+        libraryManager.deleteExplorationCollection(collection)
+        explorationRefreshTrigger = UUID()
     }
 
     // MARK: - Section Reordering
 
-    /// Section header with reorder menu
-    @ViewBuilder
-    private func sectionHeader(for sectionType: SidebarSectionType) -> some View {
-        HStack {
-            Text(sectionType.displayName)
-            Spacer()
-            sectionReorderMenu(for: sectionType)
-        }
-    }
-
-    /// Menu for reordering a section
-    @ViewBuilder
-    private func sectionReorderMenu(for sectionType: SidebarSectionType) -> some View {
-        Menu {
-            let currentIndex = sectionOrder.firstIndex(of: sectionType) ?? 0
-
-            Button {
-                moveSection(sectionType, direction: .up)
-            } label: {
-                Label("Move Up", systemImage: "arrow.up")
-            }
-            .disabled(currentIndex == 0)
-
-            Button {
-                moveSection(sectionType, direction: .down)
-            } label: {
-                Label("Move Down", systemImage: "arrow.down")
-            }
-            .disabled(currentIndex >= sectionOrder.count - 1)
-
-            Divider()
-
-            Button {
-                Task {
-                    await SidebarSectionOrderStore.shared.reset()
-                    sectionOrder = SidebarSectionOrderStore.defaultOrder
-                }
-            } label: {
-                Label("Reset Order", systemImage: "arrow.counterclockwise")
-            }
-        } label: {
-            Image(systemName: "line.3.horizontal")
-                .font(.caption)
-                .foregroundColor(.secondary)
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .help("Reorder sidebar sections")
-    }
-
-    /// Move a section up or down
-    private func moveSection(_ sectionType: SidebarSectionType, direction: MoveDirection) {
-        guard let currentIndex = sectionOrder.firstIndex(of: sectionType) else { return }
-
-        let newIndex: Int
-        switch direction {
-        case .up:
-            newIndex = max(0, currentIndex - 1)
-        case .down:
-            newIndex = min(sectionOrder.count - 1, currentIndex + 1)
-        }
-
-        guard newIndex != currentIndex else { return }
-
+    /// Handle drag-and-drop reordering of sections
+    private func moveSections(from source: IndexSet, to destination: Int) {
         withAnimation {
-            sectionOrder.remove(at: currentIndex)
-            sectionOrder.insert(sectionType, at: newIndex)
+            sectionOrder.move(fromOffsets: source, toOffset: destination)
         }
-
         Task {
             await SidebarSectionOrderStore.shared.save(sectionOrder)
         }
-    }
-
-    private enum MoveDirection {
-        case up, down
     }
 
     // MARK: - Library Disclosure Group
@@ -308,26 +501,6 @@ struct SidebarView: View {
                 }
                 return true
             }
-
-            // Unread with badge
-            HStack {
-                Label("Unread", systemImage: "circle.fill")
-                    .foregroundStyle(.blue)
-                Spacer()
-                if let count = unreadCount(for: library), count > 0 {
-                    Text("\(count)")
-                        .font(.caption2)
-                        .fontWeight(.medium)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .clipShape(Capsule())
-                        .help("Unread papers in this library")
-                }
-            }
-            .tag(SidebarSection.unread(library))
-            .help("Papers you haven't read yet")
 
             // Smart Searches for this library (use repository for change observation)
             let librarySmartSearches = smartSearchRepository.smartSearches.filter { $0.library?.id == library.id }
@@ -485,6 +658,19 @@ struct SidebarView: View {
         }
         .tag(SidebarSection.scixLibrary(library))
         .contextMenu {
+            Button {
+                // Open library on SciX/ADS web interface
+                if let url = URL(string: "https://ui.adsabs.harvard.edu/user/libraries/\(library.remoteID)") {
+                    #if os(macOS)
+                    NSWorkspace.shared.open(url)
+                    #else
+                    UIApplication.shared.open(url)
+                    #endif
+                }
+            } label: {
+                Label("Open on SciX", systemImage: "safari")
+            }
+
             Button {
                 Task {
                     try? await SciXSyncManager.shared.pullLibraryPapers(libraryID: library.remoteID)
@@ -678,70 +864,59 @@ struct SidebarView: View {
 
     // MARK: - Inbox Section
 
+    /// Inbox section content (without Section wrapper)
     @ViewBuilder
-    private var inboxSection: some View {
-        Section("Inbox") {
-            // Inbox header with unread badge
+    private var inboxSectionContent: some View {
+        // Inbox header with unread badge
+        HStack {
+            Label("All Publications", systemImage: "tray.full")
+            Spacer()
+            if inboxUnreadCount > 0 {
+                Text("\(inboxUnreadCount)")
+                    .font(.caption2)
+                    .fontWeight(.medium)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(Color.blue)
+                    .foregroundColor(.white)
+                    .clipShape(Capsule())
+            }
+        }
+        .tag(SidebarSection.inbox)
+
+        // Inbox feeds (smart searches with feedsToInbox)
+        ForEach(inboxFeeds, id: \.id) { feed in
             HStack {
-                Label("All Publications", systemImage: "tray.full")
+                Label(feed.name, systemImage: "antenna.radiowaves.left.and.right")
+                    .help("Papers matching this feed appear in Inbox")
                 Spacer()
-                if inboxUnreadCount > 0 {
-                    Text("\(inboxUnreadCount)")
-                        .font(.caption2)
-                        .fontWeight(.medium)
+                // Show unread count for this feed
+                let unreadCount = unreadCountForFeed(feed)
+                if unreadCount > 0 {
+                    Text("\(unreadCount)")
+                        .font(.caption)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
+                        .background(Color.accentColor)
+                        .foregroundStyle(.white)
                         .clipShape(Capsule())
                 }
             }
-            .tag(SidebarSection.inbox)
-
-            // Inbox feeds (smart searches with feedsToInbox)
-            ForEach(inboxFeeds, id: \.id) { feed in
-                HStack {
-                    Label(feed.name, systemImage: "antenna.radiowaves.left.and.right")
-                        .help("Papers matching this feed appear in Inbox")
-                    Spacer()
-                    // Show unread count for this feed
-                    let unreadCount = unreadCountForFeed(feed)
-                    if unreadCount > 0 {
-                        Text("\(unreadCount)")
-                            .font(.caption)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.accentColor)
-                            .foregroundStyle(.white)
-                            .clipShape(Capsule())
+            .tag(SidebarSection.inboxFeed(feed))
+            .contextMenu {
+                Button("Refresh Now") {
+                    Task {
+                        await refreshInboxFeed(feed)
                     }
                 }
-                .tag(SidebarSection.inboxFeed(feed))
-                .contextMenu {
-                    Button("Refresh Now") {
-                        Task {
-                            await refreshInboxFeed(feed)
-                        }
-                    }
-                    Button("Edit") {
-                        editingSmartSearch = feed
-                    }
-                    Divider()
-                    Button("Remove from Inbox", role: .destructive) {
-                        removeFromInbox(feed)
-                    }
+                Button("Edit") {
+                    editingSmartSearch = feed
+                }
+                Divider()
+                Button("Remove from Inbox", role: .destructive) {
+                    removeFromInbox(feed)
                 }
             }
-
-            // Add feed button
-            Button {
-                showingNewInboxFeed = true
-            } label: {
-                Label("Add Feed...", systemImage: "plus.circle")
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("Create a new inbox feed from a search query")
         }
     }
 
@@ -826,7 +1001,7 @@ struct SidebarView: View {
             return InboxManager.shared.inboxLibrary
         case .inboxFeed(let feed):
             return feed.library ?? InboxManager.shared.inboxLibrary
-        case .library(let library), .unread(let library):
+        case .library(let library):
             return library
         case .smartSearch(let smartSearch):
             return smartSearch.library
@@ -837,41 +1012,20 @@ struct SidebarView: View {
         }
     }
 
-    private func unreadCount(for library: CDLibrary) -> Int? {
-        // Count unread publications in this library (including smart search results)
-        let allPubs = allPublications(for: library)
-        guard !allPubs.isEmpty else { return nil }
-        return allPubs.filter { !$0.isRead }.count
-    }
-
     private func publicationCount(for library: CDLibrary) -> Int {
         allPublications(for: library).count
     }
 
-    /// Get all publications for a library, including smart search results
+    /// Get all publications for a library.
+    ///
+    /// Simplified: All papers are in `library.publications` (smart search results included).
     private func allPublications(for library: CDLibrary) -> Set<CDPublication> {
-        var allPubs = Set<CDPublication>()
-
-        // Direct library publications
-        if let directPubs = library.publications as? Set<CDPublication> {
-            allPubs.formUnion(directPubs.filter { !$0.isDeleted })
-        }
-
-        // Publications from smart searches
-        if let smartSearches = library.smartSearches as? Set<CDSmartSearch> {
-            for smartSearch in smartSearches {
-                if let collection = smartSearch.resultCollection,
-                   let collectionPubs = collection.publications {
-                    allPubs.formUnion(collectionPubs.filter { !$0.isDeleted })
-                }
-            }
-        }
-
-        return allPubs
+        (library.publications ?? []).filter { !$0.isDeleted }
     }
 
     private func publicationCount(for collection: CDCollection) -> Int {
-        collection.publications?.count ?? 0
+        // Use matchingPublicationCount which handles both static and smart collections
+        collection.matchingPublicationCount
     }
 
     private func resultCount(for smartSearch: CDSmartSearch) -> Int {
@@ -962,7 +1116,7 @@ struct SidebarView: View {
             switch currentSelection {
             case .inbox, .inboxFeed:
                 break  // Inbox is not affected by library deletion
-            case .library(let lib), .unread(let lib):
+            case .library(let lib):
                 if lib.id == library.id { selection = nil }
             case .smartSearch(let ss):
                 if ss.library?.id == library.id { selection = nil }
@@ -995,9 +1149,9 @@ struct SidebarView: View {
                     current.insert(publication)
                     collection.publications = current
 
-                    // Also add to the collection's owning library
-                    if let owningLibrary = collection.owningLibrary {
-                        publication.addToLibrary(owningLibrary)
+                    // Also add to the collection's library
+                    if let collectionLibrary = collection.effectiveLibrary {
+                        publication.addToLibrary(collectionLibrary)
                     }
                 }
             }
@@ -1042,10 +1196,9 @@ struct CountBadge: View {
 
     var body: some View {
         Text("\(count)")
-            .font(.caption2)
-            .fontWeight(.medium)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
+            .font(.system(size: 10, weight: .medium))
+            .padding(.horizontal, 5)
+            .padding(.vertical, 1)
             .background(color.opacity(0.2))
             .foregroundColor(color)
             .clipShape(Capsule())
@@ -1060,18 +1213,8 @@ struct SmartSearchRow: View {
 
     var body: some View {
         HStack {
-            Label {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(smartSearch.name)
-                    Text(smartSearch.query)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            } icon: {
-                Image(systemName: "magnifyingglass.circle.fill")
-                    .help("Smart search - auto-updating query")
-            }
+            Label(smartSearch.name, systemImage: "magnifyingglass.circle.fill")
+                .help(smartSearch.query)  // Show query on hover
             Spacer()
             if count > 0 {
                 CountBadge(count: count)

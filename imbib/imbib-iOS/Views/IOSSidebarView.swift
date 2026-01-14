@@ -39,27 +39,39 @@ struct IOSSidebarView: View {
     @State private var editingSmartSearch: CDSmartSearch?
     @State private var refreshID = UUID()  // Used to force list refresh
     @State private var hasSciXAPIKey = false  // Whether SciX/ADS API key is configured
+    @State private var explorationRefreshID = UUID()  // Refresh exploration section
+    @State private var explorationMultiSelection: Set<UUID> = []  // Multi-selection for bulk delete
+    @State private var isExplorationEditMode = false  // Edit mode for exploration section
 
-    // Section ordering (persisted, synced with macOS)
+    // Section ordering and collapsed state (persisted, synced with macOS)
     @State private var sectionOrder: [SidebarSectionType] = SidebarSectionOrderStore.loadOrderSync()
+    @State private var collapsedSections: Set<SidebarSectionType> = SidebarCollapsedStateStore.loadCollapsedSync()
 
     // MARK: - Body
 
     var body: some View {
         List(selection: $selection) {
-            // Inbox Section (always at top, not reorderable)
-            inboxSection
-
-            // Reorderable sections
+            // All sections in user-defined order, all collapsible and moveable
             ForEach(sectionOrder) { sectionType in
                 sectionView(for: sectionType)
+                    .id(sectionType == .exploration ? explorationRefreshID : nil)
             }
+            .onMove(perform: moveSections)
             .id(refreshID)  // Force refresh when smart searches change
         }
         .listStyle(.sidebar)
         .onReceive(NotificationCenter.default.publisher(for: .NSManagedObjectContextDidSave)) { _ in
             // Refresh when Core Data saves (new smart search, collection, etc.)
             refreshID = UUID()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .explorationLibraryDidChange)) { _ in
+            explorationRefreshID = UUID()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToCollection)) { notification in
+            if let collection = notification.userInfo?["collection"] as? CDCollection {
+                selection = .collection(collection)
+                explorationRefreshID = UUID()
+            }
         }
         .task {
             // Check for ADS API key (SciX uses ADS API)
@@ -170,12 +182,12 @@ struct IOSSidebarView: View {
         .onChange(of: selection) { _, newValue in
             // Track which library is selected for contextual actions
             switch newValue {
-            case .library(let lib), .unread(let lib):
+            case .library(let lib):
                 selectedLibraryForAction = lib
             case .smartSearch(let ss):
                 selectedLibraryForAction = ss.library
             case .collection(let col):
-                selectedLibraryForAction = col.owningLibrary
+                selectedLibraryForAction = col.effectiveLibrary
             default:
                 break
             }
@@ -188,151 +200,277 @@ struct IOSSidebarView: View {
     @ViewBuilder
     private func sectionView(for sectionType: SidebarSectionType) -> some View {
         switch sectionType {
+        case .inbox:
+            collapsibleSection(for: .inbox) {
+                inboxSectionContent
+            }
         case .libraries:
-            librariesSection
+            collapsibleSection(for: .libraries) {
+                librariesSectionContent
+            }
         case .scixLibraries:
-            scixLibrariesSection
+            if hasSciXAPIKey && !scixRepository.libraries.isEmpty {
+                collapsibleSection(for: .scixLibraries) {
+                    scixLibrariesSectionContent
+                }
+            }
         case .search:
-            searchSection
-        }
-    }
-
-    /// Libraries section
-    private var librariesSection: some View {
-        ForEach(libraryManager.libraries.filter { !$0.isInbox }) { library in
-            librarySection(for: library)
-        }
-    }
-
-    /// SciX Libraries section (only visible if API key configured and libraries exist)
-    @ViewBuilder
-    private var scixLibrariesSection: some View {
-        if hasSciXAPIKey && !scixRepository.libraries.isEmpty {
-            Section {
-                ForEach(scixRepository.libraries, id: \.id) { library in
-                    HStack {
-                        Label(library.name, systemImage: "building.columns")
-                        Spacer()
-                        Text("\(library.documentCount)")
-                            .foregroundStyle(.secondary)
-                            .font(.caption)
-                    }
-                    .tag(SidebarSection.scixLibrary(library))
+            collapsibleSection(for: .search) {
+                searchSectionContent
+            }
+        case .exploration:
+            if let library = libraryManager.explorationLibrary,
+               let collections = library.collections,
+               !collections.isEmpty {
+                collapsibleSection(for: .exploration) {
+                    explorationSectionContent
                 }
-            } header: {
-                sectionHeader(for: .scixLibraries)
             }
         }
     }
 
-    /// Search section
-    private var searchSection: some View {
+    /// Wraps section content in a collapsible Section with standard header
+    @ViewBuilder
+    private func collapsibleSection<Content: View>(
+        for sectionType: SidebarSectionType,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        let isCollapsed = collapsedSections.contains(sectionType)
+
         Section {
-            Label("Search", systemImage: "magnifyingglass")
-                .tag(SidebarSection.search)
+            if !isCollapsed {
+                content()
+            }
         } header: {
-            sectionHeader(for: .search)
-        }
-    }
-
-    // MARK: - Section Header with Reorder Menu
-
-    @ViewBuilder
-    private func sectionHeader(for sectionType: SidebarSectionType) -> some View {
-        HStack {
-            Text(sectionType.displayName)
-            Spacer()
-            Menu {
-                let currentIndex = sectionOrder.firstIndex(of: sectionType) ?? 0
-
+            HStack(spacing: 4) {
+                // Collapse/expand button
                 Button {
-                    moveSection(sectionType, direction: .up)
+                    toggleSectionCollapsed(sectionType)
                 } label: {
-                    Label("Move Up", systemImage: "arrow.up")
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 12)
                 }
-                .disabled(currentIndex == 0)
+                .buttonStyle(.plain)
 
-                Button {
-                    moveSection(sectionType, direction: .down)
-                } label: {
-                    Label("Move Down", systemImage: "arrow.down")
-                }
-                .disabled(currentIndex >= sectionOrder.count - 1)
+                // Section title
+                Text(sectionType.displayName)
 
-                Divider()
-
-                Button {
-                    Task {
-                        await SidebarSectionOrderStore.shared.reset()
-                        sectionOrder = SidebarSectionOrderStore.defaultOrder
-                    }
-                } label: {
-                    Label("Reset Order", systemImage: "arrow.counterclockwise")
-                }
-            } label: {
-                Image(systemName: "line.3.horizontal")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
+                Spacer()
             }
         }
     }
 
-    private enum MoveDirection {
-        case up, down
+    /// Toggle collapsed state for a section
+    private func toggleSectionCollapsed(_ sectionType: SidebarSectionType) {
+        if collapsedSections.contains(sectionType) {
+            collapsedSections.remove(sectionType)
+        } else {
+            collapsedSections.insert(sectionType)
+        }
+        // Persist
+        Task {
+            await SidebarCollapsedStateStore.shared.save(collapsedSections)
+        }
     }
 
-    private func moveSection(_ sectionType: SidebarSectionType, direction: MoveDirection) {
-        guard let currentIndex = sectionOrder.firstIndex(of: sectionType) else { return }
-
-        let newIndex: Int
-        switch direction {
-        case .up:
-            newIndex = max(0, currentIndex - 1)
-        case .down:
-            newIndex = min(sectionOrder.count - 1, currentIndex + 1)
-        }
-
-        guard newIndex != currentIndex else { return }
-
+    /// Handle drag-and-drop reordering of sections
+    private func moveSections(from source: IndexSet, to destination: Int) {
         withAnimation {
-            sectionOrder.remove(at: currentIndex)
-            sectionOrder.insert(sectionType, at: newIndex)
+            sectionOrder.move(fromOffsets: source, toOffset: destination)
         }
-
         Task {
             await SidebarSectionOrderStore.shared.save(sectionOrder)
         }
     }
 
-    // MARK: - Inbox Section
-
+    /// Libraries section content (without Section wrapper)
     @ViewBuilder
-    private var inboxSection: some View {
-        Section("Inbox") {
-            // Main Inbox
+    private var librariesSectionContent: some View {
+        ForEach(libraryManager.libraries.filter { !$0.isInbox }) { library in
+            librarySection(for: library)
+        }
+    }
+
+    /// SciX Libraries section content (without Section wrapper)
+    @ViewBuilder
+    private var scixLibrariesSectionContent: some View {
+        ForEach(scixRepository.libraries, id: \.id) { library in
             HStack {
-                Label("Inbox", systemImage: "tray")
+                Label(library.name, systemImage: "building.columns")
                 Spacer()
-                if InboxManager.shared.unreadCount > 0 {
-                    Text("\(InboxManager.shared.unreadCount)")
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 2)
-                        .background(.blue)
-                        .foregroundStyle(.white)
-                        .clipShape(Capsule())
+                Text("\(library.documentCount)")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+            }
+            .tag(SidebarSection.scixLibrary(library))
+            .contextMenu {
+                Button {
+                    // Open library on SciX/ADS web interface
+                    if let url = URL(string: "https://ui.adsabs.harvard.edu/user/libraries/\(library.remoteID)") {
+                        UIApplication.shared.open(url)
+                    }
+                } label: {
+                    Label("Open on SciX", systemImage: "safari")
+                }
+
+                Button {
+                    Task {
+                        try? await SciXSyncManager.shared.pullLibraryPapers(libraryID: library.remoteID)
+                    }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
                 }
             }
-            .tag(SidebarSection.inbox)
+        }
+    }
 
-            // Inbox Feeds (Smart Searches that feed to inbox)
-            if let inboxLib = InboxManager.shared.inboxLibrary,
-               let feedSet = inboxLib.smartSearches?.filter({ $0.feedsToInbox }),
-               !feedSet.isEmpty {
-                ForEach(Array(feedSet)) { feed in
-                    Label(feed.name, systemImage: "antenna.radiowaves.left.and.right")
-                        .tag(SidebarSection.inboxFeed(feed))
+    /// Search section content (without Section wrapper)
+    @ViewBuilder
+    private var searchSectionContent: some View {
+        Label("Search", systemImage: "magnifyingglass")
+            .tag(SidebarSection.search)
+    }
+
+    /// Exploration section content (without Section wrapper)
+    @ViewBuilder
+    private var explorationSectionContent: some View {
+        if let library = libraryManager.explorationLibrary,
+           let collections = library.collections,
+           !collections.isEmpty {
+            ForEach(flattenedExplorationCollections(from: collections), id: \.id) { collection in
+                explorationCollectionRow(collection)
+            }
+        }
+    }
+
+    /// Delete all selected exploration collections
+    private func deleteSelectedExplorationCollections() {
+        if case .collection(let selected) = selection,
+           explorationMultiSelection.contains(selected.id) {
+            selection = nil
+        }
+
+        if let library = libraryManager.explorationLibrary,
+           let collections = library.collections {
+            for collection in collections where explorationMultiSelection.contains(collection.id) {
+                libraryManager.deleteExplorationCollection(collection)
+            }
+        }
+
+        explorationMultiSelection.removeAll()
+        isExplorationEditMode = false
+        explorationRefreshID = UUID()
+    }
+
+    /// Flatten collection hierarchy into a list with proper ordering
+    private func flattenedExplorationCollections(from collections: Set<CDCollection>) -> [CDCollection] {
+        var result: [CDCollection] = []
+
+        func addWithChildren(_ collection: CDCollection) {
+            result.append(collection)
+            for child in collection.sortedChildren {
+                addWithChildren(child)
+            }
+        }
+
+        for collection in Array(collections).filter({ $0.parentCollection == nil }).sorted(by: { $0.name < $1.name }) {
+            addWithChildren(collection)
+        }
+
+        return result
+    }
+
+    /// Row for an exploration collection (with indentation based on depth)
+    @ViewBuilder
+    private func explorationCollectionRow(_ collection: CDCollection) -> some View {
+        let isSelected = explorationMultiSelection.contains(collection.id)
+
+        HStack {
+            // Checkbox in edit mode
+            if isExplorationEditMode {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? .blue : .secondary)
+            }
+
+            if collection.depth > 0 {
+                Spacer()
+                    .frame(width: CGFloat(collection.depth) * 12)
+            }
+
+            Label(collection.name, systemImage: "doc.text.magnifyingglass")
+
+            Spacer()
+
+            if collection.matchingPublicationCount > 0 {
+                Text("\(collection.matchingPublicationCount)")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if isExplorationEditMode {
+                // Toggle multi-selection in edit mode
+                if isSelected {
+                    explorationMultiSelection.remove(collection.id)
+                } else {
+                    explorationMultiSelection.insert(collection.id)
                 }
+            } else {
+                // Normal navigation
+                selection = .collection(collection)
+            }
+        }
+        // Only allow List selection when not in edit mode
+        .tag(isExplorationEditMode ? nil : SidebarSection.collection(collection))
+        .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                deleteExplorationCollection(collection)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    /// Delete an exploration collection
+    private func deleteExplorationCollection(_ collection: CDCollection) {
+        if case .collection(let selected) = selection, selected.id == collection.id {
+            selection = nil
+        }
+        libraryManager.deleteExplorationCollection(collection)
+        explorationRefreshID = UUID()
+    }
+
+    // MARK: - Inbox Section
+
+    /// Inbox section content (without Section wrapper)
+    @ViewBuilder
+    private var inboxSectionContent: some View {
+        // Main Inbox
+        HStack {
+            Label("Inbox", systemImage: "tray")
+            Spacer()
+            if InboxManager.shared.unreadCount > 0 {
+                Text("\(InboxManager.shared.unreadCount)")
+                    .font(.system(size: 10, weight: .medium))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 1)
+                    .background(.blue)
+                    .foregroundStyle(.white)
+                    .clipShape(Capsule())
+            }
+        }
+        .tag(SidebarSection.inbox)
+
+        // Inbox Feeds (Smart Searches that feed to inbox)
+        if let inboxLib = InboxManager.shared.inboxLibrary,
+           let feedSet = inboxLib.smartSearches?.filter({ $0.feedsToInbox }),
+           !feedSet.isEmpty {
+            ForEach(Array(feedSet)) { feed in
+                Label(feed.name, systemImage: "antenna.radiowaves.left.and.right")
+                    .tag(SidebarSection.inboxFeed(feed))
             }
         }
     }
@@ -356,21 +494,6 @@ struct IOSSidebarView: View {
                     .font(.caption)
             }
             .tag(SidebarSection.library(library))
-
-            // Unread (from all publications including smart search results)
-            let allPubs = allPublications(for: library)
-            let unreadCount = allPubs.filter { !$0.isRead }.count
-            if unreadCount > 0 {
-                HStack {
-                    Label("Unread", systemImage: "circle.fill")
-                        .foregroundStyle(.blue)
-                    Spacer()
-                    Text("\(unreadCount)")
-                        .foregroundStyle(.secondary)
-                        .font(.caption)
-                }
-                .tag(SidebarSection.unread(library))
-            }
 
             // Smart Searches
             if let searchSet = library.smartSearches?.filter({ !$0.feedsToInbox }), !searchSet.isEmpty {
@@ -580,8 +703,7 @@ struct NewCollectionSheet: View {
         collection.id = UUID()
         collection.name = name
         collection.isSmartCollection = false
-        collection.owningLibrary = library
-        library.collections?.insert(collection)
+        collection.library = library
 
         try? context.save()
         isPresented = false

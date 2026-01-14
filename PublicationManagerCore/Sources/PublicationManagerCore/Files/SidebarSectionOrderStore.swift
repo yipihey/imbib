@@ -9,19 +9,23 @@ import Foundation
 
 // MARK: - Sidebar Section Type
 
-/// Represents the reorderable sections in the sidebar (Inbox is always first, not included)
+/// Represents the reorderable and collapsible sections in the sidebar
 public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equatable {
+    case inbox
     case libraries
     case scixLibraries
     case search
+    case exploration
 
     public var id: String { rawValue }
 
     public var displayName: String {
         switch self {
+        case .inbox: return "Inbox"
         case .libraries: return "Libraries"
         case .scixLibraries: return "SciX Libraries"
         case .search: return "Search"
+        case .exploration: return "Exploration"
         }
     }
 }
@@ -43,9 +47,11 @@ public actor SidebarSectionOrderStore {
     // MARK: - Default Order
 
     public static let defaultOrder: [SidebarSectionType] = [
+        .inbox,
         .libraries,
         .scixLibraries,
-        .search
+        .search,
+        .exploration
     ]
 
     // MARK: - Public API
@@ -104,8 +110,78 @@ public actor SidebarSectionOrderStore {
     }
 }
 
+// MARK: - Sidebar Collapsed State Store
+
+/// Persists which sidebar sections are collapsed
+public actor SidebarCollapsedStateStore {
+
+    // MARK: - Singleton
+
+    public static let shared = SidebarCollapsedStateStore()
+
+    // MARK: - Properties
+
+    private let key = "sidebarCollapsedSections"
+    private var cachedState: Set<SidebarSectionType>?
+
+    // MARK: - Public API
+
+    /// Get the set of collapsed sections
+    public func collapsedSections() -> Set<SidebarSectionType> {
+        if let cached = cachedState {
+            return cached
+        }
+
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let decoded = try? JSONDecoder().decode(Set<SidebarSectionType>.self, from: data) else {
+            cachedState = []
+            return []
+        }
+
+        cachedState = decoded
+        return decoded
+    }
+
+    /// Save the collapsed state
+    public func save(_ collapsed: Set<SidebarSectionType>) {
+        cachedState = collapsed
+        if let data = try? JSONEncoder().encode(collapsed) {
+            UserDefaults.standard.set(data, forKey: key)
+        }
+    }
+
+    /// Toggle collapsed state for a section
+    public func toggle(_ section: SidebarSectionType) -> Set<SidebarSectionType> {
+        var current = collapsedSections()
+        if current.contains(section) {
+            current.remove(section)
+        } else {
+            current.insert(section)
+        }
+        save(current)
+        return current
+    }
+
+    /// Check if a section is collapsed
+    public func isCollapsed(_ section: SidebarSectionType) -> Bool {
+        collapsedSections().contains(section)
+    }
+
+    // MARK: - Synchronous Load (for SwiftUI @State init)
+
+    /// Load collapsed state synchronously (for initial SwiftUI state)
+    public nonisolated static func loadCollapsedSync() -> Set<SidebarSectionType> {
+        guard let data = UserDefaults.standard.data(forKey: "sidebarCollapsedSections"),
+              let decoded = try? JSONDecoder().decode(Set<SidebarSectionType>.self, from: data) else {
+            return []
+        }
+        return decoded
+    }
+}
+
 // MARK: - Notification
 
 public extension Notification.Name {
     static let sidebarSectionOrderDidChange = Notification.Name("sidebarSectionOrderDidChange")
+    static let sidebarCollapsedStateDidChange = Notification.Name("sidebarCollapsedStateDidChange")
 }
