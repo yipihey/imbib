@@ -234,6 +234,37 @@ public final class LibraryViewModel {
         return publication
     }
 
+    /// Import a paper from the citation explorer.
+    ///
+    /// Fetches full BibTeX from ADS using the paper stub's bibcode, then creates
+    /// a CDPublication and adds it to the specified library.
+    @discardableResult
+    public func importFromPaperStub(_ stub: PaperStub, to library: CDLibrary) async throws -> CDPublication {
+        Logger.viewModels.infoCapture("Importing paper stub: \(stub.title)", category: "import")
+
+        // The PaperStub's id is the ADS bibcode
+        let bibcode = stub.id
+
+        // Fetch full BibTeX from ADS
+        let adsSource = ADSSource()
+        let entry = try await adsSource.fetchBibTeX(bibcode: bibcode)
+
+        // Create publication
+        let publication = await repository.create(from: entry)
+
+        // Add to library
+        await repository.addToLibrary([publication], library: library)
+
+        await loadPublications()
+
+        // Invalidate library lookup cache
+        await DefaultLibraryLookupService.shared.invalidateCache()
+
+        Logger.viewModels.info("Imported: \(publication.citeKey) to \(library.name)")
+
+        return publication
+    }
+
     // MARK: - Delete
 
     public func deleteSelected() async {
@@ -565,6 +596,18 @@ public enum LibrarySortOrder: String, CaseIterable, Identifiable {
         case .year: return "year"
         case .citeKey: return "citeKey"
         case .citationCount: return "citationCount"
+        }
+    }
+
+    /// Default sort direction for this field.
+    /// Dates/counts/year default to descending (newest/highest first).
+    /// Text fields default to ascending (A-Z).
+    public var defaultAscending: Bool {
+        switch self {
+        case .dateAdded, .dateModified, .year, .citationCount:
+            return false  // Descending (newest/highest first)
+        case .title, .citeKey:
+            return true   // Ascending (A-Z)
         }
     }
 }

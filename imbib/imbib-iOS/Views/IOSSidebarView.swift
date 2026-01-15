@@ -18,6 +18,7 @@ struct IOSSidebarView: View {
 
     @Environment(LibraryManager.self) private var libraryManager
     @Environment(LibraryViewModel.self) private var libraryViewModel
+    @Environment(\.themeColors) private var theme
 
     // MARK: - Bindings
 
@@ -47,6 +48,10 @@ struct IOSSidebarView: View {
     @State private var sectionOrder: [SidebarSectionType] = SidebarSectionOrderStore.loadOrderSync()
     @State private var collapsedSections: Set<SidebarSectionType> = SidebarCollapsedStateStore.loadCollapsedSync()
 
+    // Search form ordering and visibility (persisted)
+    @State private var searchFormOrder: [SearchFormType] = SearchFormStore.loadOrderSync()
+    @State private var hiddenSearchForms: Set<SearchFormType> = SearchFormStore.loadHiddenSync()
+
     // MARK: - Body
 
     var body: some View {
@@ -60,6 +65,13 @@ struct IOSSidebarView: View {
             .id(refreshID)  // Force refresh when smart searches change
         }
         .listStyle(.sidebar)
+        // Apply sidebar tint from theme
+        .scrollContentBackground(theme.sidebarTint != nil ? .hidden : .automatic)
+        .background {
+            if let tint = theme.sidebarTint {
+                tint.opacity(theme.sidebarTintOpacity)
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .NSManagedObjectContextDidSave)) { _ in
             // Refresh when Core Data saves (new smart search, collection, etc.)
             refreshID = UUID()
@@ -329,8 +341,103 @@ struct IOSSidebarView: View {
     /// Search section content (without Section wrapper)
     @ViewBuilder
     private var searchSectionContent: some View {
-        Label("Search", systemImage: "magnifyingglass")
-            .tag(SidebarSection.search)
+        // Visible search forms in user-defined order
+        ForEach(visibleSearchForms) { formType in
+            Label(formType.displayName, systemImage: formType.icon)
+                .tag(SidebarSection.searchForm(formType))
+                .contextMenu {
+                    Button("Hide", role: .destructive) {
+                        hideSearchForm(formType)
+                    }
+                }
+        }
+        .onMove(perform: moveSearchForms)
+
+        // Show hidden forms menu if any are hidden
+        if !hiddenSearchForms.isEmpty {
+            Menu {
+                ForEach(Array(hiddenSearchForms).sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { formType in
+                    Button("Show \(formType.displayName)") {
+                        showSearchForm(formType)
+                    }
+                }
+
+                Divider()
+
+                Button("Show All") {
+                    showAllSearchForms()
+                }
+            } label: {
+                Label("Show Hidden Forms...", systemImage: "eye")
+            }
+        }
+    }
+
+    /// Get visible search forms in order
+    private var visibleSearchForms: [SearchFormType] {
+        searchFormOrder.filter { !hiddenSearchForms.contains($0) }
+    }
+
+    /// Move search forms via drag-and-drop
+    private func moveSearchForms(from source: IndexSet, to destination: Int) {
+        var visible = visibleSearchForms
+        visible.move(fromOffsets: source, toOffset: destination)
+
+        // Rebuild full order preserving hidden forms
+        var newOrder: [SearchFormType] = []
+        var visibleIndex = 0
+
+        for formType in searchFormOrder {
+            if hiddenSearchForms.contains(formType) {
+                newOrder.append(formType)
+            } else if visibleIndex < visible.count {
+                newOrder.append(visible[visibleIndex])
+                visibleIndex += 1
+            }
+        }
+
+        while visibleIndex < visible.count {
+            newOrder.append(visible[visibleIndex])
+            visibleIndex += 1
+        }
+
+        withAnimation {
+            searchFormOrder = newOrder
+        }
+
+        Task {
+            await SearchFormStore.shared.save(newOrder)
+        }
+    }
+
+    /// Hide a search form
+    private func hideSearchForm(_ formType: SearchFormType) {
+        withAnimation {
+            hiddenSearchForms.insert(formType)
+        }
+        Task {
+            await SearchFormStore.shared.hide(formType)
+        }
+    }
+
+    /// Show a hidden search form
+    private func showSearchForm(_ formType: SearchFormType) {
+        withAnimation {
+            hiddenSearchForms.remove(formType)
+        }
+        Task {
+            await SearchFormStore.shared.show(formType)
+        }
+    }
+
+    /// Show all hidden search forms
+    private func showAllSearchForms() {
+        withAnimation {
+            hiddenSearchForms.removeAll()
+        }
+        Task {
+            await SearchFormStore.shared.setHidden([])
+        }
     }
 
     /// Exploration section content (without Section wrapper)

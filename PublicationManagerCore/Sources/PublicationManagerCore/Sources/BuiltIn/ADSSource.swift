@@ -20,7 +20,7 @@ public actor ADSSource: SourcePlugin {
         id: "ads",
         name: "NASA ADS",
         description: "Astrophysics Data System for astronomy and physics",
-        rateLimit: RateLimit(requestsPerInterval: 5000, intervalSeconds: 86400),  // 5000/day
+        rateLimit: RateLimit(requestsPerInterval: 5, intervalSeconds: 1),  // 5/sec burst (5000/day total)
         credentialRequirement: .apiKey,
         registrationURL: URL(string: "https://ui.adsabs.harvard.edu/user/settings/token"),
         deduplicationPriority: 30,
@@ -40,8 +40,11 @@ public actor ADSSource: SourcePlugin {
     ) {
         self.session = session
         self.credentialManager = credentialManager
+        // Use burst-friendly rate: 5 requests/second
+        // ADS allows 5000/day but doesn't specify per-second limit
+        // 200ms between requests is conservative for interactive use
         self.rateLimiter = RateLimiter(
-            rateLimit: RateLimit(requestsPerInterval: 5000, intervalSeconds: 86400)
+            rateLimit: RateLimit(requestsPerInterval: 5, intervalSeconds: 1)
         )
     }
 
@@ -147,6 +150,58 @@ public actor ADSSource: SourcePlugin {
         return entry
     }
 
+    /// Fetch BibTeX for a paper by its ADS bibcode.
+    ///
+    /// This is a convenience method for importing papers from the citation explorer.
+    public func fetchBibTeX(bibcode: String) async throws -> BibTeXEntry {
+        Logger.sources.info("ADS: Fetching BibTeX for bibcode: \(bibcode)")
+
+        guard let apiKey = await credentialManager.apiKey(for: "ads") else {
+            throw SourceError.authenticationRequired("ads")
+        }
+
+        await rateLimiter.waitIfNeeded()
+
+        let url = URL(string: "\(baseURL)/export/bibtex")!
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = ["bibcode": [bibcode]]
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        Logger.network.httpRequest("POST", url: url)
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
+
+        guard httpResponse.statusCode == 200 else {
+            throw SourceError.notFound("Could not fetch BibTeX for \(bibcode)")
+        }
+
+        // ADS returns JSON with "export" field containing BibTeX
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let bibtexString = json["export"] as? String else {
+            throw SourceError.parseError("Invalid BibTeX response")
+        }
+
+        let parser = BibTeXParser()
+        let entries = try parser.parseEntries(bibtexString)
+
+        guard let entry = entries.first else {
+            throw SourceError.parseError("No entry in BibTeX response")
+        }
+
+        return entry
+    }
+
     public nonisolated var supportsRIS: Bool { true }
 
     public func fetchRIS(for result: SearchResult) async throws -> RISEntry {
@@ -219,6 +274,216 @@ public actor ADSSource: SourcePlugin {
         )
     }
 
+    // MARK: - References & Citations
+
+    /// Fetch papers that this paper references (papers it cites).
+    ///
+    /// Uses ADS query syntax `references(bibcode:XXXX)` to get full paper metadata
+    /// for all papers referenced by the given bibcode.
+    ///
+    /// - Parameter bibcode: The ADS bibcode of the paper whose references to fetch
+    /// - Parameter maxResults: Maximum number of results to return (default 200)
+    /// - Returns: Array of PaperStub objects with full metadata
+    public func fetchReferences(bibcode: String, maxResults: Int = 200) async throws -> [PaperStub] {
+        Logger.sources.info("ADS: Fetching references for bibcode: \(bibcode)")
+
+        guard let apiKey = await credentialManager.apiKey(for: "ads") else {
+            throw SourceError.authenticationRequired("ads")
+        }
+
+        await rateLimiter.waitIfNeeded()
+
+        var components = URLComponents(string: "\(baseURL)/search/query")!
+        components.queryItems = [
+            URLQueryItem(name: "q", value: "references(bibcode:\(bibcode))"),
+            URLQueryItem(name: "fl", value: "bibcode,title,author,year,pub,doi,identifier,citation_count,property,abstract,reference"),
+            URLQueryItem(name: "rows", value: "\(maxResults)"),
+            URLQueryItem(name: "sort", value: "citation_count desc"),
+        ]
+
+        guard let url = components.url else {
+            throw SourceError.invalidRequest("Invalid URL")
+        }
+
+        Logger.network.httpRequest("GET", url: url)
+
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
+
+        if httpResponse.statusCode == 401 {
+            throw SourceError.authenticationRequired("ads")
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        let stubs = try parsePaperStubsResponse(data)
+        Logger.sources.info("ADS: Found \(stubs.count) references for \(bibcode)")
+        return stubs
+    }
+
+    /// Fetch papers that cite this paper.
+    ///
+    /// Uses ADS query syntax `citations(bibcode:XXXX)` to get full paper metadata
+    /// for all papers that cite the given bibcode.
+    ///
+    /// - Parameter bibcode: The ADS bibcode of the paper whose citations to fetch
+    /// - Parameter maxResults: Maximum number of results to return (default 200)
+    /// - Returns: Array of PaperStub objects with full metadata
+    public func fetchCitations(bibcode: String, maxResults: Int = 200) async throws -> [PaperStub] {
+        Logger.sources.info("ADS: Fetching citations for bibcode: \(bibcode)")
+
+        guard let apiKey = await credentialManager.apiKey(for: "ads") else {
+            throw SourceError.authenticationRequired("ads")
+        }
+
+        await rateLimiter.waitIfNeeded()
+
+        var components = URLComponents(string: "\(baseURL)/search/query")!
+        components.queryItems = [
+            URLQueryItem(name: "q", value: "citations(bibcode:\(bibcode))"),
+            URLQueryItem(name: "fl", value: "bibcode,title,author,year,pub,doi,identifier,citation_count,property,abstract,reference"),
+            URLQueryItem(name: "rows", value: "\(maxResults)"),
+            URLQueryItem(name: "sort", value: "citation_count desc"),
+        ]
+
+        guard let url = components.url else {
+            throw SourceError.invalidRequest("Invalid URL")
+        }
+
+        Logger.network.httpRequest("GET", url: url)
+
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
+
+        if httpResponse.statusCode == 401 {
+            throw SourceError.authenticationRequired("ads")
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        let stubs = try parsePaperStubsResponse(data)
+        Logger.sources.info("ADS: Found \(stubs.count) citations for \(bibcode)")
+        return stubs
+    }
+
+    /// Fetch papers similar to this one by content.
+    /// Uses ADS `similar(bibcode:XXXX)` operator.
+    public func fetchSimilar(bibcode: String, maxResults: Int = 200) async throws -> [PaperStub] {
+        Logger.sources.info("ADS: Fetching similar papers for bibcode: \(bibcode)")
+
+        guard let apiKey = await credentialManager.apiKey(for: "ads") else {
+            throw SourceError.authenticationRequired("ads")
+        }
+
+        await rateLimiter.waitIfNeeded()
+
+        var components = URLComponents(string: "\(baseURL)/search/query")!
+        components.queryItems = [
+            URLQueryItem(name: "q", value: "similar(bibcode:\(bibcode))"),
+            URLQueryItem(name: "fl", value: "bibcode,title,author,year,pub,doi,identifier,citation_count,property,abstract,reference"),
+            URLQueryItem(name: "rows", value: "\(maxResults)"),
+            URLQueryItem(name: "sort", value: "score desc"),
+        ]
+
+        guard let url = components.url else {
+            throw SourceError.invalidRequest("Invalid URL")
+        }
+
+        Logger.network.httpRequest("GET", url: url)
+
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
+
+        if httpResponse.statusCode == 401 {
+            throw SourceError.authenticationRequired("ads")
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        let stubs = try parsePaperStubsResponse(data)
+        Logger.sources.info("ADS: Found \(stubs.count) similar papers for \(bibcode)")
+        return stubs
+    }
+
+    /// Fetch papers frequently co-read with this one.
+    /// Uses ADS `trending(bibcode:XXXX)` operator.
+    public func fetchCoReads(bibcode: String, maxResults: Int = 200) async throws -> [PaperStub] {
+        Logger.sources.info("ADS: Fetching co-reads for bibcode: \(bibcode)")
+
+        guard let apiKey = await credentialManager.apiKey(for: "ads") else {
+            throw SourceError.authenticationRequired("ads")
+        }
+
+        await rateLimiter.waitIfNeeded()
+
+        var components = URLComponents(string: "\(baseURL)/search/query")!
+        components.queryItems = [
+            URLQueryItem(name: "q", value: "trending(bibcode:\(bibcode))"),
+            URLQueryItem(name: "fl", value: "bibcode,title,author,year,pub,doi,identifier,citation_count,property,abstract,reference"),
+            URLQueryItem(name: "rows", value: "\(maxResults)"),
+            URLQueryItem(name: "sort", value: "score desc"),
+        ]
+
+        guard let url = components.url else {
+            throw SourceError.invalidRequest("Invalid URL")
+        }
+
+        Logger.network.httpRequest("GET", url: url)
+
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        Logger.network.httpResponse(httpResponse.statusCode, url: url, bytes: data.count)
+
+        if httpResponse.statusCode == 401 {
+            throw SourceError.authenticationRequired("ads")
+        }
+
+        guard httpResponse.statusCode == 200 else {
+            throw SourceError.networkError(URLError(.badServerResponse))
+        }
+
+        let stubs = try parsePaperStubsResponse(data)
+        Logger.sources.info("ADS: Found \(stubs.count) co-reads for \(bibcode)")
+        return stubs
+    }
+
     // MARK: - Response Parsing
 
     private func parseResponse(_ data: Data) throws -> [SearchResult] {
@@ -271,11 +536,27 @@ public actor ADSSource: SourcePlugin {
     /// - For publisher PDFs: use DOI resolver (https://doi.org/{doi})
     /// - For ADS scans: these are hosted directly by ADS and work reliably
     private func buildPDFLinks(from doc: [String: Any], bibcode: String, arxivID: String?) -> [PDFLink] {
-        var links: [PDFLink] = []
         let doi = extractDOI(from: doc)
-
-        // Get esources array from response
         let esources = doc["esources"] as? [String] ?? []
+        return Self.buildPDFLinks(esources: esources, doi: doi, arxivID: arxivID, bibcode: bibcode)
+    }
+
+    /// Static method to build PDF links from ADS esources field.
+    /// Used by both ADSSource (search) and ADSEnrichment (enrichment).
+    ///
+    /// - Parameters:
+    ///   - esources: Array of esource strings from ADS API (e.g., "EPRINT_PDF", "ADS_SCAN")
+    ///   - doi: Paper DOI if available
+    ///   - arxivID: arXiv ID if available
+    ///   - bibcode: ADS bibcode for the paper
+    /// - Returns: Array of PDFLink objects
+    static func buildPDFLinks(
+        esources: [String],
+        doi: String?,
+        arxivID: String?,
+        bibcode: String
+    ) -> [PDFLink] {
+        var links: [PDFLink] = []
 
         // Track what we have
         var hasPreprint = false
@@ -343,6 +624,50 @@ public actor ADSSource: SourcePlugin {
             }
         }
         return nil
+    }
+
+    /// Parse ADS response into PaperStub array for references/citations queries
+    private func parsePaperStubsResponse(_ data: Data) throws -> [PaperStub] {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let response = json["response"] as? [String: Any],
+              let docs = response["docs"] as? [[String: Any]] else {
+            throw SourceError.parseError("Invalid ADS response")
+        }
+
+        return docs.compactMap { parseDocToPaperStub($0) }
+    }
+
+    /// Parse a single ADS document into a PaperStub
+    private func parseDocToPaperStub(_ doc: [String: Any]) -> PaperStub? {
+        guard let bibcode = doc["bibcode"] as? String else { return nil }
+
+        let title = (doc["title"] as? [String])?.first ?? "Untitled"
+        let authors = doc["author"] as? [String] ?? []
+        let year = (doc["year"] as? Int) ?? (doc["year"] as? String).flatMap { Int($0) }
+        let venue = doc["pub"] as? String
+        let doi = extractDOI(from: doc)
+        let arxivID = extractArXivID(from: doc)
+        let citationCount = doc["citation_count"] as? Int
+        let referenceCount = (doc["reference"] as? [String])?.count  // Get count from array length
+        let abstract = doc["abstract"] as? String
+
+        // Check if open access from property field
+        let properties = doc["property"] as? [String] ?? []
+        let isOpenAccess = properties.contains("OPENACCESS") || properties.contains("EPRINT_OPENACCESS")
+
+        return PaperStub(
+            id: bibcode,
+            title: title,
+            authors: authors,
+            year: year,
+            venue: venue,
+            doi: doi,
+            arxivID: arxivID,
+            citationCount: citationCount,
+            referenceCount: referenceCount,
+            isOpenAccess: isOpenAccess,
+            abstract: abstract
+        )
     }
 }
 

@@ -350,6 +350,7 @@ public final class SmartSearchRepository: ObservableObject {
         collection.isSmartSearchResults = true
         collection.isSmartCollection = false  // Not a predicate-based collection
         collection.smartSearch = smartSearch
+        collection.library = targetLibrary  // Link to owning library for smart collection queries
         smartSearch.resultCollection = collection
 
         Logger.smartSearch.debugCapture("Created result collection for smart search '\(name)'", category: "smartsearch")

@@ -200,6 +200,20 @@ public extension Notification.Name {
     /// Show keyboard shortcuts window (⌘/)
     static let showKeyboardShortcuts = Notification.Name("showKeyboardShortcuts")
 
+    // MARK: - Exploration Navigation
+
+    /// Navigate to a collection in the sidebar (userInfo["collection"] = CDCollection)
+    static let navigateToCollection = Notification.Name("navigateToCollection")
+
+    /// Exploration library changed (collection added/removed)
+    static let explorationLibraryDidChange = Notification.Name("explorationLibraryDidChange")
+
+    // MARK: - Search Form Navigation
+
+    /// Reset search form view to show input form instead of results
+    /// Posted when user clicks a search form in sidebar (even if already selected)
+    static let resetSearchFormView = Notification.Name("resetSearchFormView")
+
     // MARK: - Inbox Triage Extensions
 
     /// Mark inbox item as read (R key - single key when in inbox)

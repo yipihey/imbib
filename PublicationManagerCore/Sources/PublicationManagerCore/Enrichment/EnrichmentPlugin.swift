@@ -54,6 +54,17 @@ public protocol EnrichmentPlugin: Sendable {
         existingData: EnrichmentData?
     ) async throws -> EnrichmentResult
 
+    /// Enrich multiple papers in a single batch API call.
+    ///
+    /// Default implementation falls back to sequential `enrich()` calls.
+    /// Sources that support batch queries (like ADS) should override this.
+    ///
+    /// - Parameter requests: Array of (publicationID, identifiers) pairs
+    /// - Returns: Dictionary mapping publication IDs to their enrichment results
+    func enrichBatch(
+        requests: [(publicationID: UUID, identifiers: [IdentifierType: String])]
+    ) async -> [UUID: Result<EnrichmentResult, Error>]
+
     /// Resolve paper identifiers to this source's format.
     ///
     /// For example, Semantic Scholar can resolve DOIs to S2 paper IDs.
@@ -75,6 +86,26 @@ public extension EnrichmentPlugin {
         from identifiers: [IdentifierType: String]
     ) async throws -> [IdentifierType: String] {
         return identifiers
+    }
+
+    /// Default batch implementation falls back to sequential enrichment.
+    ///
+    /// Sources that support batch API calls should override this for efficiency.
+    func enrichBatch(
+        requests: [(publicationID: UUID, identifiers: [IdentifierType: String])]
+    ) async -> [UUID: Result<EnrichmentResult, Error>] {
+        var results: [UUID: Result<EnrichmentResult, Error>] = [:]
+
+        for request in requests {
+            do {
+                let result = try await enrich(identifiers: request.identifiers, existingData: nil)
+                results[request.publicationID] = .success(result)
+            } catch {
+                results[request.publicationID] = .failure(error)
+            }
+        }
+
+        return results
     }
 
     /// Whether this plugin can potentially enrich the given identifiers.

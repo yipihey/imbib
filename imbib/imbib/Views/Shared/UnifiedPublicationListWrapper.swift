@@ -393,56 +393,22 @@ struct UnifiedPublicationListWrapper: View {
         switch filterScope {
         case .current:
             refreshCurrentScopePublications()
-        case .allLibraries:
-            publications = fetchAllLibrariesPublications()
-            logger.info("Refreshed all libraries: \(self.publications.count) items")
-        case .inbox:
-            publications = fetchInboxPublications()
-            logger.info("Refreshed inbox: \(self.publications.count) items")
-        case .everything:
-            publications = fetchEverythingPublications()
-            logger.info("Refreshed everything: \(self.publications.count) items")
+        case .allLibraries, .inbox, .everything:
+            publications = fetchPublications(for: filterScope)
+            logger.info("Refreshed \(filterScope.rawValue): \(self.publications.count) items")
         }
     }
 
     /// Refresh publications for the current source (library or smart search)
+    ///
+    /// Simplified: All papers in a library are in `library.publications`.
+    /// No merge logic needed - smart search results are added to the library relationship.
     private func refreshCurrentScopePublications() {
         switch source {
         case .library(let library):
-            // Start with publications directly in the library
-            var allPublications = Set<CDPublication>()
-
-            if let nsSet = library.publications as? NSSet {
-                let directPubs = nsSet.compactMap { $0 as? CDPublication }
-                    .filter { !$0.isDeleted && $0.managedObjectContext != nil }
-                allPublications.formUnion(directPubs)
-            }
-
-            // For Inbox: Include ALL feeds (feedsToInbox=true) regardless of library relationship
-            // This handles feeds created before the library relationship fix
-            if library.isInbox {
-                let allFeeds = fetchAllInboxFeeds()
-                for smartSearch in allFeeds {
-                    if let collection = smartSearch.resultCollection,
-                       let collectionPubs = collection.publications {
-                        let validPubs = collectionPubs.filter { !$0.isDeleted && $0.managedObjectContext != nil }
-                        allPublications.formUnion(validPubs)
-                    }
-                }
-            } else {
-                // For regular libraries: include smart searches associated with this library
-                if let smartSearches = library.smartSearches as? Set<CDSmartSearch> {
-                    for smartSearch in smartSearches {
-                        if let collection = smartSearch.resultCollection,
-                           let collectionPubs = collection.publications {
-                            let validPubs = collectionPubs.filter { !$0.isDeleted && $0.managedObjectContext != nil }
-                            allPublications.formUnion(validPubs)
-                        }
-                    }
-                }
-            }
-
-            var result = Array(allPublications)
+            // Simple: just use the library's publications relationship
+            var result = (library.publications ?? [])
+                .filter { !$0.isDeleted && $0.managedObjectContext != nil }
 
             // Apply filter mode (skip for Inbox - papers should stay visible after being read)
             if filterMode == .unread && !library.isInbox {
@@ -450,9 +416,10 @@ struct UnifiedPublicationListWrapper: View {
             }
 
             publications = result.sorted { $0.dateAdded > $1.dateAdded }
-            logger.info("Refreshed library publications: \(self.publications.count) items (including smart search results)")
+            logger.info("Refreshed library: \(self.publications.count) items")
 
         case .smartSearch(let smartSearch):
+            // Show result collection (organizational view within the library)
             guard let collection = smartSearch.resultCollection else {
                 publications = []
                 return
@@ -466,100 +433,35 @@ struct UnifiedPublicationListWrapper: View {
             }
 
             publications = result.sorted { $0.dateAdded > $1.dateAdded }
-            logger.info("Refreshed smart search publications: \(self.publications.count) items")
+            logger.info("Refreshed smart search: \(self.publications.count) items")
         }
     }
 
-    /// Fetch all publications from all non-inbox libraries
-    private func fetchAllLibrariesPublications() -> [CDPublication] {
-        var allPublications = Set<CDPublication>()
-
-        for library in libraryManager.libraries where !library.isInbox {
-            if let nsSet = library.publications as? NSSet {
-                let pubs = nsSet.compactMap { $0 as? CDPublication }
-                    .filter { !$0.isDeleted && $0.managedObjectContext != nil }
-                allPublications.formUnion(pubs)
-            }
-
-            // Include smart search results
-            if let smartSearches = library.smartSearches as? Set<CDSmartSearch> {
-                for smartSearch in smartSearches {
-                    if let collection = smartSearch.resultCollection,
-                       let collectionPubs = collection.publications {
-                        let validPubs = collectionPubs.filter { !$0.isDeleted && $0.managedObjectContext != nil }
-                        allPublications.formUnion(validPubs)
-                    }
-                }
-            }
+    /// Fetch publications for a given scope.
+    ///
+    /// Unified method replaces fetchAllLibrariesPublications, fetchInboxPublications, fetchEverythingPublications.
+    /// - Parameter scope: Which libraries to include
+    /// - Returns: Array of publications sorted by dateAdded (newest first)
+    private func fetchPublications(for scope: FilterScope) -> [CDPublication] {
+        // Determine which libraries to include based on scope
+        let libraries: [CDLibrary] = switch scope {
+        case .current:
+            // For current scope, get from source (handled separately in refreshCurrentScopePublications)
+            if case .library(let lib) = source { [lib] } else { [] }
+        case .allLibraries:
+            libraryManager.libraries.filter { !$0.isInbox }
+        case .inbox:
+            libraryManager.libraries.filter { $0.isInbox }
+        case .everything:
+            libraryManager.libraries
         }
 
-        return Array(allPublications).sorted { $0.dateAdded > $1.dateAdded }
-    }
-
-    /// Fetch all publications from the Inbox library (including ALL inbox feeds)
-    private func fetchInboxPublications() -> [CDPublication] {
-        guard let inboxLibrary = libraryManager.libraries.first(where: { $0.isInbox }) else {
-            return []
-        }
-
+        // Collect all publications from the selected libraries
         var allPublications = Set<CDPublication>()
-
-        // Direct publications in Inbox
-        if let nsSet = inboxLibrary.publications as? NSSet {
-            let pubs = nsSet.compactMap { $0 as? CDPublication }
+        for library in libraries {
+            let pubs = (library.publications ?? [])
                 .filter { !$0.isDeleted && $0.managedObjectContext != nil }
             allPublications.formUnion(pubs)
-        }
-
-        // Include ALL feeds (feedsToInbox=true) regardless of library relationship
-        // This handles feeds created before the library relationship fix
-        let allFeeds = fetchAllInboxFeeds()
-        for smartSearch in allFeeds {
-            if let collection = smartSearch.resultCollection,
-               let collectionPubs = collection.publications {
-                let validPubs = collectionPubs.filter { !$0.isDeleted && $0.managedObjectContext != nil }
-                allPublications.formUnion(validPubs)
-            }
-        }
-
-        return Array(allPublications).sorted { $0.dateAdded > $1.dateAdded }
-    }
-
-    /// Fetch all smart searches marked as feeds (feedsToInbox=true)
-    private func fetchAllInboxFeeds() -> [CDSmartSearch] {
-        let context = PersistenceController.shared.viewContext
-        let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
-        request.predicate = NSPredicate(format: "feedsToInbox == YES")
-
-        do {
-            return try context.fetch(request)
-        } catch {
-            logger.error("Failed to fetch inbox feeds: \(error.localizedDescription)")
-            return []
-        }
-    }
-
-    /// Fetch all publications from all libraries including Inbox
-    private func fetchEverythingPublications() -> [CDPublication] {
-        var allPublications = Set<CDPublication>()
-
-        for library in libraryManager.libraries {
-            if let nsSet = library.publications as? NSSet {
-                let pubs = nsSet.compactMap { $0 as? CDPublication }
-                    .filter { !$0.isDeleted && $0.managedObjectContext != nil }
-                allPublications.formUnion(pubs)
-            }
-
-            // Include smart search results
-            if let smartSearches = library.smartSearches as? Set<CDSmartSearch> {
-                for smartSearch in smartSearches {
-                    if let collection = smartSearch.resultCollection,
-                       let collectionPubs = collection.publications {
-                        let validPubs = collectionPubs.filter { !$0.isDeleted && $0.managedObjectContext != nil }
-                        allPublications.formUnion(validPubs)
-                    }
-                }
-            }
         }
 
         return Array(allPublications).sorted { $0.dateAdded > $1.dateAdded }

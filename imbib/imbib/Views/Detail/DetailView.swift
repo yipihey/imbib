@@ -186,6 +186,11 @@ struct DetailView: View {
         .task(id: publication?.id) {
             // Auto-mark as read after brief delay (Apple Mail style)
             await autoMarkAsRead()
+
+            // Auto-enrich on view if needed (for ref/cite counts and other metadata)
+            if let pub = publication, pub.needsEnrichment {
+                await EnrichmentCoordinator.shared.queueForEnrichment(pub, priority: .recentlyViewed)
+            }
         }
         // Keyboard shortcuts for tab switching (Cmd+4/5/6, Cmd+R for Notes)
         .onReceive(NotificationCenter.default.publisher(for: .showPDFTab)) { _ in
@@ -580,6 +585,13 @@ struct InfoTab: View {
     // Timing for body evaluation
     @State private var bodyStartTime: CFAbsoluteTime = 0
 
+    // State for exploration (references/citations)
+    @State private var isExploringReferences = false
+    @State private var isExploringCitations = false
+    @State private var isExploringSimilar = false
+    @State private var isExploringCoReads = false
+    @State private var explorationError: String?
+
     var body: some View {
         let bodyStart = CFAbsoluteTimeGetCurrent()
 
@@ -595,6 +607,12 @@ struct InfoTab: View {
                     // MARK: - Identifiers (compact row)
                     if hasIdentifiers {
                         identifiersSection
+                        Divider()
+                    }
+
+                    // MARK: - Explore (References & Citations)
+                    if canExploreReferences {
+                        exploreSection
                         Divider()
                     }
 
@@ -707,6 +725,15 @@ struct InfoTab: View {
                 Logger.files.infoCapture("[InfoTab] Refreshing attachments after PDF import", category: "pdf")
             }
         }
+        .alert("Exploration Error", isPresented: .constant(explorationError != nil)) {
+            Button("OK") {
+                explorationError = nil
+            }
+        } message: {
+            if let error = explorationError {
+                Text(error)
+            }
+        }
     }
 
     // MARK: - Header Section (Email-Style)
@@ -791,6 +818,219 @@ struct InfoTab: View {
             } else {
                 Text(value)
                     .font(.caption)
+            }
+        }
+    }
+
+    // MARK: - Explore Section (References & Citations)
+
+    /// Whether this paper can be explored via ADS (has bibcode, DOI, or arXiv ID)
+    private var canExploreReferences: Bool {
+        paper.bibcode != nil || paper.doi != nil || paper.arxivID != nil
+    }
+
+    @ViewBuilder
+    private var exploreSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Explore")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+
+            // All buttons in a single row
+            HStack(spacing: 8) {
+                Button {
+                    showReferences()
+                } label: {
+                    if isExploringReferences {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label(referencesButtonLabel, systemImage: "doc.text")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isExploring)
+                .help("Show papers this paper cites (⌘R)")
+
+                Button {
+                    showCitations()
+                } label: {
+                    if isExploringCitations {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label(citationsButtonLabel, systemImage: "quote.bubble")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isExploring)
+                .help("Show papers that cite this paper (⇧⌘R)")
+
+                Button {
+                    showSimilar()
+                } label: {
+                    if isExploringSimilar {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label("Similar", systemImage: "sparkles")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isExploring)
+                .help("Show papers with similar content")
+
+                Button {
+                    showCoReads()
+                } label: {
+                    if isExploringCoReads {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Label("Co-Reads", systemImage: "books.vertical")
+                    }
+                }
+                .buttonStyle(.bordered)
+                .disabled(isExploring)
+                .help("Show papers frequently read together")
+            }
+        }
+    }
+
+    /// Whether any exploration is in progress
+    private var isExploring: Bool {
+        isExploringReferences || isExploringCitations || isExploringSimilar || isExploringCoReads
+    }
+
+    /// Label for the references button, including count if available
+    private var referencesButtonLabel: String {
+        if let pub = publication, pub.referenceCount > 0 {
+            return "References (\(pub.referenceCount))"
+        }
+        return "References"
+    }
+
+    /// Label for the citations button, including count if available
+    private var citationsButtonLabel: String {
+        if let pub = publication, pub.citationCount > 0 {
+            return "Citations (\(pub.citationCount))"
+        }
+        return "Citations"
+    }
+
+    /// Show references using ExplorationService
+    private func showReferences() {
+        guard let pub = publication else { return }
+
+        isExploringReferences = true
+        explorationError = nil
+
+        Task {
+            do {
+                // Set up ExplorationService with enrichment service and library manager
+                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
+                ExplorationService.shared.setEnrichmentService(enrichmentService)
+                ExplorationService.shared.setLibraryManager(libraryManager)
+
+                // Explore references - creates collection and navigates via notification
+                _ = try await ExplorationService.shared.exploreReferences(of: pub)
+
+                await MainActor.run {
+                    isExploringReferences = false
+                }
+            } catch {
+                await MainActor.run {
+                    isExploringReferences = false
+                    explorationError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// Show citations using ExplorationService
+    private func showCitations() {
+        guard let pub = publication else { return }
+
+        isExploringCitations = true
+        explorationError = nil
+
+        Task {
+            do {
+                // Set up ExplorationService with enrichment service and library manager
+                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
+                ExplorationService.shared.setEnrichmentService(enrichmentService)
+                ExplorationService.shared.setLibraryManager(libraryManager)
+
+                // Explore citations - creates collection and navigates via notification
+                _ = try await ExplorationService.shared.exploreCitations(of: pub)
+
+                await MainActor.run {
+                    isExploringCitations = false
+                }
+            } catch {
+                await MainActor.run {
+                    isExploringCitations = false
+                    explorationError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// Show similar papers using ExplorationService
+    private func showSimilar() {
+        guard let pub = publication else { return }
+
+        isExploringSimilar = true
+        explorationError = nil
+
+        Task {
+            do {
+                // Set up ExplorationService with enrichment service and library manager
+                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
+                ExplorationService.shared.setEnrichmentService(enrichmentService)
+                ExplorationService.shared.setLibraryManager(libraryManager)
+
+                // Explore similar - creates collection and navigates via notification
+                _ = try await ExplorationService.shared.exploreSimilar(of: pub)
+
+                await MainActor.run {
+                    isExploringSimilar = false
+                }
+            } catch {
+                await MainActor.run {
+                    isExploringSimilar = false
+                    explorationError = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// Show co-read papers using ExplorationService
+    private func showCoReads() {
+        guard let pub = publication else { return }
+
+        isExploringCoReads = true
+        explorationError = nil
+
+        Task {
+            do {
+                // Set up ExplorationService with enrichment service and library manager
+                let enrichmentService = await EnrichmentCoordinator.shared.enrichmentService
+                ExplorationService.shared.setEnrichmentService(enrichmentService)
+                ExplorationService.shared.setLibraryManager(libraryManager)
+
+                // Explore co-reads - creates collection and navigates via notification
+                _ = try await ExplorationService.shared.exploreCoReads(of: pub)
+
+                await MainActor.run {
+                    isExploringCoReads = false
+                }
+            } catch {
+                await MainActor.run {
+                    isExploringCoReads = false
+                    explorationError = error.localizedDescription
+                }
             }
         }
     }
@@ -2067,13 +2307,14 @@ struct NotesTab: View {
     @AppStorage("notesPanelSize") private var notesPanelSize: Double = 400  // ~60 chars at 13pt monospace
     @AppStorage("notesPanelCollapsed") private var isNotesPanelCollapsed = false
 
+    // PDF auto-load state
+    @State private var linkedFile: CDLinkedFile?
+    @State private var isCheckingPDF = true
+    @State private var isDownloading = false
+    @State private var checkPDFTask: Task<Void, Never>?
+
     private var notesPosition: NotesPosition {
         NotesPosition(rawValue: notesPositionRaw) ?? .below
-    }
-
-    // Find linked PDF for this publication
-    private var linkedFile: CDLinkedFile? {
-        publication.linkedFiles?.first(where: { $0.isPDF }) ?? publication.linkedFiles?.first
     }
 
     var body: some View {
@@ -2082,37 +2323,45 @@ struct NotesTab: View {
             set: { notesPanelSize = Double($0) }
         )
 
-        switch notesPosition {
-        case .below:
-            VStack(spacing: 0) {
-                pdfViewerContent
-                NotesPanel(
-                    publication: publication,
-                    size: sizeBinding,
-                    isCollapsed: $isNotesPanelCollapsed,
-                    orientation: .horizontal
-                )
+        Group {
+            switch notesPosition {
+            case .below:
+                VStack(spacing: 0) {
+                    pdfViewerContent
+                    NotesPanel(
+                        publication: publication,
+                        size: sizeBinding,
+                        isCollapsed: $isNotesPanelCollapsed,
+                        orientation: .horizontal
+                    )
+                }
+            case .right:
+                HStack(spacing: 0) {
+                    pdfViewerContent
+                    NotesPanel(
+                        publication: publication,
+                        size: sizeBinding,
+                        isCollapsed: $isNotesPanelCollapsed,
+                        orientation: .verticalRight
+                    )
+                }
+            case .left:
+                HStack(spacing: 0) {
+                    NotesPanel(
+                        publication: publication,
+                        size: sizeBinding,
+                        isCollapsed: $isNotesPanelCollapsed,
+                        orientation: .verticalLeft
+                    )
+                    pdfViewerContent
+                }
             }
-        case .right:
-            HStack(spacing: 0) {
-                pdfViewerContent
-                NotesPanel(
-                    publication: publication,
-                    size: sizeBinding,
-                    isCollapsed: $isNotesPanelCollapsed,
-                    orientation: .verticalRight
-                )
-            }
-        case .left:
-            HStack(spacing: 0) {
-                NotesPanel(
-                    publication: publication,
-                    size: sizeBinding,
-                    isCollapsed: $isNotesPanelCollapsed,
-                    orientation: .verticalLeft
-                )
-                pdfViewerContent
-            }
+        }
+        .onAppear {
+            checkAndLoadPDF()
+        }
+        .onChange(of: publication.id) { _, _ in
+            checkAndLoadPDF()
         }
     }
 
@@ -2125,12 +2374,107 @@ struct NotesTab: View {
                 publicationID: publication.id,
                 onCorruptPDF: { _ in }
             )
+        } else if isCheckingPDF {
+            ProgressView("Checking for PDF...")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if isDownloading {
+            VStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Downloading PDF...")
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             ContentUnavailableView(
                 "No PDF",
                 systemImage: "doc.richtext",
                 description: Text("Add a PDF to view it here while taking notes.")
             )
+        }
+    }
+
+    // MARK: - PDF Auto-Load
+
+    private func checkAndLoadPDF() {
+        checkPDFTask?.cancel()
+
+        linkedFile = nil
+        isCheckingPDF = true
+        isDownloading = false
+
+        checkPDFTask = Task {
+            // Check for linked PDF files
+            let linkedFiles = publication.linkedFiles ?? []
+            if let firstPDF = linkedFiles.first(where: { $0.isPDF }) ?? linkedFiles.first {
+                await MainActor.run {
+                    linkedFile = firstPDF
+                    isCheckingPDF = false
+                }
+                return
+            }
+
+            // No local PDF - check if remote PDF is available
+            let resolverHasPDF = PDFURLResolver.hasPDF(publication: publication)
+            let hasPdfLinks = !publication.pdfLinks.isEmpty
+            let hasArxivID = publication.arxivID != nil
+            let hasEprint = publication.fields["eprint"] != nil
+            let hasRemote = resolverHasPDF || hasPdfLinks || hasArxivID || hasEprint
+
+            await MainActor.run { isCheckingPDF = false }
+
+            // Auto-download if setting enabled AND remote PDF available
+            let settings = await PDFSettingsStore.shared.settings
+            if settings.autoDownloadEnabled && hasRemote {
+                await downloadPDF()
+            }
+        }
+    }
+
+    private func downloadPDF() async {
+        await MainActor.run { isDownloading = true }
+
+        let settings = await PDFSettingsStore.shared.settings
+        guard let resolvedURL = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings) else {
+            await MainActor.run { isDownloading = false }
+            return
+        }
+
+        do {
+            // Download to temp location
+            let (tempURL, _) = try await URLSession.shared.download(from: resolvedURL)
+
+            // Validate it's actually a PDF (check for %PDF header)
+            let fileHandle = try FileHandle(forReadingFrom: tempURL)
+            let header = fileHandle.readData(ofLength: 4)
+            try fileHandle.close()
+
+            guard header.count >= 4,
+                  header[0] == 0x25, // %
+                  header[1] == 0x50, // P
+                  header[2] == 0x44, // D
+                  header[3] == 0x46  // F
+            else {
+                try? FileManager.default.removeItem(at: tempURL)
+                await MainActor.run { isDownloading = false }
+                return
+            }
+
+            // Import into library using PDFManager
+            guard let library = libraryManager.activeLibrary else {
+                await MainActor.run { isDownloading = false }
+                return
+            }
+
+            try PDFManager.shared.importPDF(from: tempURL, for: publication, in: library)
+
+            // Refresh linkedFile
+            await MainActor.run {
+                isDownloading = false
+                linkedFile = publication.linkedFiles?.first(where: { $0.isPDF }) ?? publication.linkedFiles?.first
+            }
+        } catch {
+            await MainActor.run { isDownloading = false }
         }
     }
 }
@@ -2225,15 +2569,16 @@ struct NotesPanel: View {
     // MARK: - Notes Content
 
     private var notesContent: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                structuredFieldsSection
-                Divider()
-                freeformNotesSection
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+        VStack(alignment: .leading, spacing: 8) {
+            // Compact quick annotations at top (doesn't scroll)
+            structuredFieldsSection
+
+            // Freeform notes fills remaining space
+            freeformNotesSection
+                .frame(maxHeight: .infinity)
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .contentShape(Rectangle())
         .onTapGesture {
             enterEditMode()
@@ -2368,16 +2713,14 @@ struct NotesPanel: View {
         let enabledFields = annotationSettings.enabledFields
 
         if !enabledFields.isEmpty {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text("Quick Annotations")
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.tertiary)
                     .textCase(.uppercase)
 
-                LazyVGrid(columns: [
-                    GridItem(.flexible(), spacing: 12),
-                    GridItem(.flexible(), spacing: 12)
-                ], spacing: 8) {
+                // Compact inline layout
+                VStack(alignment: .leading, spacing: 3) {
                     ForEach(enabledFields) { field in
                         noteField(field)
                     }
@@ -2388,21 +2731,23 @@ struct NotesPanel: View {
 
     @ViewBuilder
     private func noteField(_ field: QuickAnnotationField) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(field.label)
-                .font(.caption2)
+        HStack(spacing: 4) {
+            Text(field.label + ":")
+                .font(.caption)
                 .foregroundStyle(.secondary)
-            TextField(field.placeholder, text: annotationBinding(for: field.id), axis: .vertical)
+                .frame(width: 70, alignment: .trailing)
+            TextField(field.placeholder, text: annotationBinding(for: field.id))
                 .textFieldStyle(.plain)
                 .font(.callout)
-                .lineLimit(2)
-                .padding(6)
+                .lineLimit(1)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
                 #if os(macOS)
                 .background(Color(nsColor: .textBackgroundColor))
                 #else
                 .background(Color(.systemBackground))
                 #endif
-                .cornerRadius(4)
+                .cornerRadius(3)
         }
     }
 

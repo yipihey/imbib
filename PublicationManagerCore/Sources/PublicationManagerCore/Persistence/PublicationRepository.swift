@@ -226,6 +226,11 @@ public actor PublicationRepository {
                 publication.citationCount = Int32(count)
             }
 
+            // Reference count
+            if let count = data.referenceCount {
+                publication.referenceCount = Int32(count)
+            }
+
             // PDF URLs from enrichment source (e.g., OpenAlex)
             if let pdfURLs = data.pdfURLs, !pdfURLs.isEmpty {
                 for pdfURL in pdfURLs {
@@ -237,6 +242,14 @@ public actor PublicationRepository {
                     publication.addPDFLink(link)
                 }
                 Logger.persistence.info("Added \(pdfURLs.count) PDF link(s) from \(data.source.displayName)")
+            }
+
+            // Typed PDF links from enrichment (e.g., ADS scanned PDFs)
+            if let pdfLinks = data.pdfLinks, !pdfLinks.isEmpty {
+                for link in pdfLinks {
+                    publication.addPDFLink(link)
+                }
+                Logger.persistence.info("Added \(pdfLinks.count) typed PDF link(s) from \(data.source.displayName)")
             }
 
             // Abstract (if we don't have one and enrichment provides it)
@@ -663,6 +676,13 @@ public actor PublicationRepository {
             var pubs = collection.publications ?? []
             pubs.insert(publication)
             collection.publications = pubs
+
+            // Also add to owning library if collection has one
+            // This ensures smart collections can find these papers
+            if let library = collection.library {
+                publication.addToLibrary(library)
+            }
+
             self.persistenceController.save()
         }
     }
@@ -936,8 +956,15 @@ public actor PublicationRepository {
         let context = persistenceController.viewContext
 
         await context.perform {
+            // Also add to owning library if collection has one
+            // This ensures smart collections can find these papers
+            let library = collection.library
+
             for pub in publications {
                 pub.addToCollection(collection)
+                if let library = library {
+                    pub.addToLibrary(library)
+                }
             }
 
             // Single save for all additions
@@ -1045,6 +1072,15 @@ public actor PublicationRepository {
                 current.insert(pub)
             }
             collection.publications = current
+
+            // Also add to owning library if collection has one
+            // This ensures smart collections can find these papers
+            if let library = collection.library {
+                for pub in publications {
+                    pub.addToLibrary(library)
+                }
+            }
+
             self.persistenceController.save()
         }
     }
@@ -1104,15 +1140,18 @@ public actor PublicationRepository {
     // MARK: - Smart Collection Execution
 
     /// Execute a smart collection query and return matching publications
+    ///
+    /// Smart collections are scoped to their parent library if they have one.
     public func executeSmartCollection(_ collection: CDCollection) async -> [CDPublication] {
         guard collection.isSmartCollection,
               let predicateString = collection.predicate,
               !predicateString.isEmpty else {
             // For static collections or empty predicate, return the assigned publications
+            Logger.persistence.debug("Smart collection '\(collection.name)' - not smart or empty predicate, returning \(collection.publications?.count ?? 0) direct publications")
             return Array(collection.publications ?? [])
         }
 
-        Logger.persistence.debug("Executing smart collection: \(collection.name)")
+        Logger.persistence.info("Executing smart collection: '\(collection.name)' with predicate: \(predicateString)")
         let context = persistenceController.viewContext
         let library = collection.library
 
@@ -1128,13 +1167,38 @@ public actor PublicationRepository {
             // Scope to owning library if present
             if let library = library {
                 predicates.append(NSPredicate(format: "ANY libraries == %@", library))
+                Logger.persistence.debug("Scoping to library: \(library.name)")
+            } else {
+                Logger.persistence.debug("No library scope - searching all publications")
             }
 
-            request.predicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+            let compoundPredicate = NSCompoundPredicate(andPredicateWithSubpredicates: predicates)
+            request.predicate = compoundPredicate
             request.sortDescriptors = [NSSortDescriptor(key: "dateModified", ascending: false)]
 
+            Logger.persistence.debug("Final predicate: \(compoundPredicate)")
+
             do {
-                return try context.fetch(request)
+                let results = try context.fetch(request)
+                Logger.persistence.info("Smart collection '\(collection.name)' returned \(results.count) results")
+
+                // Debug: Log year values for all publications in the library
+                if let library = library {
+                    let allInLibrary = NSFetchRequest<CDPublication>(entityName: "Publication")
+                    allInLibrary.predicate = NSPredicate(format: "ANY libraries == %@", library)
+                    if let allPubs = try? context.fetch(allInLibrary) {
+                        let yearCounts = Dictionary(grouping: allPubs, by: { $0.year })
+                            .mapValues { $0.count }
+                            .sorted { $0.key < $1.key }
+                        Logger.persistence.info("📊 Year distribution in '\(library.name)': \(yearCounts.map { "year=\($0.key): \($0.value)" }.joined(separator: ", "))")
+
+                        // Check rawFields for year
+                        let withRawFieldsYear = allPubs.filter { $0.fields["year"] != nil }.count
+                        Logger.persistence.info("📊 Publications with year in rawFields: \(withRawFieldsYear)/\(allPubs.count)")
+                    }
+                }
+
+                return results
             } catch {
                 Logger.persistence.error("Smart collection query failed: \(error.localizedDescription)")
                 return []
@@ -1329,6 +1393,15 @@ public actor CollectionRepository {
                 current.insert(pub)
             }
             collection.publications = current
+
+            // Also add to owning library if collection has one
+            // This ensures smart collections can find these papers
+            if let library = collection.library {
+                for pub in publications {
+                    pub.addToLibrary(library)
+                }
+            }
+
             self.persistenceController.save()
         }
     }

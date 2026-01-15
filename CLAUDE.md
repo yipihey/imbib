@@ -299,9 +299,36 @@ All phases complete: Core Module, Integration, Online Source Integration, and UI
 
 ## DO NOT Implement Yet
 - CloudKit sync (phase 2)
-- PDF annotation (phase 3)  
+- PDF annotation (phase 3)
 - JavaScript plugin runtime (phase 4)
 - CSL citation formatting
+
+## Possible Future Features
+
+### Paper Threading (ADR-017)
+
+**Status:** Proposed, not yet implemented
+
+**Concept:** Apple Mail-style conversation threading for related papers. Automatically groups papers by:
+- **Series** - Paper I, II, III (Roman numerals, "Part N" patterns)
+- **Preprint/Published** - arXiv + journal version pairs (same arXiv ID)
+- **Response Threads** - Comments, replies, errata linked to original papers
+- **Author Groups** - Papers by same author/collaboration (deferred - needs sub-grouping)
+- **Citation Chains** - Papers connected by citations (deferred - requires ADS integration)
+
+**Key Design Points:**
+- Mail-style UI: collapsed thread shows most recent paper + count badge
+- Disclosure triangle to expand/collapse
+- "Highlight Threads" and "Collapse Read Threads" toggles
+- Thread context menu: Mark All Read, Export Thread as BibTeX, Create Collection
+- Keyboard: `→` expand, `←` collapse, `⌘⇧T` toggle threading
+
+**Implementation Notes:**
+- Start with 3 dimensions (series, preprint, response) - defer author/citation to Phase 2
+- Local-first detection with caching (no server dependency except ADS for citations)
+- Graph view deferred to separate ADR
+
+**Reference:** See `~/Downloads/017-paper-threading.md` for full ADR
 
 ## Commands
 

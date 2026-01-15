@@ -239,6 +239,11 @@ public final class PersistenceController: @unchecked Sendable {
             collection: collectionEntity
         )
 
+        // Set up collection parent/child hierarchy for exploration drill-down
+        setupCollectionHierarchyRelationship(
+            collection: collectionEntity
+        )
+
         // Set up linkedFile <-> attachmentTag relationship (many-to-many)
         setupLinkedFileAttachmentTagRelationship(
             linkedFile: linkedFileEntity,
@@ -378,6 +383,13 @@ public final class PersistenceController: @unchecked Sendable {
         citationCount.isOptional = false
         citationCount.defaultValue = Int32(-1)  // -1 = never enriched
         properties.append(citationCount)
+
+        let referenceCount = NSAttributeDescription()
+        referenceCount.name = "referenceCount"
+        referenceCount.attributeType = .integer32AttributeType
+        referenceCount.isOptional = false
+        referenceCount.defaultValue = Int32(-1)  // -1 = never enriched
+        properties.append(referenceCount)
 
         let enrichmentSource = NSAttributeDescription()
         enrichmentSource.name = "enrichmentSource"
@@ -814,6 +826,14 @@ public final class PersistenceController: @unchecked Sendable {
         isInbox.isOptional = false
         isInbox.defaultValue = false
         properties.append(isInbox)
+
+        // System library flag (for Exploration library)
+        let isSystemLibrary = NSAttributeDescription()
+        isSystemLibrary.name = "isSystemLibrary"
+        isSystemLibrary.attributeType = .booleanAttributeType
+        isSystemLibrary.isOptional = false
+        isSystemLibrary.defaultValue = false
+        properties.append(isSystemLibrary)
 
         entity.properties = properties
         return entity
@@ -1476,6 +1496,33 @@ public final class PersistenceController: @unchecked Sendable {
         pendingChange.properties.append(changeToLibrary)
     }
 
+    // Collection hierarchy relationship for exploration drill-down
+    private static func setupCollectionHierarchyRelationship(
+        collection: NSEntityDescription
+    ) {
+        // Collection -> parentCollection (many-to-one, optional)
+        let collectionToParent = NSRelationshipDescription()
+        collectionToParent.name = "parentCollection"
+        collectionToParent.destinationEntity = collection
+        collectionToParent.maxCount = 1
+        collectionToParent.isOptional = true
+        collectionToParent.deleteRule = .nullifyDeleteRule  // Don't cascade to children when parent deleted
+
+        // Collection -> childCollections (one-to-many)
+        let collectionToChildren = NSRelationshipDescription()
+        collectionToChildren.name = "childCollections"
+        collectionToChildren.destinationEntity = collection
+        collectionToChildren.isOptional = true
+        collectionToChildren.deleteRule = .cascadeDeleteRule  // Delete children when parent deleted
+
+        // Set inverse relationships
+        collectionToParent.inverseRelationship = collectionToChildren
+        collectionToChildren.inverseRelationship = collectionToParent
+
+        // Add to entity
+        collection.properties.append(contentsOf: [collectionToParent, collectionToChildren])
+    }
+
     // MARK: - Save
 
     public func save() {
@@ -1575,6 +1622,102 @@ public final class PersistenceController: @unchecked Sendable {
     public func runMigrations() {
         migrateArxivIDNormalized()
         migrateBibcodeNormalized()
+        migrateYearFromRawFields()
+        migrateCollectionPublicationsToLibrary()
+    }
+
+    /// Backfill year attribute from rawFields for publications where year is 0.
+    ///
+    /// Some older imports may not have populated the year attribute even though
+    /// the year is present in rawFields. This enables smart collections to filter by year.
+    public func migrateYearFromRawFields() {
+        Logger.persistence.info("Starting year migration from rawFields")
+
+        let context = viewContext
+        let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+        // Only migrate publications that have year=0 but might have year in rawFields
+        request.predicate = NSPredicate(format: "year == 0 AND rawFields != nil")
+
+        do {
+            let publications = try context.fetch(request)
+            var migrated = 0
+
+            for publication in publications {
+                // Try to extract year from rawFields
+                if let yearString = publication.fields["year"],
+                   let yearInt = Int16(yearString.trimmingCharacters(in: .whitespaces)) {
+                    publication.year = yearInt
+                    migrated += 1
+                }
+            }
+
+            if migrated > 0 {
+                try context.save()
+                Logger.persistence.info("Migrated year for \(migrated) publications")
+            } else {
+                Logger.persistence.debug("No publications needed year migration")
+            }
+        } catch {
+            Logger.persistence.error("Year migration failed: \(error)")
+        }
+    }
+
+    /// Ensure publications in collections are also in their owning library's publications relationship.
+    ///
+    /// Per ADR-016, search results are auto-imported to "Last Search" collections but weren't
+    /// being added to the library relationship. Smart collections use `ANY libraries == %@`
+    /// to filter, so papers in collections but not in the library relationship won't appear.
+    ///
+    /// This migration also fixes `collection.library` for smart search result collections
+    /// that were created before this field was being set.
+    public func migrateCollectionPublicationsToLibrary() {
+        Logger.persistence.info("Starting collection-to-library migration")
+
+        let context = viewContext
+
+        // Fetch ALL collections - we need to check smart search result collections too
+        let request = NSFetchRequest<CDCollection>(entityName: "Collection")
+
+        do {
+            let collections = try context.fetch(request)
+            var migratedPubs = 0
+            var fixedCollections = 0
+
+            for collection in collections {
+                // Determine the owning library:
+                // 1. Direct collection.library (if set)
+                // 2. Via smart search: collection.smartSearch?.library
+                let library = collection.library ?? collection.smartSearch?.library
+
+                guard let library = library else { continue }
+
+                // Fix collection.library if it wasn't set (for smart search result collections)
+                if collection.library == nil {
+                    collection.library = library
+                    fixedCollections += 1
+                    Logger.persistence.debug("Fixed collection.library for '\(collection.name ?? "unnamed")'")
+                }
+
+                // Migrate publications to library
+                guard let publications = collection.publications else { continue }
+
+                for publication in publications {
+                    if !publication.belongsToLibrary(library) {
+                        publication.addToLibrary(library)
+                        migratedPubs += 1
+                    }
+                }
+            }
+
+            if migratedPubs > 0 || fixedCollections > 0 {
+                try context.save()
+                Logger.persistence.info("Migration complete: \(migratedPubs) publications added to libraries, \(fixedCollections) collection.library relationships fixed")
+            } else {
+                Logger.persistence.debug("No publications needed collection-to-library migration")
+            }
+        } catch {
+            Logger.persistence.error("Collection-to-library migration failed: \(error)")
+        }
     }
 
     // MARK: - Sample Data

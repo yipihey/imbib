@@ -39,7 +39,7 @@ struct IOSCollectionListView: View {
             publications: publications,
             selection: $multiSelection,
             selectedPublication: $selection,
-            library: collection.owningLibrary,
+            library: collection.effectiveLibrary,
             allLibraries: libraryManager.libraries,
             showImportButton: false,
             showSortMenu: true,
@@ -144,7 +144,7 @@ struct IOSCollectionListView: View {
     private func openPDF(for publication: CDPublication) {
         if let linkedFiles = publication.linkedFiles,
            let pdfFile = linkedFiles.first(where: { $0.isPDF }),
-           let libraryURL = collection.owningLibrary?.folderURL {
+           let libraryURL = collection.effectiveLibrary?.folderURL {
             let pdfURL = libraryURL.appendingPathComponent(pdfFile.relativePath)
             _ = FileManager_Opener.shared.openFile(pdfURL)
         }

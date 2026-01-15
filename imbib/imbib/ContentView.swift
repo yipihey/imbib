@@ -38,6 +38,10 @@ struct ContentView: View {
     /// Multi-selection for bulk operations (BibTeX export, etc.)
     @State private var selectedPublicationIDs = Set<UUID>()
 
+    /// Whether to show search form (true) or results (false) in list pane
+    /// Form is shown initially; switches to results after search executes
+    @State private var showSearchFormInList: Bool = true
+
     /// Data for batch PDF download sheet (nil = not shown)
     @State private var batchDownloadData: BatchDownloadData?
 
@@ -115,6 +119,22 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .showSearch)) { _ in
             selectedSection = .search
         }
+        .onReceive(NotificationCenter.default.publisher(for: .resetSearchFormView)) { _ in
+            // Reset to show search form in list pane and clear detail pane
+            showSearchFormInList = true
+            displayedPublicationID = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToCollection)) { notification in
+            // Auto-select first publication when navigating to exploration collection
+            if let firstPubID = notification.userInfo?["firstPublicationID"] as? UUID {
+                // Small delay to let the list view load first
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(100))
+                    selectedPublicationID = firstPubID
+                    displayedPublicationID = firstPubID
+                }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .importBibTeX)) { _ in
             showImportPanel()
         }
@@ -146,14 +166,26 @@ struct ContentView: View {
         }
         .onChange(of: selectedSection) { oldValue, newValue in
             // ADR-016: All sections now use CDPublication
-            // Clear selection when switching sections
+            // Clear selection when switching sections (but not for search forms - keep detail pane)
             if oldValue != newValue {
-                selectedPublicationID = nil
-                displayedPublicationID = nil
+                // For search forms, don't clear the selection - keep detail pane showing current paper
+                if case .searchForm = newValue {
+                    // Reset to show form in list pane
+                    showSearchFormInList = true
+                } else {
+                    selectedPublicationID = nil
+                    displayedPublicationID = nil
+                }
             }
             // Save state when section changes
             if hasRestoredState {
                 saveAppState()
+            }
+        }
+        .onChange(of: searchViewModel.isSearching) { wasSearching, isSearching in
+            // When search completes (isSearching goes from true to false), switch to results view
+            if wasSearching && !isSearching {
+                showSearchFormInList = false
             }
         }
         .onChange(of: selectedPublicationID) { _, newID in
@@ -245,14 +277,11 @@ struct ContentView: View {
             }
             return nil
 
-        case .unread(let id):
-            if let library = libraryManager.libraries.first(where: { $0.id == id }) {
-                return .unread(library)
-            }
-            return nil
-
         case .search:
             return .search
+
+        case .searchForm(let formType):
+            return .searchForm(formType)
 
         case .smartSearch(let id):
             if let smartSearch = findSmartSearch(by: id) {
@@ -285,10 +314,10 @@ struct ContentView: View {
             return .inboxFeed(smartSearch.id)
         case .library(let library):
             return .library(library.id)
-        case .unread(let library):
-            return .unread(library.id)
         case .search:
             return .search
+        case .searchForm(let formType):
+            return .searchForm(formType)
         case .smartSearch(let smartSearch):
             return .smartSearch(smartSearch.id)
         case .collection(let collection):
@@ -361,17 +390,16 @@ struct ContentView: View {
                 onDownloadPDFs: handleDownloadPDFs
             )
 
-        case .unread(let library):
-            UnifiedPublicationListWrapper(
-                source: .library(library),
-                selectedPublication: selectedPublicationBinding,
-                selectedPublicationIDs: $selectedPublicationIDs,
-                initialFilterMode: .unread,
-                onDownloadPDFs: handleDownloadPDFs
-            )
-
         case .search:
             SearchResultsListView(selectedPublication: selectedPublicationBinding)
+
+        case .searchForm(let formType):
+            // Show form in list pane initially, then results after search executes
+            if showSearchFormInList {
+                searchFormForListPane(formType: formType)
+            } else {
+                SearchResultsListView(selectedPublication: selectedPublicationBinding)
+            }
 
         case .smartSearch(let smartSearch):
             UnifiedPublicationListWrapper(
@@ -437,6 +465,26 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Search Form for List Pane
+
+    /// Render search form in the list pane (middle column)
+    @ViewBuilder
+    private func searchFormForListPane(formType: SearchFormType) -> some View {
+        switch formType {
+        case .adsModern:
+            ADSModernSearchFormView()
+                .navigationTitle("ADS Modern Search")
+
+        case .adsClassic:
+            ADSClassicSearchFormView()
+                .navigationTitle("ADS Classic Search")
+
+        case .adsPaper:
+            ADSPaperSearchFormView()
+                .navigationTitle("ADS Paper Search")
+        }
+    }
+
     /// Extract library ID from current section selection
     private var selectedLibraryID: UUID? {
         switch selectedSection {
@@ -445,15 +493,18 @@ struct ContentView: View {
         case .inboxFeed(let smartSearch):
             // Inbox feeds belong to the Inbox library
             return InboxManager.shared.inboxLibrary?.id ?? smartSearch.library?.id
-        case .library(let library), .unread(let library):
+        case .library(let library):
             return library.id
         case .smartSearch(let smartSearch):
             return smartSearch.library?.id
         case .collection(let collection):
-            return collection.owningLibrary?.id
+            return collection.effectiveLibrary?.id
         case .scixLibrary(let scixLibrary):
             // SciX libraries use their own ID (not a local CDLibrary)
             return scixLibrary.id
+        case .search, .searchForm:
+            // Search results are imported to the active library's "Last Search" collection
+            return libraryManager.activeLibrary?.id
         default:
             return nil
         }
@@ -466,12 +517,14 @@ struct ContentView: View {
             return InboxManager.shared.inboxLibrary
         case .inboxFeed(let smartSearch):
             return InboxManager.shared.inboxLibrary ?? smartSearch.library
-        case .library(let library), .unread(let library):
+        case .library(let library):
             return library
         case .smartSearch(let smartSearch):
             return smartSearch.library
         case .collection(let collection):
-            return collection.owningLibrary
+            return collection.effectiveLibrary
+        case .search, .searchForm:
+            return libraryManager.activeLibrary
         default:
             return nil
         }
@@ -556,8 +609,8 @@ enum SidebarSection: Hashable {
     case inbox                         // Inbox - all papers waiting for triage
     case inboxFeed(CDSmartSearch)      // Inbox feed (smart search with feedsToInbox)
     case library(CDLibrary)           // All publications for specific library
-    case unread(CDLibrary)            // Unread publications for specific library
-    case search                        // Global search
+    case search                        // Global search (legacy, kept for compatibility)
+    case searchForm(SearchFormType)   // Specific search form (ADS Modern, Classic, Paper)
     case smartSearch(CDSmartSearch)   // Smart search (library-scoped via relationship)
     case collection(CDCollection)     // Collection (library-scoped via relationship)
     case scixLibrary(CDSciXLibrary)   // SciX online library
@@ -603,7 +656,7 @@ struct CollectionListView: View {
             publications: publications,
             selection: $multiSelection,
             selectedPublication: $selection,
-            library: collection.owningLibrary,
+            library: collection.effectiveLibrary,
             allLibraries: libraryManager.libraries,
             showImportButton: false,
             showSortMenu: true,
@@ -650,7 +703,7 @@ struct CollectionListView: View {
                     await dropHandler.handleDrop(
                         providers: providers,
                         for: publication,
-                        in: collection.owningLibrary
+                        in: collection.effectiveLibrary
                     )
                     refreshPublications()
                 }
@@ -770,7 +823,7 @@ struct CollectionListView: View {
     private func openPDF(for publication: CDPublication) {
         if let linkedFiles = publication.linkedFiles,
            let pdfFile = linkedFiles.first(where: { $0.isPDF }),
-           let libraryURL = collection.owningLibrary?.folderURL {
+           let libraryURL = collection.effectiveLibrary?.folderURL {
             let pdfURL = libraryURL.appendingPathComponent(pdfFile.relativePath)
             #if os(macOS)
             NSWorkspace.shared.open(pdfURL)

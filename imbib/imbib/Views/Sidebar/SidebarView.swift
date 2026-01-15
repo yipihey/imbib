@@ -20,6 +20,7 @@ struct SidebarView: View {
     // MARK: - Environment
 
     @Environment(LibraryManager.self) private var libraryManager
+    @Environment(\.themeColors) private var theme
 
     // MARK: - Observed Objects
 
@@ -53,11 +54,15 @@ struct SidebarView: View {
     @State private var sectionOrder: [SidebarSectionType] = SidebarSectionOrderStore.loadOrderSync()
     @State private var collapsedSections: Set<SidebarSectionType> = SidebarCollapsedStateStore.loadCollapsedSync()
 
+    // Search form ordering and visibility (persisted)
+    @State private var searchFormOrder: [SearchFormType] = SearchFormStore.loadOrderSync()
+    @State private var hiddenSearchForms: Set<SearchFormType> = SearchFormStore.loadHiddenSync()
+
     // MARK: - Body
 
     var body: some View {
         VStack(spacing: 0) {
-            // Main list
+            // Main list with optional theme tint
             List(selection: $selection) {
                 // All sections in user-defined order, all collapsible and moveable
                 ForEach(sectionOrder) { sectionType in
@@ -67,6 +72,12 @@ struct SidebarView: View {
                 .onMove(perform: moveSections)
             }
             .listStyle(.sidebar)
+            .scrollContentBackground(theme.sidebarTint != nil ? .hidden : .automatic)
+            .background {
+                if let tint = theme.sidebarTint {
+                    tint.opacity(theme.sidebarTintOpacity)
+                }
+            }
 
             // Bottom toolbar
             Divider()
@@ -304,8 +315,119 @@ struct SidebarView: View {
     /// Search section content (without Section wrapper)
     @ViewBuilder
     private var searchSectionContent: some View {
-        Label("Search Sources", systemImage: "magnifyingglass")
-            .tag(SidebarSection.search)
+        // Visible search forms in user-defined order
+        ForEach(visibleSearchForms) { formType in
+            Label(formType.displayName, systemImage: formType.icon)
+                .tag(SidebarSection.searchForm(formType))
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    // Reset to show form in list pane (not results)
+                    // This fires even when re-clicking the already-selected form
+                    NotificationCenter.default.post(name: .resetSearchFormView, object: nil)
+                    // Manually set selection since onTapGesture consumes the tap
+                    selection = .searchForm(formType)
+                }
+                .contextMenu {
+                    Button("Hide") {
+                        hideSearchForm(formType)
+                    }
+                }
+        }
+        .onMove(perform: moveSearchForms)
+
+        // Show hidden forms menu if any are hidden
+        if !hiddenSearchForms.isEmpty {
+            Menu {
+                ForEach(Array(hiddenSearchForms).sorted(by: { $0.rawValue < $1.rawValue }), id: \.self) { formType in
+                    Button("Show \(formType.displayName)") {
+                        showSearchForm(formType)
+                    }
+                }
+
+                Divider()
+
+                Button("Show All") {
+                    showAllSearchForms()
+                }
+            } label: {
+                Label("Show Hidden Forms...", systemImage: "eye")
+            }
+        }
+    }
+
+    /// Get visible search forms in order
+    private var visibleSearchForms: [SearchFormType] {
+        searchFormOrder.filter { !hiddenSearchForms.contains($0) }
+    }
+
+    /// Move search forms via drag-and-drop
+    private func moveSearchForms(from source: IndexSet, to destination: Int) {
+        // Get the visible forms
+        var visible = visibleSearchForms
+
+        // Perform the move on visible forms
+        visible.move(fromOffsets: source, toOffset: destination)
+
+        // Rebuild the full order preserving hidden forms in their relative positions
+        var newOrder: [SearchFormType] = []
+        var visibleIndex = 0
+
+        for formType in searchFormOrder {
+            if hiddenSearchForms.contains(formType) {
+                // Keep hidden forms in their current relative position
+                newOrder.append(formType)
+            } else {
+                // Insert visible forms in their new order
+                if visibleIndex < visible.count {
+                    newOrder.append(visible[visibleIndex])
+                    visibleIndex += 1
+                }
+            }
+        }
+
+        // Add any remaining visible forms
+        while visibleIndex < visible.count {
+            newOrder.append(visible[visibleIndex])
+            visibleIndex += 1
+        }
+
+        withAnimation {
+            searchFormOrder = newOrder
+        }
+
+        Task {
+            await SearchFormStore.shared.save(newOrder)
+        }
+    }
+
+    /// Hide a search form
+    private func hideSearchForm(_ formType: SearchFormType) {
+        withAnimation {
+            hiddenSearchForms.insert(formType)
+        }
+        Task {
+            await SearchFormStore.shared.hide(formType)
+        }
+    }
+
+    /// Show a hidden search form
+    private func showSearchForm(_ formType: SearchFormType) {
+        withAnimation {
+            hiddenSearchForms.remove(formType)
+        }
+        Task {
+            await SearchFormStore.shared.show(formType)
+        }
+    }
+
+    /// Show all hidden search forms
+    private func showAllSearchForms() {
+        withAnimation {
+            hiddenSearchForms.removeAll()
+        }
+        Task {
+            await SearchFormStore.shared.setHidden([])
+        }
     }
 
     /// Exploration section content (without Section wrapper)
@@ -1122,7 +1244,7 @@ struct SidebarView: View {
                 if ss.library?.id == library.id { selection = nil }
             case .collection(let col):
                 if col.library?.id == library.id { selection = nil }
-            case .search, .scixLibrary:
+            case .search, .searchForm, .scixLibrary:
                 break  // Not affected by library deletion
             }
         }

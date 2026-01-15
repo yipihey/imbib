@@ -22,11 +22,14 @@ public final class LibraryManager {
 
     // MARK: - Published State
 
-    /// All known libraries
+    /// All known libraries (excludes system libraries like Exploration)
     public private(set) var libraries: [CDLibrary] = []
 
     /// Currently active library
     public private(set) var activeLibrary: CDLibrary?
+
+    /// The Exploration system library (for references/citations exploration)
+    public private(set) var explorationLibrary: CDLibrary?
 
     /// Recently opened libraries (for menu)
     public var recentLibraries: [CDLibrary] {
@@ -74,8 +77,13 @@ public final class LibraryManager {
         ]
 
         do {
-            libraries = try persistenceController.viewContext.fetch(request)
-            Logger.library.infoCapture("Loaded \(libraries.count) libraries", category: "library")
+            let allLibraries = try persistenceController.viewContext.fetch(request)
+
+            // Separate system libraries from user libraries
+            libraries = allLibraries.filter { !$0.isSystemLibrary }
+            explorationLibrary = allLibraries.first { $0.isSystemLibrary && $0.name == "Exploration" }
+
+            Logger.library.infoCapture("Loaded \(libraries.count) libraries + \(explorationLibrary != nil ? "1" : "0") system library", category: "library")
 
             // Set active to default library if not set
             if activeLibrary == nil {
@@ -339,6 +347,98 @@ public final class LibraryManager {
 
         // Clear the collection's publication set
         collection.publications = []
+        persistenceController.save()
+    }
+
+    // MARK: - Exploration Library
+
+    /// Get or create the Exploration system library.
+    ///
+    /// This is a system library that holds exploration results (references/citations).
+    /// Collections in this library are created when exploring a paper's references or citations.
+    @discardableResult
+    public func getOrCreateExplorationLibrary() -> CDLibrary {
+        // Return existing if available
+        if let lib = explorationLibrary {
+            return lib
+        }
+
+        // Create new Exploration library
+        Logger.library.infoCapture("Creating Exploration system library", category: "library")
+
+        let context = persistenceController.viewContext
+        let library = CDLibrary(context: context)
+        library.id = UUID()
+        library.name = "Exploration"
+        library.isSystemLibrary = true
+        library.isDefault = false
+        library.dateCreated = Date()
+        library.sortOrder = Int16.max  // Always at the end
+
+        persistenceController.save()
+
+        explorationLibrary = library
+        return library
+    }
+
+    /// Delete all collections in the Exploration library
+    public func clearExplorationLibrary() {
+        guard let library = explorationLibrary else { return }
+
+        Logger.library.infoCapture("Clearing Exploration library", category: "library")
+
+        let context = persistenceController.viewContext
+
+        // Delete all collections and their papers
+        if let collections = library.collections {
+            for collection in collections {
+                // Delete papers that are only in exploration collections
+                if let publications = collection.publications {
+                    for pub in publications {
+                        let otherCollections = (pub.collections ?? []).filter {
+                            $0.library?.isSystemLibrary != true
+                        }
+                        if otherCollections.isEmpty {
+                            context.delete(pub)
+                        }
+                    }
+                }
+                context.delete(collection)
+            }
+        }
+
+        persistenceController.save()
+    }
+
+    /// Delete a specific exploration collection
+    public func deleteExplorationCollection(_ collection: CDCollection) {
+        guard collection.library?.isSystemLibrary == true else {
+            Logger.library.warningCapture("Attempted to delete non-exploration collection", category: "library")
+            return
+        }
+
+        Logger.library.infoCapture("Deleting exploration collection: \(collection.name)", category: "library")
+
+        let context = persistenceController.viewContext
+
+        // Delete papers that are only in this exploration collection
+        if let publications = collection.publications {
+            for pub in publications {
+                let otherCollections = (pub.collections ?? []).filter { $0.id != collection.id }
+                if otherCollections.isEmpty {
+                    context.delete(pub)
+                }
+            }
+        }
+
+        // Delete child collections recursively
+        if let children = collection.childCollections {
+            for child in children {
+                deleteExplorationCollection(child)
+            }
+        }
+
+        context.delete(collection)
         persistenceController.save()
     }
 }

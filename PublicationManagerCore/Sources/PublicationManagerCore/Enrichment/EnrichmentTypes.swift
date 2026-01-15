@@ -113,7 +113,9 @@ public struct PaperStub: Codable, Sendable, Identifiable, Equatable, Hashable {
     public let doi: String?
     public let arxivID: String?
     public let citationCount: Int?
+    public let referenceCount: Int?
     public let isOpenAccess: Bool?
+    public let abstract: String?
 
     public init(
         id: String,
@@ -124,7 +126,9 @@ public struct PaperStub: Codable, Sendable, Identifiable, Equatable, Hashable {
         doi: String? = nil,
         arxivID: String? = nil,
         citationCount: Int? = nil,
-        isOpenAccess: Bool? = nil
+        referenceCount: Int? = nil,
+        isOpenAccess: Bool? = nil,
+        abstract: String? = nil
     ) {
         self.id = id
         self.title = title
@@ -134,7 +138,9 @@ public struct PaperStub: Codable, Sendable, Identifiable, Equatable, Hashable {
         self.doi = doi
         self.arxivID = arxivID
         self.citationCount = citationCount
+        self.referenceCount = referenceCount
         self.isOpenAccess = isOpenAccess
+        self.abstract = abstract
     }
 
     /// First author's last name for display
@@ -207,6 +213,7 @@ public struct EnrichmentData: Codable, Sendable, Equatable {
     public let citations: [PaperStub]?
     public let abstract: String?
     public let pdfURLs: [URL]?
+    public let pdfLinks: [PDFLink]?  // Typed PDF links with source info
     public let openAccessStatus: OpenAccessStatus?
     public let venue: String?
     public let authorStats: [AuthorStats]?
@@ -220,6 +227,7 @@ public struct EnrichmentData: Codable, Sendable, Equatable {
         citations: [PaperStub]? = nil,
         abstract: String? = nil,
         pdfURLs: [URL]? = nil,
+        pdfLinks: [PDFLink]? = nil,
         openAccessStatus: OpenAccessStatus? = nil,
         venue: String? = nil,
         authorStats: [AuthorStats]? = nil,
@@ -232,6 +240,7 @@ public struct EnrichmentData: Codable, Sendable, Equatable {
         self.citations = citations
         self.abstract = abstract
         self.pdfURLs = pdfURLs
+        self.pdfLinks = pdfLinks
         self.openAccessStatus = openAccessStatus
         self.venue = venue
         self.authorStats = authorStats
@@ -258,6 +267,7 @@ public struct EnrichmentData: Codable, Sendable, Equatable {
             citations: citations ?? other.citations,
             abstract: abstract ?? other.abstract,
             pdfURLs: pdfURLs ?? other.pdfURLs,
+            pdfLinks: pdfLinks ?? other.pdfLinks,
             openAccessStatus: openAccessStatus ?? other.openAccessStatus,
             venue: venue ?? other.venue,
             authorStats: authorStats ?? other.authorStats,

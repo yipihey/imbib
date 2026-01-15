@@ -21,12 +21,6 @@ struct SearchResultsListView: View {
     @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(LibraryManager.self) private var libraryManager
 
-    // MARK: - State
-
-    @State private var searchText: String = ""
-    @State private var availableSources: [SourceMetadata] = []
-    @FocusState private var isSearchFocused: Bool
-
     // MARK: - Bindings (for selection)
 
     @Binding var selectedPublication: CDPublication?
@@ -42,21 +36,13 @@ struct SearchResultsListView: View {
     var body: some View {
         @Bindable var viewModel = viewModel
 
-        VStack(spacing: 0) {
-            // Search bar and source filters
-            searchHeader
-
-            Divider()
-
-            // Results
-            resultsList
-        }
-        .navigationTitle("Search")
-        .task {
-            availableSources = await viewModel.availableSources
-            // Ensure SearchViewModel has access to LibraryManager
-            viewModel.setLibraryManager(libraryManager)
-        }
+        // Results list only - search form is in the detail pane
+        resultsList
+            .navigationTitle("Search Results")
+            .task {
+                // Ensure SearchViewModel has access to LibraryManager
+                viewModel.setLibraryManager(libraryManager)
+            }
         .onReceive(NotificationCenter.default.publisher(for: .toggleReadStatus)) { _ in
             toggleReadStatusForSelected()
         }
@@ -98,62 +84,6 @@ struct SearchResultsListView: View {
     private func cutSelectedPublications() async {
         guard !viewModel.selectedPublicationIDs.isEmpty else { return }
         await libraryViewModel.cutToClipboard(viewModel.selectedPublicationIDs)
-    }
-
-    // MARK: - Search Header
-
-    private var searchHeader: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Search field
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-
-                TextField("Search publications...", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .focused($isSearchFocused)
-                    .onSubmit {
-                        performSearch()
-                    }
-
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                }
-
-                Button("Search") {
-                    performSearch()
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(searchText.isEmpty)
-
-                // Send to Inbox button
-                if !viewModel.publications.isEmpty {
-                    Divider()
-                        .frame(height: 20)
-
-                    Button {
-                        sendSelectedToInbox()
-                    } label: {
-                        Label("Send to Inbox", systemImage: "tray.and.arrow.down")
-                    }
-                    .help("Send selected publications to Inbox")
-                    .disabled(viewModel.selectedPublicationIDs.isEmpty)
-                }
-            }
-            .padding(8)
-            .background(.background.secondary)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            // Source filter chips
-            SourceFilterBar(availableSources: availableSources)
-        }
-        .padding()
     }
 
     // MARK: - Results List
@@ -223,31 +153,6 @@ struct SearchResultsListView: View {
 
     // MARK: - Actions
 
-    private func performSearch() {
-        guard !searchText.isEmpty else { return }
-        Task {
-            viewModel.query = searchText
-            await viewModel.search()
-        }
-    }
-
-    private func sendSelectedToInbox() {
-        let selectedIDs = viewModel.selectedPublicationIDs
-        guard !selectedIDs.isEmpty else { return }
-
-        let inboxManager = InboxManager.shared
-
-        // Add selected publications to Inbox
-        for id in selectedIDs {
-            if let publication = viewModel.publications.first(where: { $0.id == id }) {
-                inboxManager.addToInbox(publication)
-            }
-        }
-
-        // Clear selection after sending
-        viewModel.clearSelection()
-    }
-
     private func openPDF(for publication: CDPublication) {
         // Open the first PDF if available
         if let linkedFiles = publication.linkedFiles,
@@ -258,65 +163,6 @@ struct SearchResultsListView: View {
             NSWorkspace.shared.open(pdfURL)
             #endif
         }
-    }
-}
-
-// MARK: - Source Filter Bar
-
-struct SourceFilterBar: View {
-
-    @Environment(SearchViewModel.self) private var viewModel
-    let availableSources: [SourceMetadata]
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(availableSources, id: \.id) { source in
-                    SourceChip(
-                        source: source,
-                        isSelected: viewModel.selectedSourceIDs.contains(source.id)
-                    ) {
-                        viewModel.toggleSource(source.id)
-                    }
-                }
-
-                Divider()
-                    .frame(height: 20)
-
-                Button("Select All") {
-                    Task {
-                        await viewModel.selectAllSources()
-                    }
-                }
-                .buttonStyle(.plain)
-                .font(.caption)
-            }
-        }
-    }
-}
-
-// MARK: - Source Chip
-
-struct SourceChip: View {
-    let source: SourceMetadata
-    let isSelected: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 4) {
-                Image(systemName: source.iconName)
-                    .font(.caption)
-                Text(source.name)
-                    .font(.caption)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(isSelected ? Color.accentColor : Color.gray.opacity(0.2))
-            .foregroundStyle(isSelected ? .white : .primary)
-            .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
     }
 }
 

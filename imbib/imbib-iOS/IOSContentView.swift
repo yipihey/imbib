@@ -87,6 +87,16 @@ struct IOSContentView: View {
                 selectedSection = .search
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToCollection)) { notification in
+            // Auto-select first publication when navigating to exploration collection
+            if let firstPubID = notification.userInfo?["firstPublicationID"] as? UUID {
+                // Small delay to let the list view load first
+                Task { @MainActor in
+                    try? await Task.sleep(for: .milliseconds(100))
+                    selectedPublication = libraryViewModel.publication(for: firstPubID)
+                }
+            }
+        }
         .fileImporter(
             isPresented: $showImportPicker,
             allowedContentTypes: [
@@ -189,9 +199,6 @@ struct IOSContentView: View {
         case .library(let library):
             IOSLibraryListView(library: library, selection: $selectedPublication)
 
-        case .unread(let library):
-            IOSLibraryListView(library: library, selection: $selectedPublication, showUnreadOnly: true)
-
         case .search:
             IOSSearchView(
                 selectedPublication: $selectedPublication,
@@ -201,6 +208,15 @@ struct IOSContentView: View {
                 // Clear pending search when leaving search view
                 pendingCategorySearch = nil
             }
+
+        case .searchForm(let formType):
+            // TODO: Create iOS-specific versions of Classic and Paper forms
+            // For now, all forms use the standard iOS search view
+            IOSSearchView(
+                selectedPublication: $selectedPublication,
+                initialQuery: nil
+            )
+            .navigationTitle(formType.displayName)
 
         case .smartSearch(let smartSearch):
             SmartSearchResultsView(smartSearch: smartSearch, selectedPublication: $selectedPublication)
@@ -251,12 +267,12 @@ struct IOSContentView: View {
             return InboxManager.shared.inboxLibrary?.id
         case .inboxFeed(let smartSearch):
             return InboxManager.shared.inboxLibrary?.id ?? smartSearch.library?.id
-        case .library(let library), .unread(let library):
+        case .library(let library):
             return library.id
         case .smartSearch(let smartSearch):
             return smartSearch.library?.id
         case .collection(let collection):
-            return collection.owningLibrary?.id
+            return collection.effectiveLibrary?.id
         default:
             return nil
         }
@@ -316,8 +332,8 @@ enum SidebarSection: Hashable {
     case inbox
     case inboxFeed(CDSmartSearch)
     case library(CDLibrary)
-    case unread(CDLibrary)
-    case search
+    case search                        // Legacy, kept for compatibility
+    case searchForm(SearchFormType)    // Specific search form
     case smartSearch(CDSmartSearch)
     case collection(CDCollection)
     case scixLibrary(CDSciXLibrary)

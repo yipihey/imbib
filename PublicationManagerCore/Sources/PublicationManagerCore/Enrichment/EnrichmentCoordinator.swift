@@ -41,6 +41,11 @@ public actor EnrichmentCoordinator {
     private let repository: PublicationRepository
     private var isStarted = false
 
+    /// Public access to the enrichment service for citation explorer and other features
+    public var enrichmentService: EnrichmentService {
+        service
+    }
+
     // MARK: - Initialization
 
     public init(
@@ -52,13 +57,14 @@ public actor EnrichmentCoordinator {
         // Create enrichment plugins
         let openAlex = OpenAlexSource(credentialManager: credentialManager)
         let semanticScholar = SemanticScholarSource(credentialManager: credentialManager)
+        let ads = ADSSource(credentialManager: credentialManager)
 
-        // Create service with plugins - OpenAlex first for PDF URLs
+        // Create service with plugins - ADS for references/citations, OpenAlex for PDF URLs
         self.service = EnrichmentService(
-            plugins: [openAlex, semanticScholar],
+            plugins: [ads, openAlex, semanticScholar],
             settingsProvider: DefaultEnrichmentSettingsProvider(settings: EnrichmentSettings(
-                preferredSource: .openAlex,
-                sourcePriority: [.openAlex, .semanticScholar],
+                preferredSource: .ads,
+                sourcePriority: [.ads, .openAlex, .semanticScholar],
                 autoSyncEnabled: true,
                 refreshIntervalDays: 7
             ))

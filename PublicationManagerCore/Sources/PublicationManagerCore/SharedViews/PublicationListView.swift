@@ -29,6 +29,7 @@ private struct FilterCacheKey: Equatable {
     let disableUnreadFilter: Bool
     let searchQuery: String
     let sortOrder: LibrarySortOrder
+    let sortAscending: Bool  // Direction toggle
     let searchInPDFs: Bool
     let pdfMatchCount: Int  // Track PDF matches by count (Set isn't Equatable for hash)
 }
@@ -175,6 +176,7 @@ public struct PublicationListView: View {
     @State private var searchQuery: String = ""
     @State private var showUnreadOnly: Bool = false
     @State private var sortOrder: LibrarySortOrder = .dateAdded
+    @State private var sortAscending: Bool = false  // Toggle by clicking same sort option again
     @State private var hasLoadedState: Bool = false
 
     /// Whether to include PDF content in search (uses Spotlight on macOS, PDFKit on iOS)
@@ -211,6 +213,9 @@ public struct PublicationListView: View {
     /// Scroll proxy for programmatic scrolling to selection (set by ScrollViewReader)
     @State private var scrollProxy: ScrollViewProxy?
 
+    /// Theme colors for list background tint
+    @Environment(\.themeColors) private var theme
+
     // MARK: - Computed Properties
 
     /// Filtered and sorted row data - memoized to avoid repeated computation
@@ -222,6 +227,7 @@ public struct PublicationListView: View {
             disableUnreadFilter: disableUnreadFilter,
             searchQuery: searchQuery,
             sortOrder: sortOrder,
+            sortAscending: sortAscending,
             searchInPDFs: searchInPDFs,
             pdfMatchCount: pdfSearchMatches.count
         )
@@ -259,21 +265,24 @@ public struct PublicationListView: View {
         }
 
         // Sort using data already in PublicationRowData - no CDPublication lookups needed
+        // Each case returns the "default direction" comparison, then we flip if sortAscending differs
         let sorted = result.sorted { lhs, rhs in
-            switch sortOrder {
+            let defaultComparison: Bool = switch sortOrder {
             case .dateAdded:
-                return lhs.dateAdded > rhs.dateAdded
+                lhs.dateAdded > rhs.dateAdded  // Default descending (newest first)
             case .dateModified:
-                return lhs.dateModified > rhs.dateModified
+                lhs.dateModified > rhs.dateModified  // Default descending (newest first)
             case .title:
-                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending  // Default ascending (A-Z)
             case .year:
-                return (lhs.year ?? 0) > (rhs.year ?? 0)
+                (lhs.year ?? 0) > (rhs.year ?? 0)  // Default descending (newest first)
             case .citeKey:
-                return lhs.citeKey.localizedCaseInsensitiveCompare(rhs.citeKey) == .orderedAscending
+                lhs.citeKey.localizedCaseInsensitiveCompare(rhs.citeKey) == .orderedAscending  // Default ascending (A-Z)
             case .citationCount:
-                return lhs.citationCount > rhs.citationCount
+                lhs.citationCount > rhs.citationCount  // Default descending (highest first)
             }
+            // Flip result if sortAscending differs from the field's default direction
+            return sortAscending == sortOrder.defaultAscending ? defaultComparison : !defaultComparison
         }
 
         let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1000
@@ -522,9 +531,10 @@ public struct PublicationListView: View {
         }
 
         if let state = await ListViewStateStore.shared.get(for: listID) {
-            // Restore sort order
+            // Restore sort order and direction
             if let order = LibrarySortOrder(rawValue: state.sortOrder) {
                 sortOrder = order
+                sortAscending = state.sortAscending
             }
             showUnreadOnly = state.showUnreadOnly
 
@@ -554,7 +564,7 @@ public struct PublicationListView: View {
         let state = ListViewState(
             selectedPublicationID: selection.first,
             sortOrder: sortOrder.rawValue,
-            sortAscending: false,  // Currently not configurable
+            sortAscending: sortAscending,
             showUnreadOnly: showUnreadOnly,
             lastVisitedDate: Date()
         )
@@ -624,7 +634,7 @@ public struct PublicationListView: View {
                     Image(systemName: "chevron.down")
                         .font(.caption2)
                 }
-                .foregroundColor(filterScope == .current ? Color.secondary : Color.blue)
+                .foregroundColor(filterScope == .current ? Color.secondary : Color.accentColor)
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
@@ -678,12 +688,27 @@ public struct PublicationListView: View {
                 .buttonStyle(.plain)
             }
 
-            // Sort menu
+            // Sort menu - click same option again to toggle ascending/descending
             if showSortMenu {
                 Menu {
                     ForEach(LibrarySortOrder.allCases, id: \.self) { order in
-                        Button(order.displayName) {
-                            sortOrder = order
+                        Button {
+                            if sortOrder == order {
+                                // Same order selected - toggle direction
+                                sortAscending.toggle()
+                            } else {
+                                // Different order - set new order with default direction
+                                sortOrder = order
+                                sortAscending = order.defaultAscending
+                            }
+                        } label: {
+                            HStack {
+                                Text(order.displayName)
+                                Spacer()
+                                if sortOrder == order {
+                                    Image(systemName: sortAscending ? "chevron.up" : "chevron.down")
+                                }
+                            }
                         }
                     }
                 } label: {
@@ -692,30 +717,53 @@ public struct PublicationListView: View {
                 .foregroundStyle(.secondary)
                 .menuStyle(.borderlessButton)
                 .fixedSize()
-                .help("Change sort order")
+                .help("Change sort order (click again to reverse)")
             }
+
+            // Total count display
+            countDisplay
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+
+    /// Display of filtered/total count
+    private var countDisplay: some View {
+        let filteredCount = filteredRowData.count
+        let totalCount = publications.count
+        let isFiltered = !searchQuery.isEmpty || showUnreadOnly
+
+        return Group {
+            if isFiltered && filteredCount != totalCount {
+                Text("\(filteredCount) of \(totalCount)")
+            } else {
+                Text("\(filteredCount) papers")
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.tertiary)
     }
 
     // MARK: - Publication List
 
     private var publicationList: some View {
         ScrollViewReader { proxy in
-            List(filteredRowData, id: \.id, selection: $selection) { rowData in
-                MailStylePublicationRow(
-                    data: rowData,
-                    settings: listViewSettings,
-                    onToggleRead: onToggleRead != nil ? {
-                        if let pub = publicationsByID[rowData.id] {
-                            Task { await onToggleRead?(pub) }
-                        }
-                    } : nil,
-                    onCategoryTap: onCategoryTap
-                )
-                .tag(rowData.id)
-                .id(rowData.id)  // For ScrollViewReader
+            List(selection: $selection) {
+                ForEach(Array(filteredRowData.enumerated()), id: \.element.id) { index, rowData in
+                    MailStylePublicationRow(
+                        data: rowData,
+                        settings: listViewSettings,
+                        rowNumber: index + 1,
+                        onToggleRead: onToggleRead != nil ? {
+                            if let pub = publicationsByID[rowData.id] {
+                                Task { await onToggleRead?(pub) }
+                            }
+                        } : nil,
+                        onCategoryTap: onCategoryTap
+                    )
+                    .tag(rowData.id)
+                    .id(rowData.id)  // For ScrollViewReader
+                }
             }
             // OPTIMIZATION: Disable selection animations for instant visual feedback
             .animation(nil, value: selection)
@@ -732,6 +780,13 @@ public struct PublicationListView: View {
             }
             .onAppear {
                 scrollProxy = proxy
+            }
+            // Apply list background tint from theme
+            .scrollContentBackground(theme.listBackgroundTint != nil ? .hidden : .automatic)
+            .background {
+                if let tint = theme.listBackgroundTint {
+                    tint.opacity(theme.listBackgroundTintOpacity)
+                }
             }
         #if os(macOS)
         .onDeleteCommand {

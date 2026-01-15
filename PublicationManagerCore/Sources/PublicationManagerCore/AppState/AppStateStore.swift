@@ -14,13 +14,13 @@ import OSLog
 /// Stores UUIDs instead of Core Data objects for persistence.
 public enum SidebarSelectionState: Codable, Equatable, Sendable {
     case inbox
-    case inboxFeed(UUID)        // Smart search ID (feeds to inbox)
-    case library(UUID)          // Library ID
-    case unread(UUID)           // Library ID (unread filter)
-    case search
-    case smartSearch(UUID)      // Smart search ID
-    case collection(UUID)       // Collection ID
-    case scixLibrary(UUID)      // SciX online library ID
+    case inboxFeed(UUID)              // Smart search ID (feeds to inbox)
+    case library(UUID)                // Library ID
+    case search                       // Legacy search (kept for compatibility)
+    case searchForm(SearchFormType)   // Specific search form
+    case smartSearch(UUID)            // Smart search ID
+    case collection(UUID)             // Collection ID
+    case scixLibrary(UUID)            // SciX online library ID
 }
 
 // MARK: - App State

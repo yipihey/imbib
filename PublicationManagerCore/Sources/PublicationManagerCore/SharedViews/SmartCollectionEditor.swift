@@ -98,7 +98,7 @@ public struct SmartCollectionEditor: View {
             }
         }
         #if os(macOS)
-        .frame(minWidth: 500, minHeight: 400)
+        .frame(minWidth: 600, minHeight: 400)
         #endif
     }
 
@@ -174,34 +174,56 @@ public struct SmartCollectionRule: Identifiable {
     }
 
     public var isValid: Bool {
-        !value.isEmpty
+        // Boolean comparisons don't need a value
+        if comparison == .isTrue || comparison == .isFalse {
+            return true
+        }
+        return !value.isEmpty
     }
 
     public func toPredicate() -> String {
-        let fieldName = field.predicateKey
+        let fieldKey = field.predicateKey
         let escapedValue = value.replacingOccurrences(of: "'", with: "\\'")
 
+        // Fields stored in rawFields JSON need special handling
+        // We search the JSON string directly since Core Data can't query JSON fields
+        if field.isStoredInRawFields {
+            switch comparison {
+            case .contains:
+                // Search for the key and value pattern in JSON: "author": "...value..."
+                return "rawFields CONTAINS[cd] '\(escapedValue)'"
+            case .doesNotContain:
+                return "NOT (rawFields CONTAINS[cd] '\(escapedValue)')"
+            case .equals, .beginsWith, .endsWith:
+                // For exact/prefix/suffix match on JSON fields, we can only do contains
+                return "rawFields CONTAINS[cd] '\(escapedValue)'"
+            default:
+                return "rawFields CONTAINS[cd] '\(escapedValue)'"
+            }
+        }
+
+        // Direct Core Data attributes
         switch comparison {
         case .contains:
-            return "\(fieldName) CONTAINS[cd] '\(escapedValue)'"
+            return "\(fieldKey) CONTAINS[cd] '\(escapedValue)'"
         case .doesNotContain:
-            return "NOT (\(fieldName) CONTAINS[cd] '\(escapedValue)')"
+            return "NOT (\(fieldKey) CONTAINS[cd] '\(escapedValue)')"
         case .equals:
-            return "\(fieldName) ==[cd] '\(escapedValue)'"
+            return "\(fieldKey) ==[cd] '\(escapedValue)'"
         case .notEquals:
-            return "\(fieldName) !=[cd] '\(escapedValue)'"
+            return "\(fieldKey) !=[cd] '\(escapedValue)'"
         case .beginsWith:
-            return "\(fieldName) BEGINSWITH[cd] '\(escapedValue)'"
+            return "\(fieldKey) BEGINSWITH[cd] '\(escapedValue)'"
         case .endsWith:
-            return "\(fieldName) ENDSWITH[cd] '\(escapedValue)'"
+            return "\(fieldKey) ENDSWITH[cd] '\(escapedValue)'"
         case .greaterThan:
-            return "\(fieldName) > \(escapedValue)"
+            return "\(fieldKey) > \(escapedValue)"
         case .lessThan:
-            return "\(fieldName) < \(escapedValue)"
+            return "\(fieldKey) < \(escapedValue)"
         case .isTrue:
-            return "\(fieldName) == YES"
+            return "\(fieldKey) == YES"
         case .isFalse:
-            return "\(fieldName) == NO"
+            return "\(fieldKey) == NO"
         }
     }
 
@@ -274,14 +296,16 @@ public struct SmartCollectionRule: Identifiable {
 
 public enum RuleField: String, CaseIterable, Identifiable {
     case title
-    case author
+    case author       // Stored in rawFields JSON
     case year
-    case journal
+    case journal      // Stored in rawFields JSON
     case citeKey
     case entryType
     case abstract
-    case keywords
+    case keywords     // Stored in rawFields JSON
     case doi
+    case isRead
+    case isStarred
 
     public var id: String { rawValue }
 
@@ -296,20 +320,35 @@ public enum RuleField: String, CaseIterable, Identifiable {
         case .abstract: return "Abstract"
         case .keywords: return "Keywords"
         case .doi: return "DOI"
+        case .isRead: return "Read Status"
+        case .isStarred: return "Starred"
         }
     }
 
+    /// Whether this field is stored in rawFields JSON (vs direct Core Data attribute)
+    public var isStoredInRawFields: Bool {
+        switch self {
+        case .author, .journal, .keywords:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// The Core Data attribute key or rawFields key
     public var predicateKey: String {
         switch self {
         case .title: return "title"
-        case .author: return "authorString"
+        case .author: return "author"      // Key in rawFields JSON
         case .year: return "year"
-        case .journal: return "journal"
+        case .journal: return "journal"    // Key in rawFields JSON
         case .citeKey: return "citeKey"
         case .entryType: return "entryType"
         case .abstract: return "abstract"
-        case .keywords: return "keywords"
+        case .keywords: return "keywords"  // Key in rawFields JSON
         case .doi: return "doi"
+        case .isRead: return "isRead"
+        case .isStarred: return "isStarred"
         }
     }
 
@@ -317,6 +356,8 @@ public enum RuleField: String, CaseIterable, Identifiable {
         switch self {
         case .year:
             return [.equals, .greaterThan, .lessThan]
+        case .isRead, .isStarred:
+            return [.isTrue, .isFalse]
         case .title, .author, .journal, .abstract, .keywords:
             return [.contains, .doesNotContain, .equals, .beginsWith, .endsWith]
         case .citeKey, .entryType, .doi:
@@ -367,7 +408,7 @@ struct RuleRow: View {
     @Binding var rule: SmartCollectionRule
 
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
             // Field picker
             Picker("Field", selection: $rule.field) {
                 ForEach(RuleField.allCases) { field in
@@ -376,7 +417,8 @@ struct RuleRow: View {
             }
             .labelsHidden()
             #if os(macOS)
-            .frame(width: 100)
+            .pickerStyle(.menu)
+            .frame(width: 120)
             #endif
 
             // Comparison picker
@@ -387,7 +429,8 @@ struct RuleRow: View {
             }
             .labelsHidden()
             #if os(macOS)
-            .frame(width: 140)
+            .pickerStyle(.menu)
+            .frame(width: 160)
             #endif
             .onChange(of: rule.field) { _, newField in
                 // Reset comparison if not available for new field
@@ -399,6 +442,7 @@ struct RuleRow: View {
             // Value field
             if rule.comparison != .isTrue && rule.comparison != .isFalse {
                 TextField("Value", text: $rule.value)
+                    .frame(minWidth: 150)
                     #if os(macOS)
                     .textFieldStyle(.roundedBorder)
                     #endif

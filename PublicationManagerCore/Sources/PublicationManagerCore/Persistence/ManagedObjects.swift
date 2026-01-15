@@ -28,6 +28,7 @@ public class CDPublication: NSManagedObject {
 
     // Enrichment fields (ADR-014)
     @NSManaged public var citationCount: Int32        // -1 = never enriched
+    @NSManaged public var referenceCount: Int32       // -1 = never enriched
     @NSManaged public var enrichmentSource: String?   // Which source provided data
     @NSManaged public var enrichmentDate: Date?       // When last enriched
 
@@ -208,6 +209,11 @@ public extension CDPublication {
         return Date().timeIntervalSince(date) > threshold
     }
 
+    /// Whether this publication needs enrichment (not enriched or stale)
+    var needsEnrichment: Bool {
+        !hasBeenEnriched || isEnrichmentStale(thresholdDays: 1)
+    }
+
     /// Staleness level for UI display
     var enrichmentStaleness: EnrichmentStaleness {
         guard hasBeenEnriched, let date = enrichmentDate else {
@@ -291,10 +297,18 @@ public extension CDPublication {
     // MARK: - Collection Management
 
     /// Add this publication to a collection
+    ///
+    /// Also adds to the collection's owning library to ensure smart collections
+    /// can find papers (they query `library.publications`, not collections).
     func addToCollection(_ collection: CDCollection) {
         var currentCollections = collections ?? []
         currentCollections.insert(collection)
         collections = currentCollections
+
+        // Also add to owning library if collection has one
+        if let library = collection.library {
+            addToLibrary(library)
+        }
     }
 
     /// Remove this publication from a collection
@@ -590,6 +604,10 @@ public class CDCollection: NSManagedObject, Identifiable {
     @NSManaged public var smartSearch: CDSmartSearch?     // Inverse of CDSmartSearch.resultCollection
     @NSManaged public var library: CDLibrary?             // Inverse of CDLibrary.collections
     @NSManaged public var owningLibrary: CDLibrary?       // Inverse of CDLibrary.lastSearchCollection (for system collections)
+
+    // Collection hierarchy for exploration drill-down
+    @NSManaged public var parentCollection: CDCollection?     // Parent collection (for nested exploration)
+    @NSManaged public var childCollections: Set<CDCollection>?  // Child collections
 }
 
 // MARK: - Collection Helpers
@@ -604,6 +622,66 @@ public extension CDCollection {
             return nil
         }
         return NSPredicate(format: predicateString)
+    }
+
+    /// Get the owning library (direct or via smart search)
+    var effectiveLibrary: CDLibrary? {
+        library ?? smartSearch?.library
+    }
+
+    /// Count publications matching this collection's criteria.
+    /// For static collections: returns count of directly assigned publications.
+    /// For smart collections: evaluates predicate against owning library's publications.
+    var matchingPublicationCount: Int {
+        // Static collection: use direct relationship
+        if !isSmartCollection {
+            return publications?.filter { !$0.isDeleted }.count ?? 0
+        }
+
+        // Smart collection: evaluate predicate against library publications
+        guard let predicate = nsPredicate,
+              let owningLibrary = effectiveLibrary,
+              let libraryPubs = owningLibrary.publications else {
+            return 0
+        }
+
+        // Filter library publications by predicate
+        let validPubs = libraryPubs.filter { !$0.isDeleted && $0.managedObjectContext != nil }
+        return (validPubs as NSSet).filtered(using: predicate).count
+    }
+
+    // MARK: - Hierarchy Helpers
+
+    /// Depth of this collection in the hierarchy (0 = root, 1 = first level child, etc.)
+    var depth: Int {
+        var d = 0
+        var current = parentCollection
+        while current != nil {
+            d += 1
+            current = current?.parentCollection
+        }
+        return d
+    }
+
+    /// Whether this collection has any child collections
+    var hasChildren: Bool {
+        !(childCollections?.isEmpty ?? true)
+    }
+
+    /// Sorted child collections by name
+    var sortedChildren: [CDCollection] {
+        (childCollections ?? []).sorted { ($0.name) < ($1.name) }
+    }
+
+    /// All ancestor collections from root to parent
+    var ancestors: [CDCollection] {
+        var result: [CDCollection] = []
+        var current = parentCollection
+        while let c = current {
+            result.insert(c, at: 0)
+            current = c.parentCollection
+        }
+        return result
     }
 }
 
@@ -621,6 +699,7 @@ public class CDLibrary: NSManagedObject, Identifiable {
     @NSManaged public var isDefault: Bool              // Is this the default library?
     @NSManaged public var sortOrder: Int16             // For sidebar ordering (drag-and-drop)
     @NSManaged public var isInbox: Bool                // Is this the special Inbox library?
+    @NSManaged public var isSystemLibrary: Bool        // Is this a system library? (e.g., Exploration)
 
     // Relationships
     @NSManaged public var smartSearches: Set<CDSmartSearch>?

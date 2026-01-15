@@ -98,7 +98,7 @@ public actor EnrichmentService {
         var lastError: Error?
 
         for plugin in sortedPlugins {
-            let canEnrich = await plugin.canEnrich(identifiers: identifiers)
+            let canEnrich = plugin.canEnrich(identifiers: identifiers)
             guard canEnrich else {
                 Logger.enrichment.debug("\(plugin.metadata.name) cannot enrich these identifiers")
                 continue
@@ -236,15 +236,8 @@ public actor EnrichmentService {
     }
 
     /// Get plugins that support a specific capability.
-    public func plugins(supporting capability: EnrichmentCapabilities) async -> [any EnrichmentPlugin] {
-        var result: [any EnrichmentPlugin] = []
-        for plugin in plugins {
-            let supports = await plugin.supports(capability)
-            if supports {
-                result.append(plugin)
-            }
-        }
-        return result
+    public func plugins(supporting capability: EnrichmentCapabilities) -> [any EnrichmentPlugin] {
+        plugins.filter { $0.supports(capability) }
     }
 
     // MARK: - Private Helpers
@@ -258,34 +251,16 @@ public actor EnrichmentService {
         }
     }
 
-    /// Background processing loop.
+    /// Background processing loop with batch enrichment support.
     private func runBackgroundLoop() async {
+        let batchSize = 50
         var processedCount = 0
+
         while isBackgroundSyncRunning && !Task.isCancelled {
-            if let (publicationID, result) = await processNextQueued() {
-                processedCount += 1
-                switch result {
-                case .success(let enrichmentResult):
-                    Logger.enrichment.infoCapture(
-                        "Background enriched \(publicationID.uuidString.prefix(8))... - citations: \(enrichmentResult.data.citationCount ?? 0)",
-                        category: "enrichment"
-                    )
+            // Dequeue batch of requests
+            let requests = await queue.dequeue(count: batchSize)
 
-                    // Persist the enrichment result to Core Data
-                    if let callback = onEnrichmentComplete {
-                        await callback(publicationID, enrichmentResult)
-                    }
-
-                case .failure(let error):
-                    Logger.enrichment.warningCapture(
-                        "Background enrichment failed \(publicationID.uuidString.prefix(8))...: \(error.localizedDescription)",
-                        category: "enrichment"
-                    )
-                }
-
-                // Small delay between requests to avoid hammering APIs
-                try? await Task.sleep(for: .milliseconds(100))
-            } else {
+            if requests.isEmpty {
                 // Queue empty, wait before checking again
                 if processedCount > 0 {
                     Logger.enrichment.infoCapture(
@@ -295,7 +270,97 @@ public actor EnrichmentService {
                     processedCount = 0
                 }
                 try? await Task.sleep(for: .seconds(1))
+                continue
             }
+
+            Logger.enrichment.infoCapture(
+                "Background batch: processing \(requests.count) items",
+                category: "enrichment"
+            )
+
+            // Process batch using the first plugin that supports batch enrichment
+            let priority = await settingsProvider.sourcePriority
+            let sortedPlugins = sortPlugins(by: priority)
+
+            // Try to use batch enrichment if available
+            var results: [UUID: Result<EnrichmentResult, Error>] = [:]
+            var remainingRequests = requests
+
+            for plugin in sortedPlugins {
+                if remainingRequests.isEmpty { break }
+
+                // Convert to batch format
+                let batchRequests = remainingRequests.map { request in
+                    (publicationID: request.publicationID, identifiers: request.identifiers)
+                }
+
+                // Call batch enrichment
+                let batchResults = await plugin.enrichBatch(requests: batchRequests)
+
+                // Collect successful results and identify remaining failures
+                var stillRemaining: [EnrichmentRequest] = []
+                for request in remainingRequests {
+                    if let result = batchResults[request.publicationID] {
+                        switch result {
+                        case .success:
+                            results[request.publicationID] = result
+                        case .failure(let error):
+                            // Only retry with next plugin if not found or auth required
+                            if case EnrichmentError.notFound = error {
+                                stillRemaining.append(request)
+                            } else if case EnrichmentError.authenticationRequired = error {
+                                stillRemaining.append(request)
+                            } else {
+                                // Other errors (network, rate limit) - keep failure
+                                results[request.publicationID] = result
+                            }
+                        }
+                    } else {
+                        // No result - try next plugin
+                        stillRemaining.append(request)
+                    }
+                }
+                remainingRequests = stillRemaining
+            }
+
+            // Mark any remaining as failed
+            for request in remainingRequests {
+                results[request.publicationID] = .failure(EnrichmentError.noSourceAvailable)
+            }
+
+            // Process results
+            var successCount = 0
+            var failureCount = 0
+
+            for (publicationID, result) in results {
+                processedCount += 1
+                switch result {
+                case .success(let enrichmentResult):
+                    successCount += 1
+                    Logger.enrichment.debug(
+                        "Background enriched \(publicationID.uuidString.prefix(8))... - citations: \(enrichmentResult.data.citationCount ?? 0)"
+                    )
+
+                    // Persist the enrichment result to Core Data
+                    if let callback = onEnrichmentComplete {
+                        await callback(publicationID, enrichmentResult)
+                    }
+
+                case .failure(let error):
+                    failureCount += 1
+                    Logger.enrichment.debug(
+                        "Background enrichment failed \(publicationID.uuidString.prefix(8))...: \(error.localizedDescription)"
+                    )
+                }
+            }
+
+            Logger.enrichment.infoCapture(
+                "Background batch complete: \(successCount) succeeded, \(failureCount) failed",
+                category: "enrichment"
+            )
+
+            // Small delay between batches
+            try? await Task.sleep(for: .milliseconds(500))
         }
     }
 }
