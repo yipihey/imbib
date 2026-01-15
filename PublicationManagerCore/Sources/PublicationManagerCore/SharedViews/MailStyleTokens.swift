@@ -52,6 +52,31 @@ public enum MailStyleTokens {
         theme.iconTint
     }
 
+    /// Get secondary text color from theme
+    public static func secondaryTextColor(from theme: ThemeColors) -> Color {
+        theme.secondaryText
+    }
+
+    /// Get tertiary text color from theme
+    public static func tertiaryTextColor(from theme: ThemeColors) -> Color {
+        theme.tertiaryText
+    }
+
+    /// Get link color from theme
+    public static func linkColor(from theme: ThemeColors) -> Color {
+        theme.linkColor
+    }
+
+    /// Get detail view background from theme (nil = system default)
+    public static func detailBackground(from theme: ThemeColors) -> Color? {
+        theme.detailBackground
+    }
+
+    /// Get row separator color from theme (nil = system default)
+    public static func rowSeparator(from theme: ThemeColors) -> Color? {
+        theme.rowSeparator
+    }
+
     // MARK: - Spacing
 
     /// Vertical padding for each row

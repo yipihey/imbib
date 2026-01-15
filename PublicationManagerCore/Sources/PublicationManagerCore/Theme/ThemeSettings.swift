@@ -69,15 +69,27 @@ public struct DarkModeOverrides: Codable, Equatable, Sendable {
     public var accentColorHex: String?
     public var sidebarTintHex: String?
     public var listBackgroundTintHex: String?
+    public var secondaryTextColorHex: String?
+    public var tertiaryTextColorHex: String?
+    public var detailBackgroundColorHex: String?
+    public var linkColorHex: String?
 
     public init(
         accentColorHex: String? = nil,
         sidebarTintHex: String? = nil,
-        listBackgroundTintHex: String? = nil
+        listBackgroundTintHex: String? = nil,
+        secondaryTextColorHex: String? = nil,
+        tertiaryTextColorHex: String? = nil,
+        detailBackgroundColorHex: String? = nil,
+        linkColorHex: String? = nil
     ) {
         self.accentColorHex = accentColorHex
         self.sidebarTintHex = sidebarTintHex
         self.listBackgroundTintHex = listBackgroundTintHex
+        self.secondaryTextColorHex = secondaryTextColorHex
+        self.tertiaryTextColorHex = tertiaryTextColorHex
+        self.detailBackgroundColorHex = detailBackgroundColorHex
+        self.linkColorHex = linkColorHex
     }
 }
 
@@ -118,6 +130,27 @@ public struct ThemeSettings: Codable, Equatable, Sendable {
     /// Opacity of list background tint (0.0-0.1 range)
     public var listBackgroundTintOpacity: Double
 
+    // MARK: - Text Colors
+
+    /// Secondary text color for metadata, dates, abstracts
+    public var secondaryTextColorHex: String?
+
+    /// Tertiary text color for subtle info (attachment icons)
+    public var tertiaryTextColorHex: String?
+
+    // MARK: - Detail View Colors
+
+    /// Background color for detail view sections
+    public var detailBackgroundColorHex: String?
+
+    /// Color for clickable links (DOI, arXiv, ADS)
+    public var linkColorHex: String?
+
+    // MARK: - Row Styling
+
+    /// Color for list row separators/dividers
+    public var rowSeparatorColorHex: String?
+
     // MARK: - Typography
 
     /// Use serif fonts for titles (academic feel)
@@ -144,6 +177,11 @@ public struct ThemeSettings: Codable, Equatable, Sendable {
         sidebarTintHex: String? = nil,
         listBackgroundTintHex: String? = nil,
         listBackgroundTintOpacity: Double = 0,
+        secondaryTextColorHex: String? = nil,
+        tertiaryTextColorHex: String? = nil,
+        detailBackgroundColorHex: String? = nil,
+        linkColorHex: String? = nil,
+        rowSeparatorColorHex: String? = nil,
         useSerifTitles: Bool = false,
         iconColorHex: String? = nil,
         darkModeOverrides: DarkModeOverrides? = nil
@@ -156,6 +194,11 @@ public struct ThemeSettings: Codable, Equatable, Sendable {
         self.sidebarTintHex = sidebarTintHex
         self.listBackgroundTintHex = listBackgroundTintHex
         self.listBackgroundTintOpacity = listBackgroundTintOpacity
+        self.secondaryTextColorHex = secondaryTextColorHex
+        self.tertiaryTextColorHex = tertiaryTextColorHex
+        self.detailBackgroundColorHex = detailBackgroundColorHex
+        self.linkColorHex = linkColorHex
+        self.rowSeparatorColorHex = rowSeparatorColorHex
         self.useSerifTitles = useSerifTitles
         self.iconColorHex = iconColorHex
         self.darkModeOverrides = darkModeOverrides
@@ -193,6 +236,11 @@ public extension ThemeSettings {
         sidebarTintHex: nil,
         listBackgroundTintHex: nil,
         listBackgroundTintOpacity: 0,
+        secondaryTextColorHex: nil,  // System default
+        tertiaryTextColorHex: nil,   // System default
+        detailBackgroundColorHex: nil,
+        linkColorHex: nil,           // Uses accent
+        rowSeparatorColorHex: nil,
         useSerifTitles: false,
         iconColorHex: nil,
         darkModeOverrides: nil
@@ -210,12 +258,21 @@ public extension ThemeSettings {
         sidebarTintHex: "#1E4B8E",
         listBackgroundTintHex: "#E8F0FE",
         listBackgroundTintOpacity: 0.05,
+        secondaryTextColorHex: "#374151",  // Slate gray
+        tertiaryTextColorHex: "#6B7280",   // Medium gray
+        detailBackgroundColorHex: "#F0F4F8",
+        linkColorHex: "#1E4B8E",
+        rowSeparatorColorHex: "#CBD5E1",
         useSerifTitles: true,
         iconColorHex: "#1E4B8E",
         darkModeOverrides: DarkModeOverrides(
             accentColorHex: "#5B9AFF",
             sidebarTintHex: "#1E3A5F",
-            listBackgroundTintHex: "#1E3A5F"
+            listBackgroundTintHex: "#1E3A5F",
+            secondaryTextColorHex: "#9CA3AF",
+            tertiaryTextColorHex: "#6B7280",
+            detailBackgroundColorHex: "#1E293B",
+            linkColorHex: "#5B9AFF"
         )
     )
 
@@ -231,12 +288,21 @@ public extension ThemeSettings {
         sidebarTintHex: "#166534",
         listBackgroundTintHex: "#DCFCE7",
         listBackgroundTintOpacity: 0.04,
+        secondaryTextColorHex: "#374151",  // Slate gray
+        tertiaryTextColorHex: "#6B7280",   // Medium gray
+        detailBackgroundColorHex: "#F0FDF4",
+        linkColorHex: "#166534",
+        rowSeparatorColorHex: "#BBF7D0",
         useSerifTitles: true,
         iconColorHex: "#166534",
         darkModeOverrides: DarkModeOverrides(
             accentColorHex: "#4ADE80",
             sidebarTintHex: "#14432A",
-            listBackgroundTintHex: "#14432A"
+            listBackgroundTintHex: "#14432A",
+            secondaryTextColorHex: "#9CA3AF",
+            tertiaryTextColorHex: "#6B7280",
+            detailBackgroundColorHex: "#14532D",
+            linkColorHex: "#4ADE80"
         )
     )
 
@@ -252,12 +318,21 @@ public extension ThemeSettings {
         sidebarTintHex: nil,
         listBackgroundTintHex: "#F9FAFB",
         listBackgroundTintOpacity: 0.03,
+        secondaryTextColorHex: "#6B7280",  // Medium gray
+        tertiaryTextColorHex: "#9CA3AF",   // Light gray
+        detailBackgroundColorHex: "#F9FAFB",
+        linkColorHex: "#4B5563",
+        rowSeparatorColorHex: "#E5E7EB",
         useSerifTitles: false,
         iconColorHex: "#6B7280",
         darkModeOverrides: DarkModeOverrides(
             accentColorHex: "#9CA3AF",
             sidebarTintHex: nil,
-            listBackgroundTintHex: "#1F2937"
+            listBackgroundTintHex: "#1F2937",
+            secondaryTextColorHex: "#9CA3AF",
+            tertiaryTextColorHex: "#6B7280",
+            detailBackgroundColorHex: "#111827",
+            linkColorHex: "#9CA3AF"
         )
     )
 
@@ -273,12 +348,21 @@ public extension ThemeSettings {
         sidebarTintHex: "#9D174D",
         listBackgroundTintHex: "#FDF2F8",
         listBackgroundTintOpacity: 0.04,
+        secondaryTextColorHex: "#4B5563",  // Cool gray
+        tertiaryTextColorHex: "#6B7280",   // Medium gray
+        detailBackgroundColorHex: "#FDF2F8",
+        linkColorHex: "#9D174D",
+        rowSeparatorColorHex: "#FBCFE8",
         useSerifTitles: false,
         iconColorHex: "#9D174D",
         darkModeOverrides: DarkModeOverrides(
             accentColorHex: "#F472B6",
             sidebarTintHex: "#5B1032",
-            listBackgroundTintHex: "#5B1032"
+            listBackgroundTintHex: "#5B1032",
+            secondaryTextColorHex: "#9CA3AF",
+            tertiaryTextColorHex: "#6B7280",
+            detailBackgroundColorHex: "#4C0519",
+            linkColorHex: "#F472B6"
         )
     )
 
@@ -294,12 +378,21 @@ public extension ThemeSettings {
         sidebarTintHex: "#B45309",
         listBackgroundTintHex: "#FFFBEB",
         listBackgroundTintOpacity: 0.05,
+        secondaryTextColorHex: "#78350F",  // Dark amber/brown
+        tertiaryTextColorHex: "#92400E",   // Medium amber
+        detailBackgroundColorHex: "#FFFBEB",
+        linkColorHex: "#B45309",
+        rowSeparatorColorHex: "#FDE68A",
         useSerifTitles: true,
         iconColorHex: "#B45309",
         darkModeOverrides: DarkModeOverrides(
             accentColorHex: "#FCD34D",
             sidebarTintHex: "#78350F",
-            listBackgroundTintHex: "#78350F"
+            listBackgroundTintHex: "#78350F",
+            secondaryTextColorHex: "#D4A574",
+            tertiaryTextColorHex: "#A78347",
+            detailBackgroundColorHex: "#451A03",
+            linkColorHex: "#FCD34D"
         )
     )
 }

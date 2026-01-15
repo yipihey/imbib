@@ -176,6 +176,55 @@ struct AppearanceSettingsTab: View {
                         saveSettings()
                     }
             }
+
+            // Text Colors
+            Section("Text Colors") {
+                HStack {
+                    Text("Secondary Text")
+                    Spacer()
+                    ColorPicker("", selection: secondaryTextColorBinding)
+                        .labelsHidden()
+                    Button("Reset") {
+                        settings.secondaryTextColorHex = nil
+                        settings.themeID = .custom
+                        settings.isCustom = true
+                        saveSettings()
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                }
+
+                HStack {
+                    Text("Link Color")
+                    Spacer()
+                    ColorPicker("", selection: linkColorBinding)
+                        .labelsHidden()
+                    Text(settings.linkColorHex ?? settings.accentColorHex)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .frame(width: 70)
+                }
+            }
+
+            // Detail View
+            Section("Detail View") {
+                HStack {
+                    Text("Background Color")
+                    Spacer()
+                    ColorPicker("", selection: detailBackgroundColorBinding)
+                        .labelsHidden()
+                    Button("Reset") {
+                        settings.detailBackgroundColorHex = nil
+                        settings.themeID = .custom
+                        settings.isCustom = true
+                        saveSettings()
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                }
+            }
         }
     }
 
@@ -208,6 +257,52 @@ struct AppearanceSettingsTab: View {
             get: { Color(hex: settings.listBackgroundTintHex ?? "#FFFFFF") ?? .white },
             set: { newColor in
                 settings.listBackgroundTintHex = newColor.hexString
+                settings.themeID = .custom
+                settings.isCustom = true
+                saveSettings()
+            }
+        )
+    }
+
+    private var secondaryTextColorBinding: Binding<Color> {
+        Binding(
+            get: {
+                if let hex = settings.secondaryTextColorHex {
+                    return Color(hex: hex) ?? .secondary
+                }
+                return .secondary
+            },
+            set: { newColor in
+                settings.secondaryTextColorHex = newColor.hexString
+                settings.themeID = .custom
+                settings.isCustom = true
+                saveSettings()
+            }
+        )
+    }
+
+    private var linkColorBinding: Binding<Color> {
+        Binding(
+            get: { Color(hex: settings.linkColorHex ?? settings.accentColorHex) ?? .accentColor },
+            set: { newColor in
+                settings.linkColorHex = newColor.hexString
+                settings.themeID = .custom
+                settings.isCustom = true
+                saveSettings()
+            }
+        )
+    }
+
+    private var detailBackgroundColorBinding: Binding<Color> {
+        Binding(
+            get: {
+                if let hex = settings.detailBackgroundColorHex {
+                    return Color(hex: hex) ?? Color(.textBackgroundColor)
+                }
+                return Color(.textBackgroundColor)
+            },
+            set: { newColor in
+                settings.detailBackgroundColorHex = newColor.hexString
                 settings.themeID = .custom
                 settings.isCustom = true
                 saveSettings()

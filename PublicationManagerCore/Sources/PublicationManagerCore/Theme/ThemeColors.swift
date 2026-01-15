@@ -44,6 +44,27 @@ public struct ThemeColors: Sendable {
     /// The sidebar style
     public let sidebarStyle: SidebarStyle
 
+    // MARK: - Text Colors
+
+    /// Secondary text color for metadata, dates, abstracts
+    public let secondaryText: Color
+
+    /// Tertiary text color for subtle info (attachment icons)
+    public let tertiaryText: Color
+
+    // MARK: - Detail View Colors
+
+    /// Background color for detail view sections (nil = system default)
+    public let detailBackground: Color?
+
+    /// Color for clickable links (DOI, arXiv, ADS)
+    public let linkColor: Color
+
+    // MARK: - Row Styling
+
+    /// Color for list row separators (nil = system default)
+    public let rowSeparator: Color?
+
     // MARK: - Initialization
 
     /// Initialize from ThemeSettings respecting current color scheme
@@ -100,6 +121,60 @@ public struct ThemeColors: Sendable {
 
         // Typography
         self.useSerifTitles = settings.useSerifTitles
+
+        // Secondary text color
+        if isDark, let darkSecondary = overrides?.secondaryTextColorHex {
+            self.secondaryText = Color(hex: darkSecondary) ?? Color.secondary
+        } else if let secondaryHex = settings.secondaryTextColorHex {
+            self.secondaryText = Color(hex: secondaryHex) ?? Color.secondary
+        } else {
+            self.secondaryText = Color.secondary
+        }
+
+        // Tertiary text color
+        if isDark, let darkTertiary = overrides?.tertiaryTextColorHex {
+            self.tertiaryText = Color(hex: darkTertiary) ?? ThemeColors.systemTertiaryLabel
+        } else if let tertiaryHex = settings.tertiaryTextColorHex {
+            self.tertiaryText = Color(hex: tertiaryHex) ?? ThemeColors.systemTertiaryLabel
+        } else {
+            self.tertiaryText = ThemeColors.systemTertiaryLabel
+        }
+
+        // Detail background
+        if isDark, let darkDetail = overrides?.detailBackgroundColorHex {
+            self.detailBackground = Color(hex: darkDetail)
+        } else if let detailHex = settings.detailBackgroundColorHex {
+            self.detailBackground = Color(hex: detailHex)
+        } else {
+            self.detailBackground = nil
+        }
+
+        // Link color
+        if isDark, let darkLink = overrides?.linkColorHex {
+            self.linkColor = Color(hex: darkLink) ?? self.accent
+        } else if let linkHex = settings.linkColorHex {
+            self.linkColor = Color(hex: linkHex) ?? self.accent
+        } else {
+            self.linkColor = self.accent
+        }
+
+        // Row separator
+        if let separatorHex = settings.rowSeparatorColorHex {
+            self.rowSeparator = Color(hex: separatorHex)
+        } else {
+            self.rowSeparator = nil
+        }
+    }
+
+    // MARK: - Platform Helpers
+
+    /// System tertiary label color (platform-specific)
+    private static var systemTertiaryLabel: Color {
+        #if os(macOS)
+        Color(nsColor: .tertiaryLabelColor)
+        #else
+        Color(uiColor: .tertiaryLabel)
+        #endif
     }
 
     // MARK: - Default

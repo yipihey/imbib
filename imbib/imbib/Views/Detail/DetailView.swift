@@ -53,6 +53,7 @@ struct DetailView: View {
 
     @Environment(LibraryViewModel.self) private var viewModel
     @Environment(LibraryManager.self) private var libraryManager
+    @Environment(\.themeColors) private var theme
 
     // MARK: - File Drop State
 
@@ -1058,7 +1059,7 @@ struct InfoTab: View {
                         .font(.caption)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(.blue)
+                .foregroundStyle(Color.accentColor)
                 .help("Attach files to this paper")
             }
 
@@ -1154,7 +1155,7 @@ struct InfoTab: View {
                 openFile(file)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.blue)
+            .foregroundStyle(Color.accentColor)
 
             #if os(macOS)
             Button {
@@ -1236,7 +1237,7 @@ struct InfoTab: View {
                 openFile(file)
             }
             .buttonStyle(.plain)
-            .foregroundStyle(.blue)
+            .foregroundStyle(Color.accentColor)
 
             #if os(macOS)
             Button {
@@ -1312,7 +1313,7 @@ struct InfoTab: View {
                                 .foregroundStyle(.green)
                         } else {
                             Image(systemName: "circle.fill")
-                                .foregroundStyle(.blue)
+                                .foregroundStyle(Color.accentColor)
                         }
                     }
                 }

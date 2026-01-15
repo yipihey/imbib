@@ -14,6 +14,7 @@ struct IOSInfoTab: View {
     let libraryID: UUID
 
     @Environment(LibraryManager.self) private var libraryManager
+    @Environment(\.themeColors) private var theme
     @State private var showPDFBrowser = false
 
     // State for exploration (references/citations/similar/co-reads)
@@ -111,7 +112,7 @@ struct IOSInfoTab: View {
             // Read status
             HStack {
                 Image(systemName: publication.isRead ? "envelope.open" : "envelope.badge.fill")
-                    .foregroundStyle(publication.isRead ? Color.secondary : Color.blue)
+                    .foregroundStyle(publication.isRead ? Color.secondary : theme.unreadDot)
                 Text(publication.isRead ? "Read" : "Unread")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -164,7 +165,7 @@ struct IOSInfoTab: View {
                             Text(doi)
                             Image(systemName: "arrow.up.right.square")
                         }
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(theme.linkColor)
                     }
                 }
             }
@@ -180,7 +181,7 @@ struct IOSInfoTab: View {
                             Text(arxivID)
                             Image(systemName: "arrow.up.right.square")
                         }
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(theme.linkColor)
                     }
                 }
             }
@@ -196,7 +197,7 @@ struct IOSInfoTab: View {
                             Text(bibcode)
                             Image(systemName: "arrow.up.right.square")
                         }
-                        .foregroundStyle(.blue)
+                        .foregroundStyle(theme.linkColor)
                     }
                 }
             }

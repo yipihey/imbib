@@ -44,6 +44,11 @@ struct IOSAppearanceSettingsView: View {
                 ColorPicker("Dot Color", selection: unreadDotColorBinding)
             }
 
+            // Links
+            Section("Links") {
+                ColorPicker("Link Color", selection: linkColorBinding)
+            }
+
             // Reset
             Section {
                 Button("Reset to Default") {
@@ -127,6 +132,18 @@ struct IOSAppearanceSettingsView: View {
             get: { Color(hex: settings.unreadDotColorHex ?? settings.accentColorHex) ?? .blue },
             set: { newColor in
                 settings.unreadDotColorHex = newColor.hexString
+                settings.themeID = .custom
+                settings.isCustom = true
+                saveSettings()
+            }
+        )
+    }
+
+    private var linkColorBinding: Binding<Color> {
+        Binding(
+            get: { Color(hex: settings.linkColorHex ?? settings.accentColorHex) ?? .accentColor },
+            set: { newColor in
+                settings.linkColorHex = newColor.hexString
                 settings.themeID = .custom
                 settings.isCustom = true
                 saveSettings()

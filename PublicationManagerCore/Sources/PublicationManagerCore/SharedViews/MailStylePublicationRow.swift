@@ -157,13 +157,13 @@ public struct MailStylePublicationRow: View, Equatable {
                     if settings.showDateAdded {
                         Text(MailStyleTokens.formatRelativeDate(data.dateAdded))
                             .font(MailStyleTokens.dateFont)
-                            .foregroundStyle(MailStyleTokens.secondaryTextColor)
+                            .foregroundStyle(MailStyleTokens.secondaryTextColor(from: theme))
                     }
 
                     if settings.showCitationCount && data.citationCount > 0 {
                         Text("\(data.citationCount)")
                             .font(MailStyleTokens.dateFont)
-                            .foregroundStyle(MailStyleTokens.secondaryTextColor)
+                            .foregroundStyle(MailStyleTokens.secondaryTextColor(from: theme))
                     }
                 }
 
@@ -179,7 +179,7 @@ public struct MailStylePublicationRow: View, Equatable {
                 if settings.showVenue, let venue = data.venue, !venue.isEmpty {
                     Text(venue)
                         .font(MailStyleTokens.abstractFont)
-                        .foregroundStyle(MailStyleTokens.secondaryTextColor)
+                        .foregroundStyle(MailStyleTokens.secondaryTextColor(from: theme))
                         .lineLimit(1)
                 }
 
@@ -193,7 +193,7 @@ public struct MailStylePublicationRow: View, Equatable {
                         if settings.showAttachmentIndicator && data.hasPDF {
                             Image(systemName: "paperclip")
                                 .font(MailStyleTokens.attachmentFont)
-                                .foregroundStyle(MailStyleTokens.tertiaryTextColor)
+                                .foregroundStyle(MailStyleTokens.tertiaryTextColor(from: theme))
                         }
 
                         if settings.abstractLineLimit > 0, let abstract = data.abstract, !abstract.isEmpty {
@@ -201,7 +201,7 @@ public struct MailStylePublicationRow: View, Equatable {
                             // is only used in detail view where formatting matters
                             Text(String(abstract.prefix(300)))
                                 .font(MailStyleTokens.abstractFont)
-                                .foregroundStyle(MailStyleTokens.secondaryTextColor)
+                                .foregroundStyle(MailStyleTokens.secondaryTextColor(from: theme))
                                 .lineLimit(settings.abstractLineLimit)
                         }
                     }
