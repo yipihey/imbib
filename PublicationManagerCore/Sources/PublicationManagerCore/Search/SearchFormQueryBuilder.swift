@@ -220,4 +220,82 @@ public enum SearchFormQueryBuilder {
 
         return !hasBibcode && !hasDOI && !hasArxiv
     }
+
+    // MARK: - arXiv Advanced Query
+
+    /// Build an arXiv API query from advanced form fields
+    public static func buildArXivAdvancedQuery(
+        searchTerms: [ArXivSearchTerm],
+        categories: Set<String>,
+        includeCrossListed: Bool,
+        dateFilter: ArXivDateFilter,
+        sortBy: ArXivSortBy
+    ) -> String {
+        var parts: [String] = []
+
+        // Build search terms with operators
+        for (index, term) in searchTerms.enumerated() {
+            let trimmed = term.term.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+
+            let fieldQuery: String
+            if term.field == .all {
+                // For "all fields", just use the term directly
+                fieldQuery = trimmed
+            } else {
+                // Wrap multi-word terms in quotes
+                let formattedTerm = trimmed.contains(" ") ? "\"\(trimmed)\"" : trimmed
+                fieldQuery = "\(term.field.rawValue):\(formattedTerm)"
+            }
+
+            if index == 0 || parts.isEmpty {
+                parts.append(fieldQuery)
+            } else {
+                parts.append("\(term.logicOperator.rawValue) \(fieldQuery)")
+            }
+        }
+
+        // Add category filter
+        if !categories.isEmpty {
+            let sortedCategories = categories.sorted()
+            let catQuery = sortedCategories.map { "cat:\($0)" }.joined(separator: " OR ")
+            if categories.count > 1 {
+                parts.append("(\(catQuery))")
+            } else {
+                parts.append(catQuery)
+            }
+        }
+
+        // Add date filter
+        switch dateFilter {
+        case .allDates:
+            break  // No filter needed
+
+        case .pastMonths(let months):
+            // Calculate date range
+            let calendar = Calendar.current
+            let now = Date()
+            if let fromDate = calendar.date(byAdding: .month, value: -months, to: now) {
+                let formatter = DateFormatter()
+                formatter.dateFormat = "yyyyMMdd"
+                let fromStr = formatter.string(from: fromDate)
+                let toStr = formatter.string(from: now)
+                parts.append("submittedDate:[\(fromStr) TO \(toStr)]")
+            }
+
+        case .specificYear(let year):
+            parts.append("submittedDate:[\(year)0101 TO \(year)1231]")
+
+        case .dateRange(let from, let to):
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyyMMdd"
+            let fromStr = from.map { formatter.string(from: $0) } ?? "*"
+            let toStr = to.map { formatter.string(from: $0) } ?? "*"
+            if fromStr != "*" || toStr != "*" {
+                parts.append("submittedDate:[\(fromStr) TO \(toStr)]")
+            }
+        }
+
+        return parts.joined(separator: " ")
+    }
 }

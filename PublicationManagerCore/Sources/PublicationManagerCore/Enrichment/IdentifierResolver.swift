@@ -133,18 +133,6 @@ public actor IdentifierResolver {
     /// - Returns: `true` if resolution is possible
     public func canResolve(_ identifiers: [IdentifierType: String], to source: EnrichmentSource) -> Bool {
         switch source {
-        case .semanticScholar:
-            // S2 supports DOI, arXiv, PubMed
-            return identifiers.doi != nil ||
-                   identifiers.arxivID != nil ||
-                   identifiers.pmid != nil ||
-                   identifiers.semanticScholarID != nil
-
-        case .openAlex:
-            // OpenAlex supports DOI primarily
-            return identifiers.doi != nil ||
-                   identifiers.openAlexID != nil
-
         case .ads:
             // ADS uses bibcode, DOI, or arXiv
             return identifiers.bibcode != nil ||
@@ -164,30 +152,6 @@ public actor IdentifierResolver {
         for source: EnrichmentSource
     ) -> (type: IdentifierType, value: String)? {
         switch source {
-        case .semanticScholar:
-            // Prefer S2 ID, then DOI, then arXiv, then PubMed
-            if let s2 = identifiers.semanticScholarID {
-                return (.semanticScholar, s2)
-            }
-            if let doi = identifiers.doi {
-                return (.doi, doi)
-            }
-            if let arxiv = identifiers.arxivID {
-                return (.arxiv, arxiv)
-            }
-            if let pmid = identifiers.pmid {
-                return (.pmid, pmid)
-            }
-
-        case .openAlex:
-            // Prefer OpenAlex ID, then DOI
-            if let oa = identifiers.openAlexID {
-                return (.openAlex, oa)
-            }
-            if let doi = identifiers.doi {
-                return (.doi, doi)
-            }
-
         case .ads:
             // Prefer bibcode, then DOI, then arXiv
             if let bibcode = identifiers.bibcode {

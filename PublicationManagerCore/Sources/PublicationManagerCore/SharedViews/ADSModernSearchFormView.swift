@@ -113,6 +113,27 @@ public struct ADSModernSearchFormView: View {
                 Divider()
                     .padding(.vertical, 8)
 
+                // Edit mode header
+                if searchViewModel.isEditMode, let smartSearch = searchViewModel.editingSmartSearch {
+                    HStack {
+                        Image(systemName: "pencil.circle.fill")
+                            .foregroundStyle(.orange)
+                        Text("Editing: \(smartSearch.name)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Cancel") {
+                            searchViewModel.exitEditMode()
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.red)
+                    }
+                    .padding(.vertical, 8)
+                    .padding(.horizontal, 12)
+                    .background(Color.orange.opacity(0.1))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                }
+
                 // Action buttons
                 HStack {
                     Button("Clear") {
@@ -122,25 +143,36 @@ public struct ADSModernSearchFormView: View {
 
                     Spacer()
 
-                    Button {
-                        addToInbox()
-                    } label: {
-                        if isAddingToInbox {
-                            ProgressView()
-                                .controlSize(.small)
-                        } else {
-                            Text("Add to Inbox")
+                    if searchViewModel.isEditMode {
+                        // Edit mode: Save button
+                        Button("Save") {
+                            searchViewModel.saveToSmartSearch()
                         }
-                    }
-                    .buttonStyle(.bordered)
-                    .disabled(isFormEmpty || isAddingToInbox)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isFormEmpty)
+                        .keyboardShortcut(.return, modifiers: .command)
+                    } else {
+                        // Normal mode: Add to Inbox and Search buttons
+                        Button {
+                            addToInbox()
+                        } label: {
+                            if isAddingToInbox {
+                                ProgressView()
+                                    .controlSize(.small)
+                            } else {
+                                Text("Add to Inbox")
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(isFormEmpty || isAddingToInbox)
 
-                    Button("Search") {
-                        performSearch()
+                        Button("Search") {
+                            performSearch()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(isFormEmpty)
+                        .keyboardShortcut(.return, modifiers: .command)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(isFormEmpty)
-                    .keyboardShortcut(.return, modifiers: .command)
                 }
             }
             .padding()

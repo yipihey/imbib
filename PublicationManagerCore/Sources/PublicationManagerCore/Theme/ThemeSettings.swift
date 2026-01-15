@@ -69,6 +69,7 @@ public struct DarkModeOverrides: Codable, Equatable, Sendable {
     public var accentColorHex: String?
     public var sidebarTintHex: String?
     public var listBackgroundTintHex: String?
+    public var primaryTextColorHex: String?
     public var secondaryTextColorHex: String?
     public var tertiaryTextColorHex: String?
     public var detailBackgroundColorHex: String?
@@ -78,6 +79,7 @@ public struct DarkModeOverrides: Codable, Equatable, Sendable {
         accentColorHex: String? = nil,
         sidebarTintHex: String? = nil,
         listBackgroundTintHex: String? = nil,
+        primaryTextColorHex: String? = nil,
         secondaryTextColorHex: String? = nil,
         tertiaryTextColorHex: String? = nil,
         detailBackgroundColorHex: String? = nil,
@@ -86,6 +88,7 @@ public struct DarkModeOverrides: Codable, Equatable, Sendable {
         self.accentColorHex = accentColorHex
         self.sidebarTintHex = sidebarTintHex
         self.listBackgroundTintHex = listBackgroundTintHex
+        self.primaryTextColorHex = primaryTextColorHex
         self.secondaryTextColorHex = secondaryTextColorHex
         self.tertiaryTextColorHex = tertiaryTextColorHex
         self.detailBackgroundColorHex = detailBackgroundColorHex
@@ -132,6 +135,9 @@ public struct ThemeSettings: Codable, Equatable, Sendable {
 
     // MARK: - Text Colors
 
+    /// Primary text color for titles and main content
+    public var primaryTextColorHex: String?
+
     /// Secondary text color for metadata, dates, abstracts
     public var secondaryTextColorHex: String?
 
@@ -177,6 +183,7 @@ public struct ThemeSettings: Codable, Equatable, Sendable {
         sidebarTintHex: String? = nil,
         listBackgroundTintHex: String? = nil,
         listBackgroundTintOpacity: Double = 0,
+        primaryTextColorHex: String? = nil,
         secondaryTextColorHex: String? = nil,
         tertiaryTextColorHex: String? = nil,
         detailBackgroundColorHex: String? = nil,
@@ -194,6 +201,7 @@ public struct ThemeSettings: Codable, Equatable, Sendable {
         self.sidebarTintHex = sidebarTintHex
         self.listBackgroundTintHex = listBackgroundTintHex
         self.listBackgroundTintOpacity = listBackgroundTintOpacity
+        self.primaryTextColorHex = primaryTextColorHex
         self.secondaryTextColorHex = secondaryTextColorHex
         self.tertiaryTextColorHex = tertiaryTextColorHex
         self.detailBackgroundColorHex = detailBackgroundColorHex

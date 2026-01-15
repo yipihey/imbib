@@ -106,79 +106,61 @@ struct AppearanceSettingsTab: View {
 
     private var advancedOptions: some View {
         Group {
-            // Unread Dot Color
-            Section("Unread Indicator") {
-                HStack {
-                    Text("Dot Color")
-                    Spacer()
-                    ColorPicker("", selection: unreadDotColorBinding)
-                        .labelsHidden()
-                    Text(settings.unreadDotColorHex ?? settings.accentColorHex)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .frame(width: 70)
-                }
+            // Unread Indicator Color (single row, no section header)
+            HStack {
+                Text("Unread Indicator Color")
+                Spacer()
+                ColorPicker("", selection: unreadDotColorBinding)
+                    .labelsHidden()
             }
 
             // Sidebar Style
-            Section("Sidebar") {
-                Picker("Style", selection: $settings.sidebarStyle) {
-                    ForEach(SidebarStyle.allCases, id: \.self) { style in
-                        Text(style.displayName).tag(style)
-                    }
+            Picker("Sidebar Style", selection: $settings.sidebarStyle) {
+                ForEach(SidebarStyle.allCases, id: \.self) { style in
+                    Text(style.displayName).tag(style)
                 }
-                .onChange(of: settings.sidebarStyle) { _, _ in
+            }
+            .onChange(of: settings.sidebarStyle) { _, _ in
+                settings.themeID = .custom
+                settings.isCustom = true
+                saveSettings()
+            }
+
+            if settings.sidebarStyle != .system {
+                HStack {
+                    Text("Sidebar Tint Color")
+                    Spacer()
+                    ColorPicker("", selection: sidebarTintBinding)
+                        .labelsHidden()
+                }
+            }
+
+            // Typography (no section header)
+            Toggle("Use serif fonts for titles", isOn: $settings.useSerifTitles)
+                .onChange(of: settings.useSerifTitles) { _, _ in
                     settings.themeID = .custom
                     settings.isCustom = true
                     saveSettings()
                 }
 
-                if settings.sidebarStyle != .system {
-                    HStack {
-                        Text("Tint Color")
-                        Spacer()
-                        ColorPicker("", selection: sidebarTintBinding)
-                            .labelsHidden()
-                    }
-                }
-            }
-
-            // List Background
-            Section("List Background") {
+            // Text Colors
+            Section("Text Colors") {
                 HStack {
-                    Text("Background Tint")
+                    Text("Primary Text")
                     Spacer()
-                    ColorPicker("", selection: listBackgroundTintBinding)
+                    ColorPicker("", selection: primaryTextColorBinding)
                         .labelsHidden()
-                }
-
-                HStack {
-                    Text("Tint Intensity")
-                    Slider(value: $settings.listBackgroundTintOpacity, in: 0...0.1, step: 0.01)
-                        .onChange(of: settings.listBackgroundTintOpacity) { _, _ in
-                            settings.themeID = .custom
-                            settings.isCustom = true
-                            saveSettings()
-                        }
-                    Text("\(Int(settings.listBackgroundTintOpacity * 100))%")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
-                        .frame(width: 35)
-                }
-            }
-
-            // Typography
-            Section("Typography") {
-                Toggle("Use serif fonts for titles", isOn: $settings.useSerifTitles)
-                    .onChange(of: settings.useSerifTitles) { _, _ in
+                    Button("Reset") {
+                        settings.primaryTextColorHex = nil
                         settings.themeID = .custom
                         settings.isCustom = true
                         saveSettings()
                     }
-            }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                }
 
-            // Text Colors
-            Section("Text Colors") {
                 HStack {
                     Text("Secondary Text")
                     Spacer()
@@ -200,30 +182,24 @@ struct AppearanceSettingsTab: View {
                     Spacer()
                     ColorPicker("", selection: linkColorBinding)
                         .labelsHidden()
-                    Text(settings.linkColorHex ?? settings.accentColorHex)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .frame(width: 70)
                 }
             }
 
-            // Detail View
-            Section("Detail View") {
-                HStack {
-                    Text("Background Color")
-                    Spacer()
-                    ColorPicker("", selection: detailBackgroundColorBinding)
-                        .labelsHidden()
-                    Button("Reset") {
-                        settings.detailBackgroundColorHex = nil
-                        settings.themeID = .custom
-                        settings.isCustom = true
-                        saveSettings()
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .font(.caption)
+            // Background Color (no section header)
+            HStack {
+                Text("Background Color")
+                Spacer()
+                ColorPicker("", selection: detailBackgroundColorBinding)
+                    .labelsHidden()
+                Button("Reset") {
+                    settings.detailBackgroundColorHex = nil
+                    settings.themeID = .custom
+                    settings.isCustom = true
+                    saveSettings()
                 }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .font(.caption)
             }
         }
     }
@@ -252,11 +228,16 @@ struct AppearanceSettingsTab: View {
         )
     }
 
-    private var listBackgroundTintBinding: Binding<Color> {
+    private var primaryTextColorBinding: Binding<Color> {
         Binding(
-            get: { Color(hex: settings.listBackgroundTintHex ?? "#FFFFFF") ?? .white },
+            get: {
+                if let hex = settings.primaryTextColorHex {
+                    return Color(hex: hex) ?? Color(.labelColor)
+                }
+                return Color(.labelColor)
+            },
             set: { newColor in
-                settings.listBackgroundTintHex = newColor.hexString
+                settings.primaryTextColorHex = newColor.hexString
                 settings.themeID = .custom
                 settings.isCustom = true
                 saveSettings()

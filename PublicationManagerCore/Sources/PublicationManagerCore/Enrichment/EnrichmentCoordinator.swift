@@ -54,17 +54,15 @@ public actor EnrichmentCoordinator {
     ) {
         self.repository = repository
 
-        // Create enrichment plugins
-        let openAlex = OpenAlexSource(credentialManager: credentialManager)
-        let semanticScholar = SemanticScholarSource(credentialManager: credentialManager)
+        // Create enrichment plugins - ADS only
         let ads = ADSSource(credentialManager: credentialManager)
 
-        // Create service with plugins - ADS for references/citations, OpenAlex for PDF URLs
+        // Create service with ADS plugin for references/citations
         self.service = EnrichmentService(
-            plugins: [ads, openAlex, semanticScholar],
+            plugins: [ads],
             settingsProvider: DefaultEnrichmentSettingsProvider(settings: EnrichmentSettings(
                 preferredSource: .ads,
-                sourcePriority: [.ads, .openAlex, .semanticScholar],
+                sourcePriority: [.ads],
                 autoSyncEnabled: true,
                 refreshIntervalDays: 7
             ))

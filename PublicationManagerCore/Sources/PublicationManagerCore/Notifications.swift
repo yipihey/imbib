@@ -208,11 +208,27 @@ public extension Notification.Name {
     /// Exploration library changed (collection added/removed)
     static let explorationLibraryDidChange = Notification.Name("explorationLibraryDidChange")
 
+    /// Navigate back in history (⌘[)
+    static let navigateBack = Notification.Name("navigateBack")
+
+    /// Navigate forward in history (⌘])
+    static let navigateForward = Notification.Name("navigateForward")
+
+    /// Navigate to a smart search in the sidebar (object = UUID of smart search)
+    static let navigateToSmartSearch = Notification.Name("navigateToSmartSearch")
+
     // MARK: - Search Form Navigation
 
     /// Reset search form view to show input form instead of results
     /// Posted when user clicks a search form in sidebar (even if already selected)
     static let resetSearchFormView = Notification.Name("resetSearchFormView")
+
+    /// Navigate to Search section (object = optional library UUID to create search for)
+    static let navigateToSearchSection = Notification.Name("navigateToSearchSection")
+
+    /// Edit a smart search by navigating to Search section with its query
+    /// Object = UUID of the smart search to edit
+    static let editSmartSearch = Notification.Name("editSmartSearch")
 
     // MARK: - Inbox Triage Extensions
 

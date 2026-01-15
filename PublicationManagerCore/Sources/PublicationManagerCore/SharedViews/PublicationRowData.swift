@@ -56,6 +56,9 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     /// Citation count from online sources
     public let citationCount: Int
 
+    /// Reference count from online sources
+    public let referenceCount: Int
+
     /// DOI for context menu "Copy DOI" action
     public let doi: String?
 
@@ -103,6 +106,7 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         self.isRead = publication.isRead
         self.hasPDF = Self.checkHasPDF(publication)
         self.citationCount = Int(publication.citationCount)
+        self.referenceCount = Int(publication.referenceCount)
         self.doi = publication.doi
         self.venue = Self.extractVenue(from: fields)
         self.dateAdded = publication.dateAdded

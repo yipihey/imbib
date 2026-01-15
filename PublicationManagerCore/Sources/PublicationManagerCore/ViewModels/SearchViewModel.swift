@@ -95,6 +95,162 @@ public struct ModernFormState {
     }
 }
 
+// MARK: - arXiv Search Field
+
+/// Field types for arXiv advanced search
+public enum ArXivSearchField: String, CaseIterable, Sendable {
+    case all = "all"
+    case title = "ti"
+    case author = "au"
+    case abstract = "abs"
+    case comments = "co"
+    case journalRef = "jr"
+    case reportNumber = "rn"
+    case arxivId = "id"
+    case doi = "doi"
+
+    public var displayName: String {
+        switch self {
+        case .all: return "All fields"
+        case .title: return "Title"
+        case .author: return "Author(s)"
+        case .abstract: return "Abstract"
+        case .comments: return "Comments"
+        case .journalRef: return "Journal reference"
+        case .reportNumber: return "Report number"
+        case .arxivId: return "arXiv identifier"
+        case .doi: return "DOI"
+        }
+    }
+}
+
+// MARK: - arXiv Logic Operator
+
+/// Boolean operators for arXiv advanced search
+public enum ArXivLogicOperator: String, CaseIterable, Sendable {
+    case and = "AND"
+    case or = "OR"
+    case andNot = "ANDNOT"  // arXiv uses ANDNOT, not AND_NOT
+
+    public var displayName: String {
+        switch self {
+        case .and: return "AND"
+        case .or: return "OR"
+        case .andNot: return "AND NOT"
+        }
+    }
+}
+
+// MARK: - arXiv Search Term
+
+/// A single search term in the arXiv advanced search
+public struct ArXivSearchTerm: Identifiable, Sendable {
+    public let id: UUID
+    public var term: String
+    public var field: ArXivSearchField
+    public var logicOperator: ArXivLogicOperator  // Applied BEFORE this term
+
+    public init(
+        id: UUID = UUID(),
+        term: String = "",
+        field: ArXivSearchField = .all,
+        logicOperator: ArXivLogicOperator = .and
+    ) {
+        self.id = id
+        self.term = term
+        self.field = field
+        self.logicOperator = logicOperator
+    }
+}
+
+// MARK: - arXiv Date Filter
+
+/// Date filter options for arXiv search
+public enum ArXivDateFilter: Equatable, Sendable {
+    case allDates
+    case pastMonths(Int)  // e.g., 12 for past 12 months
+    case specificYear(Int)
+    case dateRange(from: Date?, to: Date?)
+}
+
+// MARK: - arXiv Sort Order
+
+/// Sort options for arXiv search results
+public enum ArXivSortBy: String, CaseIterable, Sendable {
+    case relevance = "relevance"
+    case submittedDateDesc = "submittedDate-desc"
+    case submittedDateAsc = "submittedDate-asc"
+    case lastUpdatedDesc = "lastUpdatedDate-desc"
+
+    public var displayName: String {
+        switch self {
+        case .relevance: return "Relevance"
+        case .submittedDateDesc: return "Newest first"
+        case .submittedDateAsc: return "Oldest first"
+        case .lastUpdatedDesc: return "Recently updated"
+        }
+    }
+
+    /// arXiv API sort parameter
+    public var apiValue: String {
+        switch self {
+        case .relevance: return "relevance"
+        case .submittedDateDesc, .submittedDateAsc: return "submittedDate"
+        case .lastUpdatedDesc: return "lastUpdatedDate"
+        }
+    }
+
+    /// arXiv API sort order
+    public var apiOrder: String {
+        switch self {
+        case .relevance, .submittedDateDesc, .lastUpdatedDesc: return "descending"
+        case .submittedDateAsc: return "ascending"
+        }
+    }
+}
+
+// MARK: - arXiv Form State
+
+/// Stores the state of the arXiv Advanced search form for persistence across navigation
+public struct ArXivFormState {
+    public var searchTerms: [ArXivSearchTerm]
+    public var selectedCategories: Set<String>  // e.g., "cs.LG", "math.CO"
+    public var includeCrossListed: Bool
+    public var dateFilter: ArXivDateFilter
+    public var sortBy: ArXivSortBy
+    public var resultsPerPage: Int
+
+    public init(
+        searchTerms: [ArXivSearchTerm] = [ArXivSearchTerm()],
+        selectedCategories: Set<String> = [],
+        includeCrossListed: Bool = true,
+        dateFilter: ArXivDateFilter = .allDates,
+        sortBy: ArXivSortBy = .submittedDateDesc,
+        resultsPerPage: Int = 50
+    ) {
+        self.searchTerms = searchTerms
+        self.selectedCategories = selectedCategories
+        self.includeCrossListed = includeCrossListed
+        self.dateFilter = dateFilter
+        self.sortBy = sortBy
+        self.resultsPerPage = resultsPerPage
+    }
+
+    public mutating func clear() {
+        searchTerms = [ArXivSearchTerm()]
+        selectedCategories = []
+        includeCrossListed = true
+        dateFilter = .allDates
+        sortBy = .submittedDateDesc
+        resultsPerPage = 50
+    }
+
+    public var isEmpty: Bool {
+        searchTerms.allSatisfy { $0.term.trimmingCharacters(in: .whitespaces).isEmpty } &&
+        selectedCategories.isEmpty
+    }
+}
+
 // MARK: - Search View Model
 
 /// View model for searching across publication sources.
@@ -125,6 +281,30 @@ public final class SearchViewModel {
 
     /// Modern form state - persists when navigating away and back
     public var modernFormState = ModernFormState()
+
+    /// arXiv Advanced form state - persists when navigating away and back
+    public var arxivFormState = ArXivFormState()
+
+    // MARK: - Edit Mode State
+
+    /// The smart search being edited (nil = new search / ad-hoc search mode)
+    public var editingSmartSearch: CDSmartSearch?
+
+    /// Whether we're in edit mode (editing an existing smart search)
+    public var isEditMode: Bool {
+        editingSmartSearch != nil
+    }
+
+    /// Which form type is being used for editing
+    public enum EditFormType {
+        case classic
+        case modern
+        case paper
+        case arxiv
+    }
+
+    /// The form type to use for the current edit (determined when loading)
+    public var editFormType: EditFormType = .modern
 
     // MARK: - Dependencies
 
@@ -246,12 +426,95 @@ public final class SearchViewModel {
 
             Logger.viewModels.infoCapture("Search: imported \(importedCount) new, linked \(existingCount) existing", category: "search")
 
+            // Create exploration smart search for sidebar display
+            await createExplorationSearch(
+                query: query,
+                sourceIDs: sourceIDs,
+                publications: Array(collection.publications ?? [])
+            )
+
         } catch {
             self.error = error
             Logger.viewModels.errorCapture("Search failed: \(error.localizedDescription)", category: "search")
         }
 
         isSearching = false
+    }
+
+    // MARK: - Exploration Search
+
+    /// Create a smart search in the Exploration library for sidebar display.
+    ///
+    /// This allows users to see their search in the Exploration section and
+    /// edit the query via right-click context menu.
+    private func createExplorationSearch(
+        query: String,
+        sourceIDs: [String],
+        publications: [CDPublication]
+    ) async {
+        Logger.viewModels.infoCapture("createExplorationSearch called with query: \(query), \(publications.count) publications", category: "search")
+
+        guard let manager = libraryManager else {
+            Logger.viewModels.errorCapture("No library manager available for exploration search", category: "search")
+            return
+        }
+
+        guard let explorationLib = manager.explorationLibrary else {
+            Logger.viewModels.errorCapture("No exploration library available (libraryManager exists but explorationLibrary is nil)", category: "search")
+            return
+        }
+
+        Logger.viewModels.infoCapture("Exploration library found: \(explorationLib.name), has \(explorationLib.smartSearches?.count ?? 0) smart searches", category: "search")
+
+        // Truncate query for display name
+        let truncatedQuery = String(query.prefix(40)) + (query.count > 40 ? "..." : "")
+        let searchName = "Search: \(truncatedQuery)"
+
+        // Check if a search with the same query already exists
+        let existingSearches = explorationLib.smartSearches ?? []
+        if let existing = existingSearches.first(where: { $0.query == query }) {
+            // Update existing search's results instead of creating new
+            Logger.viewModels.infoCapture("Updating existing exploration search: \(existing.name)", category: "search")
+
+            if let collection = existing.resultCollection {
+                // Clear old results
+                collection.publications = []
+
+                // Add new results
+                for pub in publications {
+                    pub.addToCollection(collection)
+                }
+
+                try? PersistenceController.shared.viewContext.save()
+
+                // Navigate to the existing search
+                NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+                NotificationCenter.default.post(name: .navigateToSmartSearch, object: existing.id)
+            }
+            return
+        }
+
+        // Create new smart search in exploration library
+        let smartSearch = SmartSearchRepository.shared.create(
+            name: searchName,
+            query: query,
+            sourceIDs: sourceIDs,
+            library: explorationLib
+        )
+
+        // Add publications to the smart search's result collection
+        if let collection = smartSearch.resultCollection {
+            for pub in publications {
+                pub.addToCollection(collection)
+            }
+            try? PersistenceController.shared.viewContext.save()
+        }
+
+        Logger.viewModels.infoCapture("Created exploration search: \(searchName) with \(publications.count) results", category: "search")
+
+        // Notify sidebar to refresh and navigate to the new search
+        NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+        NotificationCenter.default.post(name: .navigateToSmartSearch, object: smartSearch.id)
     }
 
     // MARK: - Selection
@@ -288,5 +551,466 @@ public final class SearchViewModel {
 
     public func clearSourceSelection() {
         selectedSourceIDs.removeAll()
+    }
+
+    // MARK: - Smart Search Edit Mode
+
+    /// Load a smart search for editing.
+    ///
+    /// Attempts to parse the query back to the classic form if possible,
+    /// otherwise falls back to the modern form.
+    public func loadSmartSearch(_ smartSearch: CDSmartSearch) {
+        editingSmartSearch = smartSearch
+        query = smartSearch.query
+        selectedSourceIDs = Set(smartSearch.sources)
+
+        // Clear all forms first
+        classicFormState.clear()
+        paperFormState.clear()
+        modernFormState.clear()
+        arxivFormState.clear()
+
+        // Try to parse the query back to form fields
+        // Paper form first (most specific: only identifiers)
+        if let paperState = parsePaperQuery(smartSearch.query) {
+            paperFormState = paperState
+            editFormType = .paper
+            Logger.viewModels.infoCapture("Loaded smart search '\(smartSearch.name)' into Paper form", category: "search-edit")
+        }
+        // arXiv form (detects cat: and arXiv-specific fields)
+        else if let arxivState = parseArXivQuery(smartSearch.query) {
+            arxivFormState = arxivState
+            editFormType = .arxiv
+            Logger.viewModels.infoCapture("Loaded smart search '\(smartSearch.name)' into arXiv form", category: "search-edit")
+        }
+        // Classic form (ADS-specific fields)
+        else if let classicState = parseClassicQuery(smartSearch.query) {
+            classicFormState = classicState
+            editFormType = .classic
+            Logger.viewModels.infoCapture("Loaded smart search '\(smartSearch.name)' into Classic form", category: "search-edit")
+        }
+        // Fall back to modern form (any query works here)
+        else {
+            modernFormState.searchText = smartSearch.query
+            editFormType = .modern
+            Logger.viewModels.infoCapture("Loaded smart search '\(smartSearch.name)' into Modern form (fallback)", category: "search-edit")
+        }
+    }
+
+    /// Save the current form state back to the editing smart search.
+    ///
+    /// Updates the smart search's query based on the current form type.
+    public func saveToSmartSearch() {
+        guard let smartSearch = editingSmartSearch else {
+            Logger.viewModels.errorCapture("saveToSmartSearch called but no smart search is being edited", category: "search-edit")
+            return
+        }
+
+        // Build the query from the current form
+        let newQuery: String
+        switch editFormType {
+        case .classic:
+            newQuery = SearchFormQueryBuilder.buildClassicQuery(
+                authors: classicFormState.authors,
+                objects: classicFormState.objects,
+                titleWords: classicFormState.titleWords,
+                titleLogic: classicFormState.titleLogic,
+                abstractWords: classicFormState.abstractWords,
+                abstractLogic: classicFormState.abstractLogic,
+                yearFrom: classicFormState.yearFrom,
+                yearTo: classicFormState.yearTo,
+                database: classicFormState.database,
+                refereedOnly: classicFormState.refereedOnly,
+                articlesOnly: classicFormState.articlesOnly
+            )
+        case .paper:
+            newQuery = SearchFormQueryBuilder.buildPaperQuery(
+                bibcode: paperFormState.bibcode,
+                doi: paperFormState.doi,
+                arxivID: paperFormState.arxivID
+            )
+        case .modern:
+            newQuery = modernFormState.searchText
+        case .arxiv:
+            newQuery = SearchFormQueryBuilder.buildArXivAdvancedQuery(
+                searchTerms: arxivFormState.searchTerms,
+                categories: arxivFormState.selectedCategories,
+                includeCrossListed: arxivFormState.includeCrossListed,
+                dateFilter: arxivFormState.dateFilter,
+                sortBy: arxivFormState.sortBy
+            )
+        }
+
+        // Update the smart search
+        smartSearch.query = newQuery
+        smartSearch.sourceIDs = selectedSourceIDs.isEmpty ? nil : {
+            if let data = try? JSONEncoder().encode(Array(selectedSourceIDs)) {
+                return String(data: data, encoding: .utf8)
+            }
+            return nil
+        }()
+
+        // Save to Core Data
+        do {
+            try PersistenceController.shared.viewContext.save()
+            Logger.viewModels.infoCapture("Saved smart search '\(smartSearch.name)' with query: \(newQuery)", category: "search-edit")
+        } catch {
+            Logger.viewModels.errorCapture("Failed to save smart search: \(error.localizedDescription)", category: "search-edit")
+        }
+
+        // Exit edit mode
+        exitEditMode()
+    }
+
+    /// Exit edit mode without saving.
+    public func exitEditMode() {
+        editingSmartSearch = nil
+        editFormType = .modern
+        classicFormState.clear()
+        paperFormState.clear()
+        modernFormState.clear()
+        arxivFormState.clear()
+        selectedSourceIDs.removeAll()
+        query = ""
+    }
+
+    // MARK: - Query Parsing
+
+    /// Try to parse an ADS query back to classic form fields.
+    ///
+    /// Returns nil if the query can't be parsed to classic form
+    /// (e.g., uses advanced syntax not supported by the form).
+    private func parseClassicQuery(_ query: String) -> ClassicFormState? {
+        var state = ClassicFormState()
+        var unmatchedParts: [String] = []
+
+        // Regex patterns for field extraction
+        let authorPattern = #"author:"([^"]+)""#
+        let objectPattern = #"object:"([^"]+)""#
+        let titlePattern = #"title:(\([^)]+\)|[^\s]+)"#
+        let absPattern = #"abs:(\([^)]+\)|[^\s]+)"#
+        let yearPattern = #"year:(\d{4})?-?(\d{4})?"#
+        let collectionPattern = #"collection:(astronomy|physics)"#
+        let eprintPattern = #"property:eprint"#
+        let refereedPattern = #"property:refereed"#
+        let doctypePattern = #"doctype:article"#
+
+        var remainingQuery = query
+
+        // Extract authors
+        if let regex = try? NSRegularExpression(pattern: authorPattern, options: []) {
+            let matches = regex.matches(in: query, options: [], range: NSRange(query.startIndex..., in: query))
+            let authors = matches.compactMap { match -> String? in
+                guard let range = Range(match.range(at: 1), in: query) else { return nil }
+                return String(query[range])
+            }
+            if !authors.isEmpty {
+                state.authors = authors.joined(separator: "\n")
+            }
+            // Remove matched parts from remaining query
+            for match in matches.reversed() {
+                if let range = Range(match.range, in: remainingQuery) {
+                    remainingQuery.removeSubrange(range)
+                }
+            }
+        }
+
+        // Extract object
+        if let regex = try? NSRegularExpression(pattern: objectPattern, options: []) {
+            if let match = regex.firstMatch(in: query, options: [], range: NSRange(query.startIndex..., in: query)),
+               let range = Range(match.range(at: 1), in: query) {
+                state.objects = String(query[range])
+            }
+            if let match = regex.firstMatch(in: remainingQuery, options: [], range: NSRange(remainingQuery.startIndex..., in: remainingQuery)),
+               let range = Range(match.range, in: remainingQuery) {
+                remainingQuery.removeSubrange(range)
+            }
+        }
+
+        // Extract title
+        if let regex = try? NSRegularExpression(pattern: titlePattern, options: []) {
+            if let match = regex.firstMatch(in: query, options: [], range: NSRange(query.startIndex..., in: query)),
+               let range = Range(match.range(at: 1), in: query) {
+                let titlePart = String(query[range])
+                // Remove parentheses and logic operators
+                let cleaned = titlePart
+                    .replacingOccurrences(of: "(", with: "")
+                    .replacingOccurrences(of: ")", with: "")
+                    .replacingOccurrences(of: " AND ", with: " ")
+                    .replacingOccurrences(of: " OR ", with: " ")
+                state.titleWords = cleaned
+
+                // Detect logic
+                if titlePart.contains(" OR ") {
+                    state.titleLogic = .or
+                }
+            }
+            if let match = regex.firstMatch(in: remainingQuery, options: [], range: NSRange(remainingQuery.startIndex..., in: remainingQuery)),
+               let range = Range(match.range, in: remainingQuery) {
+                remainingQuery.removeSubrange(range)
+            }
+        }
+
+        // Extract abstract
+        if let regex = try? NSRegularExpression(pattern: absPattern, options: []) {
+            if let match = regex.firstMatch(in: query, options: [], range: NSRange(query.startIndex..., in: query)),
+               let range = Range(match.range(at: 1), in: query) {
+                let absPart = String(query[range])
+                let cleaned = absPart
+                    .replacingOccurrences(of: "(", with: "")
+                    .replacingOccurrences(of: ")", with: "")
+                    .replacingOccurrences(of: " AND ", with: " ")
+                    .replacingOccurrences(of: " OR ", with: " ")
+                state.abstractWords = cleaned
+
+                if absPart.contains(" OR ") {
+                    state.abstractLogic = .or
+                }
+            }
+            if let match = regex.firstMatch(in: remainingQuery, options: [], range: NSRange(remainingQuery.startIndex..., in: remainingQuery)),
+               let range = Range(match.range, in: remainingQuery) {
+                remainingQuery.removeSubrange(range)
+            }
+        }
+
+        // Extract year
+        if let regex = try? NSRegularExpression(pattern: yearPattern, options: []) {
+            if let match = regex.firstMatch(in: query, options: [], range: NSRange(query.startIndex..., in: query)) {
+                if let fromRange = Range(match.range(at: 1), in: query) {
+                    state.yearFrom = Int(query[fromRange])
+                }
+                if let toRange = Range(match.range(at: 2), in: query) {
+                    state.yearTo = Int(query[toRange])
+                }
+            }
+            if let match = regex.firstMatch(in: remainingQuery, options: [], range: NSRange(remainingQuery.startIndex..., in: remainingQuery)),
+               let range = Range(match.range, in: remainingQuery) {
+                remainingQuery.removeSubrange(range)
+            }
+        }
+
+        // Extract collection
+        if let regex = try? NSRegularExpression(pattern: collectionPattern, options: []) {
+            if let match = regex.firstMatch(in: query, options: [], range: NSRange(query.startIndex..., in: query)),
+               let range = Range(match.range(at: 1), in: query) {
+                let collection = String(query[range])
+                if collection == "astronomy" {
+                    state.database = .astronomy
+                } else if collection == "physics" {
+                    state.database = .physics
+                }
+            }
+            if let match = regex.firstMatch(in: remainingQuery, options: [], range: NSRange(remainingQuery.startIndex..., in: remainingQuery)),
+               let range = Range(match.range, in: remainingQuery) {
+                remainingQuery.removeSubrange(range)
+            }
+        }
+
+        // Extract eprint (arxiv database)
+        if query.contains("property:eprint") {
+            state.database = .arxiv
+            remainingQuery = remainingQuery.replacingOccurrences(of: "property:eprint", with: "")
+        }
+
+        // Extract refereed
+        if query.contains("property:refereed") {
+            state.refereedOnly = true
+            remainingQuery = remainingQuery.replacingOccurrences(of: "property:refereed", with: "")
+        }
+
+        // Extract doctype:article
+        if query.contains("doctype:article") {
+            state.articlesOnly = true
+            remainingQuery = remainingQuery.replacingOccurrences(of: "doctype:article", with: "")
+        }
+
+        // Clean up remaining query
+        remainingQuery = remainingQuery
+            .replacingOccurrences(of: " AND ", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // If there's significant unmatched content, the query can't be represented in classic form
+        if !remainingQuery.isEmpty && remainingQuery.count > 5 {
+            Logger.viewModels.infoCapture("Query has unmatched parts, can't use classic form: '\(remainingQuery)'", category: "search-edit")
+            return nil
+        }
+
+        // Return state if we extracted at least one field
+        if state.isEmpty {
+            return nil
+        }
+
+        return state
+    }
+
+    /// Try to parse an ADS query to paper form fields.
+    ///
+    /// Returns nil if the query can't be parsed to paper form.
+    private func parsePaperQuery(_ query: String) -> PaperFormState? {
+        var state = PaperFormState()
+
+        let bibcodePattern = #"bibcode:([^\s]+)"#
+        let doiPattern = #"doi:([^\s]+)"#
+        let arxivPattern = #"arXiv:([^\s]+)"#
+
+        var hasMatch = false
+
+        if let regex = try? NSRegularExpression(pattern: bibcodePattern, options: []),
+           let match = regex.firstMatch(in: query, options: [], range: NSRange(query.startIndex..., in: query)),
+           let range = Range(match.range(at: 1), in: query) {
+            state.bibcode = String(query[range])
+            hasMatch = true
+        }
+
+        if let regex = try? NSRegularExpression(pattern: doiPattern, options: []),
+           let match = regex.firstMatch(in: query, options: [], range: NSRange(query.startIndex..., in: query)),
+           let range = Range(match.range(at: 1), in: query) {
+            state.doi = String(query[range])
+            hasMatch = true
+        }
+
+        if let regex = try? NSRegularExpression(pattern: arxivPattern, options: []),
+           let match = regex.firstMatch(in: query, options: [], range: NSRange(query.startIndex..., in: query)),
+           let range = Range(match.range(at: 1), in: query) {
+            state.arxivID = String(query[range])
+            hasMatch = true
+        }
+
+        // Paper form queries should only contain identifiers
+        // If there's other content, it's not a paper form query
+        var cleaned = query
+            .replacingOccurrences(of: #"bibcode:[^\s]+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"doi:[^\s]+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"arXiv:[^\s]+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: " OR ", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if !cleaned.isEmpty {
+            return nil  // Has non-identifier content
+        }
+
+        return hasMatch ? state : nil
+    }
+
+    /// Try to parse an arXiv query back to arXiv form fields.
+    ///
+    /// Returns nil if the query can't be parsed as an arXiv query.
+    /// Detects arXiv queries by looking for cat: prefixes or arXiv-specific field prefixes.
+    private func parseArXivQuery(_ query: String) -> ArXivFormState? {
+        var state = ArXivFormState()
+
+        // Check if this looks like an arXiv query by looking for cat: or arXiv field prefixes
+        let hasCategory = query.contains("cat:")
+        let hasArXivFields = query.contains("ti:") || query.contains("au:") || query.contains("abs:") ||
+                             query.contains("co:") || query.contains("jr:") || query.contains("rn:") ||
+                             query.contains("id:") || query.contains("submittedDate:")
+
+        // If no arXiv indicators, this isn't an arXiv query
+        if !hasCategory && !hasArXivFields {
+            return nil
+        }
+
+        // Parse categories
+        let catPattern = #"cat:([^\s()]+)"#
+        if let regex = try? NSRegularExpression(pattern: catPattern, options: []) {
+            let matches = regex.matches(in: query, options: [], range: NSRange(query.startIndex..., in: query))
+            for match in matches {
+                if let range = Range(match.range(at: 1), in: query) {
+                    state.selectedCategories.insert(String(query[range]))
+                }
+            }
+        }
+
+        // Parse search terms - this is a simplified parser that extracts field:term patterns
+        var searchTerms: [ArXivSearchTerm] = []
+        let remainingQuery = query
+            .replacingOccurrences(of: #"cat:[^\s()]+"#, with: "", options: .regularExpression)
+            .replacingOccurrences(of: #"\([^\)]+\)"#, with: "", options: .regularExpression) // Remove parenthesized groups
+            .replacingOccurrences(of: #"submittedDate:\[[^\]]+\]"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // Split by boolean operators and extract terms
+        let parts = remainingQuery.components(separatedBy: " ")
+        var currentOperator: ArXivLogicOperator = .and
+        var currentTerms: [String] = []
+
+        for part in parts {
+            let trimmed = part.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { continue }
+
+            if trimmed.uppercased() == "AND" {
+                currentOperator = .and
+            } else if trimmed.uppercased() == "OR" {
+                currentOperator = .or
+            } else if trimmed.uppercased() == "ANDNOT" {
+                currentOperator = .andNot
+            } else {
+                // Parse field:value
+                var field = ArXivSearchField.all
+                var value = trimmed
+
+                if trimmed.contains(":") {
+                    let colonIndex = trimmed.firstIndex(of: ":")!
+                    let prefix = String(trimmed[..<colonIndex])
+                    value = String(trimmed[trimmed.index(after: colonIndex)...])
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+
+                    switch prefix.lowercased() {
+                    case "ti": field = .title
+                    case "au": field = .author
+                    case "abs": field = .abstract
+                    case "co": field = .comments
+                    case "jr": field = .journalRef
+                    case "rn": field = .reportNumber
+                    case "id": field = .arxivId
+                    case "doi": field = .doi
+                    default: break
+                    }
+                }
+
+                if !value.isEmpty {
+                    let term = ArXivSearchTerm(
+                        term: value,
+                        field: field,
+                        logicOperator: searchTerms.isEmpty ? .and : currentOperator
+                    )
+                    searchTerms.append(term)
+                }
+            }
+        }
+
+        // If we parsed terms, use them; otherwise create a default empty term
+        if !searchTerms.isEmpty {
+            state.searchTerms = searchTerms
+        }
+
+        // Parse date filter
+        let datePattern = #"submittedDate:\[(\d+|\*) TO (\d+|\*)\]"#
+        if let regex = try? NSRegularExpression(pattern: datePattern, options: []),
+           let match = regex.firstMatch(in: query, options: [], range: NSRange(query.startIndex..., in: query)) {
+            let fromRange = Range(match.range(at: 1), in: query)
+            let toRange = Range(match.range(at: 2), in: query)
+
+            let fromStr = fromRange.map { String(query[$0]) } ?? "*"
+            let toStr = toRange.map { String(query[$0]) } ?? "*"
+
+            if fromStr != "*" && toStr != "*" && fromStr.count >= 4 && toStr.count >= 4 {
+                // Check if it's a specific year (YYYYMMDD format for Jan 1 to Dec 31)
+                let fromYear = String(fromStr.prefix(4))
+                let toYear = String(toStr.prefix(4))
+                if fromYear == toYear && fromStr.hasSuffix("0101") && toStr.hasSuffix("1231") {
+                    state.dateFilter = .specificYear(Int(fromYear) ?? Calendar.current.component(.year, from: Date()))
+                } else {
+                    // Date range
+                    let formatter = DateFormatter()
+                    formatter.dateFormat = "yyyyMMdd"
+                    let fromDate = formatter.date(from: fromStr)
+                    let toDate = formatter.date(from: toStr)
+                    state.dateFilter = .dateRange(from: fromDate, to: toDate)
+                }
+            }
+        }
+
+        return state
     }
 }

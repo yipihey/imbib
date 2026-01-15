@@ -46,6 +46,9 @@ public struct ThemeColors: Sendable {
 
     // MARK: - Text Colors
 
+    /// Primary text color for titles and main content
+    public let primaryText: Color
+
     /// Secondary text color for metadata, dates, abstracts
     public let secondaryText: Color
 
@@ -122,6 +125,15 @@ public struct ThemeColors: Sendable {
         // Typography
         self.useSerifTitles = settings.useSerifTitles
 
+        // Primary text color
+        if isDark, let darkPrimary = overrides?.primaryTextColorHex {
+            self.primaryText = Color(hex: darkPrimary) ?? ThemeColors.systemPrimaryLabel
+        } else if let primaryHex = settings.primaryTextColorHex {
+            self.primaryText = Color(hex: primaryHex) ?? ThemeColors.systemPrimaryLabel
+        } else {
+            self.primaryText = ThemeColors.systemPrimaryLabel
+        }
+
         // Secondary text color
         if isDark, let darkSecondary = overrides?.secondaryTextColorHex {
             self.secondaryText = Color(hex: darkSecondary) ?? Color.secondary
@@ -167,6 +179,15 @@ public struct ThemeColors: Sendable {
     }
 
     // MARK: - Platform Helpers
+
+    /// System primary label color (platform-specific)
+    private static var systemPrimaryLabel: Color {
+        #if os(macOS)
+        Color(nsColor: .labelColor)
+        #else
+        Color(uiColor: .label)
+        #endif
+    }
 
     /// System tertiary label color (platform-specific)
     private static var systemTertiaryLabel: Color {

@@ -33,11 +33,9 @@ struct IOSSidebarView: View {
     // MARK: - State
 
     @State private var showNewLibrarySheet = false
-    @State private var showNewSmartSearchSheet = false
     @State private var showNewCollectionSheet = false
     @State private var showArXivCategoryBrowser = false
     @State private var selectedLibraryForAction: CDLibrary?
-    @State private var editingSmartSearch: CDSmartSearch?
     @State private var refreshID = UUID()  // Used to force list refresh
     @State private var hasSciXAPIKey = false  // Whether SciX/ADS API key is configured
     @State private var explorationRefreshID = UUID()  // Refresh exploration section
@@ -114,8 +112,8 @@ struct IOSSidebarView: View {
                             // Show which library is targeted
                             Section("Add to \(library.displayName)") {
                                 Button {
-                                    selectedLibraryForAction = library
-                                    showNewSmartSearchSheet = true
+                                    // Navigate to Search section for creating new smart search
+                                    NotificationCenter.default.post(name: .navigateToSearchSection, object: library.id)
                                 } label: {
                                     Label("New Smart Search", systemImage: "magnifyingglass.circle")
                                 }
@@ -148,22 +146,7 @@ struct IOSSidebarView: View {
         .sheet(isPresented: $showNewLibrarySheet) {
             NewLibrarySheet(isPresented: $showNewLibrarySheet)
         }
-        .sheet(isPresented: $showNewSmartSearchSheet) {
-            if let library = selectedLibraryForAction {
-                IOSSmartSearchEditorSheet(
-                    isPresented: $showNewSmartSearchSheet,
-                    library: library,
-                    onCreated: { newSmartSearch in
-                        // Navigate to the new smart search
-                        selection = .smartSearch(newSmartSearch)
-                        // Use callback for iPhone navigation (needs small delay for sheet dismiss)
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                            onNavigateToSmartSearch?(newSmartSearch)
-                        }
-                    }
-                )
-            }
-        }
+        // Smart search creation/editing now uses Search section forms
         .sheet(isPresented: $showNewCollectionSheet) {
             if let library = selectedLibraryForAction {
                 NewCollectionSheet(
@@ -171,19 +154,6 @@ struct IOSSidebarView: View {
                     library: library
                 )
             }
-        }
-        .sheet(item: $editingSmartSearch) { smartSearch in
-            IOSSmartSearchEditorSheet(
-                isPresented: Binding(
-                    get: { editingSmartSearch != nil },
-                    set: { if !$0 { editingSmartSearch = nil } }
-                ),
-                library: smartSearch.library,
-                smartSearch: smartSearch,
-                onSaved: { _ in
-                    editingSmartSearch = nil
-                }
-            )
         }
         .sheet(isPresented: $showArXivCategoryBrowser) {
             IOSArXivCategoryBrowserSheet(
@@ -446,8 +416,9 @@ struct IOSSidebarView: View {
         if let library = libraryManager.explorationLibrary,
            let collections = library.collections,
            !collections.isEmpty {
-            ForEach(flattenedExplorationCollections(from: collections), id: \.id) { collection in
-                explorationCollectionRow(collection)
+            let flatCollections = flattenedExplorationCollections(from: collections)
+            ForEach(flatCollections, id: \.id) { collection in
+                explorationCollectionRow(collection, allCollections: flatCollections)
             }
         }
     }
@@ -472,6 +443,39 @@ struct IOSSidebarView: View {
     }
 
     /// Flatten collection hierarchy into a list with proper ordering
+    /// Determine the SF Symbol icon for an exploration collection based on its name prefix.
+    private func explorationIcon(for collection: CDCollection) -> String {
+        if collection.name.hasPrefix("Refs:") { return "arrow.down.doc" }
+        if collection.name.hasPrefix("Cites:") { return "arrow.up.doc" }
+        if collection.name.hasPrefix("Similar:") { return "doc.on.doc" }
+        if collection.name.hasPrefix("Co-Reads:") { return "person.2.fill" }
+        return "doc.text.magnifyingglass"
+    }
+
+    /// Check if this collection is the last child of its parent.
+    private func isLastChild(_ collection: CDCollection, in allCollections: [CDCollection]) -> Bool {
+        guard let parentID = collection.parentCollection?.id else {
+            let rootCollections = allCollections.filter { $0.parentCollection == nil }
+            return rootCollections.last?.id == collection.id
+        }
+        let siblings = allCollections.filter { $0.parentCollection?.id == parentID }
+        return siblings.last?.id == collection.id
+    }
+
+    /// Check if an ancestor at the given depth level has siblings after it.
+    private func hasAncestorSiblingBelow(_ collection: CDCollection, at level: Int, in allCollections: [CDCollection]) -> Bool {
+        var current: CDCollection? = collection
+        var currentLevel = Int(collection.depth)
+
+        while currentLevel > level, let c = current {
+            current = c.parentCollection
+            currentLevel -= 1
+        }
+
+        guard let ancestor = current else { return false }
+        return !isLastChild(ancestor, in: allCollections)
+    }
+
     private func flattenedExplorationCollections(from collections: Set<CDCollection>) -> [CDCollection] {
         var result: [CDCollection] = []
 
@@ -489,24 +493,52 @@ struct IOSSidebarView: View {
         return result
     }
 
-    /// Row for an exploration collection (with indentation based on depth)
+    /// Row for an exploration collection (with tree lines and type-specific icons)
     @ViewBuilder
-    private func explorationCollectionRow(_ collection: CDCollection) -> some View {
+    private func explorationCollectionRow(_ collection: CDCollection, allCollections: [CDCollection]) -> some View {
         let isSelected = explorationMultiSelection.contains(collection.id)
+        let depth = Int(collection.depth)
+        let isLast = isLastChild(collection, in: allCollections)
 
-        HStack {
+        HStack(spacing: 0) {
             // Checkbox in edit mode
             if isExplorationEditMode {
                 Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(isSelected ? .blue : .secondary)
+                    .padding(.trailing, 8)
             }
 
-            if collection.depth > 0 {
-                Spacer()
-                    .frame(width: CGFloat(collection.depth) * 12)
+            // Tree lines for each level
+            if depth > 0 {
+                ForEach(0..<depth, id: \.self) { level in
+                    if level == depth - 1 {
+                        Text(isLast ? "└" : "├")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.quaternary)
+                            .frame(width: 12)
+                    } else {
+                        if hasAncestorSiblingBelow(collection, at: level, in: allCollections) {
+                            Text("│")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.quaternary)
+                                .frame(width: 12)
+                        } else {
+                            Spacer().frame(width: 12)
+                        }
+                    }
+                }
             }
 
-            Label(collection.name, systemImage: "doc.text.magnifyingglass")
+            // Type-specific icon
+            Image(systemName: explorationIcon(for: collection))
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+                .padding(.trailing, 4)
+
+            // Collection name
+            Text(collection.name)
+                .lineLimit(1)
 
             Spacer()
 
@@ -610,7 +642,8 @@ struct IOSSidebarView: View {
                             .tag(SidebarSection.smartSearch(search))
                             .contextMenu {
                                 Button {
-                                    editingSmartSearch = search
+                                    // Navigate to Search section with this smart search's query
+                                    NotificationCenter.default.post(name: .editSmartSearch, object: search.id)
                                 } label: {
                                     Label("Edit", systemImage: "pencil")
                                 }
@@ -630,7 +663,8 @@ struct IOSSidebarView: View {
                             }
                             .swipeActions(edge: .leading) {
                                 Button {
-                                    editingSmartSearch = search
+                                    // Navigate to Search section with this smart search's query
+                                    NotificationCenter.default.post(name: .editSmartSearch, object: search.id)
                                 } label: {
                                     Label("Edit", systemImage: "pencil")
                                 }
@@ -850,358 +884,9 @@ enum ArXivSearchField: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - iOS Smart Search Editor Sheet
-
-struct IOSSmartSearchEditorSheet: View {
-    @Binding var isPresented: Bool
-    let library: CDLibrary?
-    let smartSearch: CDSmartSearch?  // nil for create, non-nil for edit
-    let defaultFeedsToInbox: Bool
-    let onSaved: ((CDSmartSearch) -> Void)?
-
-    @Environment(SettingsViewModel.self) private var settingsViewModel
-    @Environment(SearchViewModel.self) private var searchViewModel
-
-    @State private var name = ""
-    @State private var query = ""
-    @State private var maxResults: Int = 100
-    @State private var credentialStatus: [SourceCredentialInfo] = []
-
-    // Multi-source selection (like macOS)
-    @State private var selectedSourceIDs: Set<String> = []
-    @State private var availableSources: [SourceMetadata] = []
-
-    // Inbox feed options (like macOS)
-    @State private var feedsToInbox: Bool = false
-    @State private var autoRefreshEnabled: Bool = false
-    @State private var refreshInterval: RefreshIntervalPreset = .daily
-
-    // arXiv field-specific search
-    @State private var arxivSearchField: ArXivSearchField = .all
-    @State private var arxivCategory: String = ""
-    @State private var showCategoryPicker = false
-
-    private var isEditing: Bool { smartSearch != nil }
-
-    /// Check if arXiv is one of the selected sources
-    private var hasArXivSelected: Bool {
-        selectedSourceIDs.contains("arxiv") || selectedSourceIDs.isEmpty
-    }
-
-    /// Get warning messages for missing credentials
-    private var credentialWarnings: [String] {
-        let selectedIDs = selectedSourceIDs.isEmpty
-            ? Set(availableSources.map { $0.id })
-            : selectedSourceIDs
-
-        return credentialStatus
-            .filter { selectedIDs.contains($0.sourceID) && $0.status == .missing }
-            .map { "\($0.sourceName) requires an API key." }
-    }
-
-    // Convenience initializer for creating new smart search
-    init(isPresented: Binding<Bool>, library: CDLibrary, onCreated: ((CDSmartSearch) -> Void)? = nil) {
-        self._isPresented = isPresented
-        self.library = library
-        self.smartSearch = nil
-        self.defaultFeedsToInbox = false
-        self.onSaved = onCreated
-    }
-
-    // Full initializer for editing or creating with defaults
-    init(
-        isPresented: Binding<Bool>,
-        library: CDLibrary?,
-        smartSearch: CDSmartSearch? = nil,
-        defaultFeedsToInbox: Bool = false,
-        onSaved: ((CDSmartSearch) -> Void)? = nil
-    ) {
-        self._isPresented = isPresented
-        self.library = library
-        self.smartSearch = smartSearch
-        self.defaultFeedsToInbox = defaultFeedsToInbox
-        self.onSaved = onSaved
-    }
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Name") {
-                    TextField("Smart Search Name", text: $name)
-                }
-
-                // Multi-source selection (matching macOS)
-                Section("Sources") {
-                    Toggle("All Sources", isOn: Binding(
-                        get: { selectedSourceIDs.isEmpty },
-                        set: { useAll in
-                            if useAll {
-                                selectedSourceIDs.removeAll()
-                            } else {
-                                // Select all sources so user can deselect unwanted ones
-                                selectedSourceIDs = Set(availableSources.map { $0.id })
-                            }
-                        }
-                    ))
-
-                    ForEach(availableSources, id: \.id) { source in
-                        Toggle(source.name, isOn: Binding(
-                            get: { selectedSourceIDs.contains(source.id) },
-                            set: { isSelected in
-                                if isSelected {
-                                    selectedSourceIDs.insert(source.id)
-                                } else {
-                                    selectedSourceIDs.remove(source.id)
-                                }
-                            }
-                        ))
-                    }
-
-                    // Warning if sources require missing credentials
-                    if !credentialWarnings.isEmpty {
-                        Label {
-                            VStack(alignment: .leading, spacing: 4) {
-                                ForEach(credentialWarnings, id: \.self) { warning in
-                                    Text(warning)
-                                        .font(.caption)
-                                }
-                                Text("Configure API keys in Settings.")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                        } icon: {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
-                        }
-                    }
-                }
-
-                // Query section with arXiv field selector
-                Section {
-                    // Show arXiv field selector when arXiv is one of the selected sources
-                    if hasArXivSelected {
-                        Picker("arXiv Field", selection: $arxivSearchField) {
-                            ForEach(ArXivSearchField.allCases) { field in
-                                Text(field.displayName).tag(field)
-                            }
-                        }
-
-                        // Category picker for category field
-                        if arxivSearchField == .category {
-                            Button {
-                                showCategoryPicker = true
-                            } label: {
-                                HStack {
-                                    Text("Category")
-                                    Spacer()
-                                    if arxivCategory.isEmpty {
-                                        Text("Select...")
-                                            .foregroundStyle(.secondary)
-                                    } else {
-                                        Text(arxivCategory)
-                                            .foregroundStyle(.primary)
-                                    }
-                                    Image(systemName: "chevron.right")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .foregroundStyle(.primary)
-                        }
-
-                        // Help text for arXiv field
-                        Text(arxivSearchField.helpText)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    // Query text field (always shown unless category-only)
-                    if !(hasArXivSelected && arxivSearchField == .category) {
-                        TextField("Search Query", text: $query)
-                            .autocapitalization(.none)
-                    }
-                } header: {
-                    Text("Query")
-                }
-
-                // Inbox feed options (matching macOS)
-                Section {
-                    Toggle("Feed to Inbox", isOn: $feedsToInbox)
-
-                    if feedsToInbox {
-                        Toggle("Auto-Refresh", isOn: $autoRefreshEnabled)
-
-                        if autoRefreshEnabled {
-                            Picker("Refresh Interval", selection: $refreshInterval) {
-                                ForEach(RefreshIntervalPreset.allCases, id: \.self) { preset in
-                                    Text(preset.displayName).tag(preset)
-                                }
-                            }
-                        }
-                    }
-                } header: {
-                    Text("Inbox")
-                } footer: {
-                    if feedsToInbox {
-                        Text("Papers from this search will be added to your Inbox for triage.")
-                    }
-                }
-
-                Section {
-                    Stepper("Max Results: \(maxResults)", value: $maxResults, in: 10...1000, step: 10)
-                }
-            }
-            .navigationTitle(isEditing ? "Edit Smart Search" : "New Smart Search")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        isPresented = false
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button(isEditing ? "Save" : "Create") {
-                        saveSmartSearch()
-                    }
-                    .disabled(name.isEmpty || !hasValidQuery)
-                }
-            }
-            .task {
-                await loadData()
-            }
-            .sheet(isPresented: $showCategoryPicker) {
-                IOSArXivCategoryPickerSheet(
-                    selectedCategory: $arxivCategory,
-                    isPresented: $showCategoryPicker
-                )
-            }
-        }
-    }
-
-    /// Check if the query is valid (non-empty query or selected category)
-    private var hasValidQuery: Bool {
-        if hasArXivSelected && arxivSearchField == .category {
-            return !arxivCategory.isEmpty
-        }
-        return !query.isEmpty
-    }
-
-    /// Build the final query with field prefix for arXiv
-    private var finalQuery: String {
-        if hasArXivSelected && arxivSearchField != .all {
-            switch arxivSearchField {
-            case .all:
-                return query
-            case .title:
-                return "ti:\(query)"
-            case .author:
-                return "au:\(query)"
-            case .abstract:
-                return "abs:\(query)"
-            case .category:
-                return "cat:\(arxivCategory)"
-            }
-        }
-        return query
-    }
-
-    private func loadData() async {
-        // Load available sources
-        availableSources = await searchViewModel.availableSources
-
-        // Load credential status to show warnings
-        await settingsViewModel.loadCredentialStatus()
-        credentialStatus = settingsViewModel.sourceCredentials
-
-        // Load existing values if editing
-        if let smartSearch {
-            name = smartSearch.name
-            selectedSourceIDs = Set(smartSearch.sources)
-            maxResults = Int(smartSearch.maxResults)
-
-            // Load inbox settings
-            feedsToInbox = smartSearch.feedsToInbox
-            autoRefreshEnabled = smartSearch.autoRefreshEnabled
-            refreshInterval = RefreshIntervalPreset(rawValue: smartSearch.refreshIntervalSeconds) ?? .daily
-
-            // Parse arXiv field-specific queries
-            let existingQuery = smartSearch.query
-            if smartSearch.sources.contains("arxiv") || smartSearch.sources.isEmpty {
-                if existingQuery.hasPrefix("ti:") {
-                    arxivSearchField = .title
-                    query = String(existingQuery.dropFirst(3))
-                } else if existingQuery.hasPrefix("au:") {
-                    arxivSearchField = .author
-                    query = String(existingQuery.dropFirst(3))
-                } else if existingQuery.hasPrefix("abs:") {
-                    arxivSearchField = .abstract
-                    query = String(existingQuery.dropFirst(4))
-                } else if existingQuery.hasPrefix("cat:") {
-                    arxivSearchField = .category
-                    arxivCategory = String(existingQuery.dropFirst(4))
-                } else {
-                    arxivSearchField = .all
-                    query = existingQuery
-                }
-            } else {
-                query = existingQuery
-            }
-        } else {
-            // Apply defaults for new smart search
-            feedsToInbox = defaultFeedsToInbox
-            autoRefreshEnabled = defaultFeedsToInbox  // Auto-refresh on by default for inbox feeds
-        }
-    }
-
-    private func saveSmartSearch() {
-        let queryToSave = finalQuery
-        let sourceIDs = Array(selectedSourceIDs)
-
-        if let smartSearch {
-            // Update existing
-            SmartSearchRepository.shared.update(
-                smartSearch,
-                name: name,
-                query: queryToSave,
-                sourceIDs: sourceIDs
-            )
-            smartSearch.maxResults = Int16(maxResults)
-
-            // Update inbox settings
-            smartSearch.feedsToInbox = feedsToInbox
-            smartSearch.autoRefreshEnabled = autoRefreshEnabled
-            smartSearch.refreshIntervalSeconds = refreshInterval.seconds
-
-            try? smartSearch.managedObjectContext?.save()
-
-            // Invalidate cache so results refresh
-            Task {
-                await SmartSearchProviderCache.shared.invalidate(smartSearch.id)
-            }
-
-            isPresented = false
-            onSaved?(smartSearch)
-        } else if let library {
-            // Create new smart search
-            let newSearch = SmartSearchRepository.shared.create(
-                name: name,
-                query: queryToSave,
-                sourceIDs: sourceIDs,
-                library: library,
-                maxResults: Int16(maxResults)
-            )
-
-            // Set inbox settings after creation
-            newSearch.feedsToInbox = feedsToInbox
-            newSearch.autoRefreshEnabled = autoRefreshEnabled
-            newSearch.refreshIntervalSeconds = refreshInterval.seconds
-            try? newSearch.managedObjectContext?.save()
-
-            isPresented = false
-            onSaved?(newSearch)
-        }
-    }
-}
+// NOTE: IOSSmartSearchEditorSheet has been removed.
+// Smart search creation/editing now uses the Search section forms.
+// See .navigateToSearchSection and .editSmartSearch notifications.
 
 // MARK: - iOS arXiv Category Browser Sheet
 

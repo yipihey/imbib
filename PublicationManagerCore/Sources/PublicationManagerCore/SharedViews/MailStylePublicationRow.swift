@@ -124,13 +124,40 @@ public struct MailStylePublicationRow: View, Equatable {
 
     private var rowContent: some View {
         HStack(alignment: .top, spacing: MailStyleTokens.dotContentSpacing) {
-            // Row number (subtle, right-aligned)
-            if let number = rowNumber {
-                Text("\(number)")
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(.quaternary)
-                    .frame(width: 28, alignment: .trailing)
-                    .padding(.top, 4)
+            // Row number and counts column (subtle, minimal width)
+            if rowNumber != nil || data.referenceCount > 0 || data.citationCount > 0 {
+                VStack(alignment: .trailing, spacing: 1) {
+                    // Row number
+                    if let number = rowNumber {
+                        Text("\(number)")
+                            .font(.system(size: 9, design: .monospaced))
+                            .foregroundStyle(.quaternary)
+                    }
+
+                    // Reference count (if > 0)
+                    if data.referenceCount > 0 {
+                        HStack(spacing: 1) {
+                            Image(systemName: "doc.text")
+                                .font(.system(size: 7))
+                            Text("\(data.referenceCount)")
+                                .font(.system(size: 8, design: .monospaced))
+                        }
+                        .foregroundStyle(.quaternary)
+                    }
+
+                    // Citation count (if > 0)
+                    if data.citationCount > 0 {
+                        HStack(spacing: 1) {
+                            Image(systemName: "quote.bubble")
+                                .font(.system(size: 7))
+                            Text("\(data.citationCount)")
+                                .font(.system(size: 8, design: .monospaced))
+                        }
+                        .foregroundStyle(.quaternary)
+                    }
+                }
+                .frame(minWidth: 16, alignment: .trailing)
+                .padding(.top, 4)
             }
 
             // Themed dot for unread (conditional)
@@ -150,6 +177,7 @@ public struct MailStylePublicationRow: View, Equatable {
                 HStack {
                     Text(authorYearString)
                         .font(isUnread ? MailStyleTokens.authorFontUnread : MailStyleTokens.authorFont)
+                        .foregroundStyle(MailStyleTokens.primaryTextColor(from: theme))
                         .lineLimit(MailStyleTokens.authorLineLimit)
 
                     Spacer()
@@ -172,6 +200,7 @@ public struct MailStylePublicationRow: View, Equatable {
                     Text(data.title)
                         .font(MailStyleTokens.titleFont)
                         .fontWeight(isUnread ? .medium : .regular)
+                        .foregroundStyle(MailStyleTokens.primaryTextColor(from: theme))
                         .lineLimit(MailStyleTokens.titleLineLimit)
                 }
 
@@ -326,6 +355,7 @@ extension PublicationRowData {
         isRead: Bool,
         hasPDF: Bool,
         citationCount: Int,
+        referenceCount: Int = 0,
         doi: String?,
         venue: String? = nil,
         dateAdded: Date = Date(),
@@ -342,6 +372,7 @@ extension PublicationRowData {
         self.isRead = isRead
         self.hasPDF = hasPDF
         self.citationCount = citationCount
+        self.referenceCount = referenceCount
         self.doi = doi
         self.venue = venue
         self.dateAdded = dateAdded

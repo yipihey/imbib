@@ -52,6 +52,11 @@ public enum MailStyleTokens {
         theme.iconTint
     }
 
+    /// Get primary text color from theme
+    public static func primaryTextColor(from theme: ThemeColors) -> Color {
+        theme.primaryText
+    }
+
     /// Get secondary text color from theme
     public static func secondaryTextColor(from theme: ThemeColors) -> Color {
         theme.secondaryText

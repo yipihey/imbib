@@ -45,6 +45,12 @@ struct ContentView: View {
     /// Data for batch PDF download sheet (nil = not shown)
     @State private var batchDownloadData: BatchDownloadData?
 
+    /// Navigation history for browser-style back/forward
+    private var navigationHistory = NavigationHistoryStore.shared
+
+    /// Flag to skip history push when navigating via back/forward
+    @State private var isNavigatingViaHistory = false
+
     // MARK: - Derived Selection
 
     /// The publication ID that the detail view should display.
@@ -135,6 +141,28 @@ struct ContentView: View {
                 }
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToSmartSearch)) { notification in
+            // Navigate to a smart search in the sidebar (typically from Search section → Exploration)
+            guard let smartSearchID = notification.object as? UUID else { return }
+            // Find the smart search in the exploration library
+            if let explorationLib = libraryManager.explorationLibrary,
+               let smartSearch = explorationLib.smartSearches?.first(where: { $0.id == smartSearchID }) {
+                isNavigatingViaHistory = true
+                selectedSection = .smartSearch(smartSearch)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .editSmartSearch)) { notification in
+            handleEditSmartSearch(notification)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToSearchSection)) { _ in
+            handleNavigateToSearchSection()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateBack)) { _ in
+            navigateBack()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateForward)) { _ in
+            navigateForward()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .importBibTeX)) { _ in
             showImportPanel()
         }
@@ -176,6 +204,14 @@ struct ContentView: View {
                     selectedPublicationID = nil
                     displayedPublicationID = nil
                 }
+
+                // Track navigation history (skip if navigating via back/forward)
+                if !isNavigatingViaHistory {
+                    if let state = sidebarSelectionStateFrom(newValue) {
+                        navigationHistory.push(state)
+                    }
+                }
+                isNavigatingViaHistory = false
             }
             // Save state when section changes
             if hasRestoredState {
@@ -257,6 +293,70 @@ struct ContentView: View {
             )
             await AppStateStore.shared.save(state)
         }
+    }
+
+    // MARK: - Navigation History
+
+    /// Navigate back in history (Cmd+[)
+    func navigateBack() {
+        guard let state = navigationHistory.goBack() else { return }
+        isNavigatingViaHistory = true
+        if let section = sidebarSectionFrom(state) {
+            selectedSection = section
+        } else {
+            // If section is invalid (e.g., collection was deleted), try again
+            navigateBack()
+        }
+    }
+
+    /// Navigate forward in history (Cmd+])
+    func navigateForward() {
+        guard let state = navigationHistory.goForward() else { return }
+        isNavigatingViaHistory = true
+        if let section = sidebarSectionFrom(state) {
+            selectedSection = section
+        } else {
+            // If section is invalid (e.g., collection was deleted), try again
+            navigateForward()
+        }
+    }
+
+    // MARK: - Notification Handlers
+
+    /// Handle editSmartSearch notification - loads smart search into search form for editing
+    private func handleEditSmartSearch(_ notification: NotificationCenter.Publisher.Output) {
+        guard let smartSearchID = notification.object as? UUID else { return }
+
+        // Find the smart search
+        guard let smartSearch = findSmartSearch(by: smartSearchID) else { return }
+
+        // Load the smart search into the search view model
+        searchViewModel.loadSmartSearch(smartSearch)
+
+        // Navigate to the appropriate search form based on detected form type
+        let formType: SearchFormType
+        switch searchViewModel.editFormType {
+        case .classic:
+            formType = .adsClassic
+        case .modern:
+            formType = .adsModern
+        case .paper:
+            formType = .adsPaper
+        case .arxiv:
+            formType = .arxivAdvanced
+        }
+
+        // Navigate to the search form and show the form in the list pane
+        showSearchFormInList = true
+        selectedSection = .searchForm(formType)
+
+        contentLogger.info("Editing smart search '\(smartSearch.name)' using \(String(describing: formType)) form")
+    }
+
+    /// Handle navigateToSearchSection notification - navigates to default search form
+    private func handleNavigateToSearchSection() {
+        showSearchFormInList = true
+        selectedSection = .searchForm(.adsClassic)  // Default to Classic form
     }
 
     /// Convert SidebarSelectionState (serializable) to SidebarSection (with Core Data objects)
@@ -482,6 +582,10 @@ struct ContentView: View {
         case .adsPaper:
             ADSPaperSearchFormView()
                 .navigationTitle("ADS Paper Search")
+
+        case .arxivAdvanced:
+            ArXivAdvancedSearchFormView()
+                .navigationTitle("arXiv Advanced Search")
         }
     }
 
@@ -720,10 +824,6 @@ struct CollectionListView: View {
                 .fixedSize()
             }
 
-            ToolbarItem(placement: .automatic) {
-                Text("\(publications.count) items")
-                    .foregroundStyle(.secondary)
-            }
         }
         .task(id: collection.id) {
             refreshPublications()

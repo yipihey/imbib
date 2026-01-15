@@ -56,7 +56,7 @@ enum LibraryFilterMode: String, CaseIterable {
 ///
 /// Features (same for both sources):
 /// - @State publications with explicit refresh
-/// - All/Unread filter toggle
+/// - All/Unread filter (via Cmd+\\ keyboard shortcut)
 /// - Refresh button (library = future enrichment, smart search = re-search)
 /// - Loading/error states
 /// - OSLog logging
@@ -98,6 +98,11 @@ struct UnifiedPublicationListWrapper: View {
     // State for duplicate file alert
     @State private var showDuplicateAlert = false
     @State private var duplicateFilename = ""
+
+    /// Snapshot of publication IDs visible when unread filter was applied.
+    /// Enables Apple Mail behavior: items stay visible after being marked as read
+    /// until the user navigates away or explicitly refreshes.
+    @State private var unreadFilterSnapshot: Set<UUID>?
 
     // MARK: - Computed Properties
 
@@ -177,12 +182,27 @@ struct UnifiedPublicationListWrapper: View {
             .task(id: source.id) {
                 filterMode = initialFilterMode
                 filterScope = .current  // Reset scope on navigation
-                refreshPublicationsList()
+                unreadFilterSnapshot = nil  // Reset snapshot on navigation
+
+                // If starting with unread filter, capture snapshot after loading data
+                if initialFilterMode == .unread {
+                    refreshPublicationsList()
+                    unreadFilterSnapshot = captureUnreadSnapshot()
+                } else {
+                    refreshPublicationsList()
+                }
+
                 if case .smartSearch(let smartSearch) = source {
                     await queueBackgroundRefreshIfNeeded(smartSearch)
                 }
             }
-            .onChange(of: filterMode) { _, _ in
+            .onChange(of: filterMode) { _, newMode in
+                // Capture snapshot when switching TO unread filter (Apple Mail behavior)
+                if newMode == .unread {
+                    unreadFilterSnapshot = captureUnreadSnapshot()
+                } else {
+                    unreadFilterSnapshot = nil
+                }
                 refreshPublicationsList()
             }
             .onChange(of: filterScope) { _, _ in
@@ -342,17 +362,7 @@ struct UnifiedPublicationListWrapper: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Filter toggle - hide for Inbox (papers always stay visible after being read)
-        if !isInboxView {
-            ToolbarItem(placement: .automatic) {
-                Picker("Filter", selection: $filterMode) {
-                    Text("All").tag(LibraryFilterMode.all)
-                    Text("Unread").tag(LibraryFilterMode.unread)
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
-            }
-        }
+        // Note: All/Unread filter removed from toolbar (use Cmd+\ to toggle)
 
         // Refresh button (both sources) with background refresh indicator
         ToolbarItem(placement: .automatic) {
@@ -378,11 +388,6 @@ struct UnifiedPublicationListWrapper: View {
             }
         }
 
-        // Result count (both sources)
-        ToolbarItem(placement: .automatic) {
-            Text("\(publications.count) items")
-                .foregroundStyle(.secondary)
-        }
     }
 
     // MARK: - Data Refresh
@@ -410,9 +415,17 @@ struct UnifiedPublicationListWrapper: View {
             var result = (library.publications ?? [])
                 .filter { !$0.isDeleted && $0.managedObjectContext != nil }
 
-            // Apply filter mode (skip for Inbox - papers should stay visible after being read)
+            // Apply filter mode with Apple Mail behavior:
+            // Items stay visible after being read if they were visible when filter was applied.
+            // Skip for Inbox - papers should stay visible after being read regardless.
             if filterMode == .unread && !library.isInbox {
-                result = result.filter { !$0.isRead }
+                if let snapshot = unreadFilterSnapshot {
+                    // Keep items in snapshot visible (Apple Mail behavior)
+                    result = result.filter { !$0.isRead || snapshot.contains($0.id) }
+                } else {
+                    // No snapshot - strict filter (fresh application)
+                    result = result.filter { !$0.isRead }
+                }
             }
 
             publications = result.sorted { $0.dateAdded > $1.dateAdded }
@@ -427,9 +440,16 @@ struct UnifiedPublicationListWrapper: View {
             var result = (collection.publications ?? [])
                 .filter { !$0.isDeleted && $0.managedObjectContext != nil }
 
-            // Apply filter mode (skip for Inbox feeds - papers should stay visible after being read)
+            // Apply filter mode with Apple Mail behavior.
+            // Skip for Inbox feeds - papers should stay visible after being read regardless.
             if filterMode == .unread && !smartSearch.feedsToInbox {
-                result = result.filter { !$0.isRead }
+                if let snapshot = unreadFilterSnapshot {
+                    // Keep items in snapshot visible (Apple Mail behavior)
+                    result = result.filter { !$0.isRead || snapshot.contains($0.id) }
+                } else {
+                    // No snapshot - strict filter (fresh application)
+                    result = result.filter { !$0.isRead }
+                }
             }
 
             publications = result.sorted { $0.dateAdded > $1.dateAdded }
@@ -469,6 +489,9 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Refresh from network (async operation with loading state)
     private func refreshFromNetwork() async {
+        // Reset snapshot on explicit refresh (Apple Mail behavior)
+        unreadFilterSnapshot = nil
+
         isLoading = true
         error = nil
 
@@ -807,6 +830,22 @@ struct UnifiedPublicationListWrapper: View {
             #if os(macOS)
             NSWorkspace.shared.open(pdfURL)
             #endif
+        }
+    }
+
+    /// Capture current unread publication IDs for Apple Mail-style snapshot.
+    /// Items in the snapshot stay visible even after being marked as read.
+    private func captureUnreadSnapshot() -> Set<UUID> {
+        switch source {
+        case .library(let library):
+            let unread = (library.publications ?? [])
+                .filter { !$0.isDeleted && $0.managedObjectContext != nil && !$0.isRead }
+            return Set(unread.map { $0.id })
+        case .smartSearch(let smartSearch):
+            guard let collection = smartSearch.resultCollection else { return [] }
+            let unread = (collection.publications ?? [])
+                .filter { !$0.isDeleted && $0.managedObjectContext != nil && !$0.isRead }
+            return Set(unread.map { $0.id })
         }
     }
 }

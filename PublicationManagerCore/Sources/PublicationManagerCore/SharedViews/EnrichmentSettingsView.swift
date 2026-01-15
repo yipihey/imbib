@@ -226,12 +226,8 @@ public struct SourcePriorityRow: View {
 
     private var sourceDescription: String {
         switch source {
-        case .semanticScholar:
-            return "Citations, references, author data"
-        case .openAlex:
-            return "Open access, concepts, venues"
         case .ads:
-            return "Astronomy publications"
+            return "Astronomy publications, citations, references"
         }
     }
 }

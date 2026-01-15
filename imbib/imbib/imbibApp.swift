@@ -126,7 +126,6 @@ struct imbibApp: App {
 
             // Register browser URL providers for interactive PDF downloads
             await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
-            await BrowserURLProviderRegistry.shared.register(INSPIRESource.self, priority: 9)
             await BrowserURLProviderRegistry.shared.register(SciXSource.self, priority: 11)
             appLogger.info("BrowserURLProviders registered")
 
@@ -583,6 +582,18 @@ struct AppCommands: Commands {
 
         // Go menu (new)
         CommandMenu("Go") {
+            Button("Back") {
+                NotificationCenter.default.post(name: .navigateBack, object: nil)
+            }
+            .keyboardShortcut("[", modifiers: .command)
+
+            Button("Forward") {
+                NotificationCenter.default.post(name: .navigateForward, object: nil)
+            }
+            .keyboardShortcut("]", modifiers: .command)
+
+            Divider()
+
             Button("Next Paper") {
                 NotificationCenter.default.post(name: .navigateNextPaper, object: nil)
             }

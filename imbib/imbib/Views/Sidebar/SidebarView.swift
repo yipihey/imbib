@@ -31,9 +31,6 @@ struct SidebarView: View {
     @ObservedObject private var scixRepository = SciXLibraryRepository.shared
 
     // MARK: - State
-    // Note: Using item-based sheets to avoid race conditions with separate bool + optional state
-    @State private var newSmartSearchLibrary: CDLibrary?  // Non-nil triggers sheet for this library
-    @State private var editingSmartSearch: CDSmartSearch?
     @State private var newSmartCollectionLibrary: CDLibrary?  // Non-nil triggers sheet for this library
     @State private var editingCollection: CDCollection?
     @State private var showingNewLibrary = false
@@ -44,7 +41,6 @@ struct SidebarView: View {
     @State private var dropTargetedLibraryHeader: UUID?
     @State private var refreshTrigger = UUID()  // Triggers re-render when read status changes
     @State private var renamingCollection: CDCollection?  // Collection being renamed inline
-    @State private var showingNewInboxFeed = false
     @State private var hasSciXAPIKey = false  // Whether SciX API key is configured
     @State private var explorationRefreshTrigger = UUID()  // Refresh exploration section
     @State private var explorationMultiSelection: Set<UUID> = []  // Multi-selection for bulk delete (Option+click)
@@ -72,7 +68,7 @@ struct SidebarView: View {
                 .onMove(perform: moveSections)
             }
             .listStyle(.sidebar)
-            .scrollContentBackground(theme.sidebarTint != nil ? .hidden : .automatic)
+            .scrollContentBackground(theme.detailBackground != nil || theme.sidebarTint != nil ? .hidden : .automatic)
             .background {
                 if let tint = theme.sidebarTint {
                     tint.opacity(theme.sidebarTintOpacity)
@@ -87,28 +83,8 @@ struct SidebarView: View {
         #if os(macOS)
         .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 320)
         #endif
-        .sheet(item: $newSmartSearchLibrary) { library in
-            SmartSearchEditorView(smartSearch: nil, library: library) {
-                // Reload all smart searches to update sidebar
-                smartSearchRepository.loadSmartSearches(for: nil)
-            }
-        }
-        .sheet(item: $editingSmartSearch) { smartSearch in
-            SmartSearchEditorView(smartSearch: smartSearch, library: smartSearch.library) {
-                // Reload all smart searches to update sidebar
-                smartSearchRepository.loadSmartSearches(for: nil)
-            }
-        }
-        .sheet(isPresented: $showingNewInboxFeed) {
-            SmartSearchEditorView(
-                smartSearch: nil,
-                library: libraryManager.libraries.first(where: { $0.isInbox }),
-                defaultFeedsToInbox: true
-            ) {
-                // Reload all smart searches to update sidebar
-                smartSearchRepository.loadSmartSearches(for: nil)
-            }
-        }
+        // Smart search creation/editing now uses Search section forms
+        // See ADR for unified search experience
         .sheet(isPresented: $showingNewLibrary) {
             NewLibrarySheet()
         }
@@ -262,15 +238,16 @@ struct SidebarView: View {
     private func sectionHeaderExtras(for sectionType: SidebarSectionType) -> some View {
         switch sectionType {
         case .inbox:
-            // Add feed button
+            // Add feed button - navigates to Search section
             Button {
-                showingNewInboxFeed = true
+                // Navigate to Search section for creating new feed
+                NotificationCenter.default.post(name: .navigateToSearchSection, object: nil)
             } label: {
                 Image(systemName: "plus.circle")
                     .font(.caption)
             }
             .buttonStyle(.plain)
-            .help("Add Inbox Feed")
+            .help("Create search from Search section")
         case .libraries:
             // Add library button
             Button {
@@ -430,15 +407,78 @@ struct SidebarView: View {
         }
     }
 
+    /// Smart searches in the exploration library (searches executed from Search section)
+    private var explorationSmartSearches: [CDSmartSearch] {
+        guard let library = libraryManager.explorationLibrary,
+              let searches = library.smartSearches else { return [] }
+        return Array(searches).sorted { ($0.dateCreated) > ($1.dateCreated) }
+    }
+
     /// Exploration section content (without Section wrapper)
     @ViewBuilder
     private var explorationSectionContent: some View {
+        // Search results from Search section (smart searches in exploration library)
+        ForEach(explorationSmartSearches) { smartSearch in
+            explorationSearchRow(smartSearch)
+        }
+
+        // Exploration collections (Refs, Cites, Similar, Co-Reads)
         if let library = libraryManager.explorationLibrary,
            let collections = library.collections,
            !collections.isEmpty {
+            // Add separator if both searches and collections exist
+            if !explorationSmartSearches.isEmpty {
+                Divider()
+                    .padding(.vertical, 4)
+            }
+
             let flatCollections = flattenedExplorationCollections(from: collections)
             ForEach(flatCollections, id: \.id) { collection in
                 explorationCollectionRow(collection, allCollections: flatCollections)
+            }
+        }
+    }
+
+    /// Row for a search smart search in the exploration section
+    @ViewBuilder
+    private func explorationSearchRow(_ smartSearch: CDSmartSearch) -> some View {
+        let isSelected = selection == .smartSearch(smartSearch)
+        let count = smartSearch.resultCollection?.publications?.count ?? 0
+
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.purple)
+                .frame(width: 16)
+
+            Text(smartSearch.name)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            Spacer()
+
+            if count > 0 {
+                Text("\(count)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.leading, 4)
+        .tag(SidebarSection.smartSearch(smartSearch))
+        .listRowBackground(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
+        .contextMenu {
+            Button("Edit Search...") {
+                // Navigate to Search section with this smart search's query
+                NotificationCenter.default.post(name: .editSmartSearch, object: smartSearch.id)
+            }
+
+            Divider()
+
+            Button("Delete", role: .destructive) {
+                SmartSearchRepository.shared.delete(smartSearch)
+                if selection == .smartSearch(smartSearch) {
+                    selection = nil
+                }
+                explorationRefreshTrigger = UUID()
             }
         }
     }
@@ -464,6 +504,50 @@ struct SidebarView: View {
         explorationRefreshTrigger = UUID()
     }
 
+    /// Determine the SF Symbol icon for an exploration collection based on its name prefix.
+    ///
+    /// - "Refs:" → arrow.down.doc (papers this paper cites)
+    /// - "Cites:" → arrow.up.doc (papers citing this paper)
+    /// - "Similar:" → doc.on.doc (related papers by content)
+    /// - "Co-Reads:" → person.2.fill (papers frequently read together)
+    private func explorationIcon(for collection: CDCollection) -> String {
+        if collection.name.hasPrefix("Refs:") { return "arrow.down.doc" }
+        if collection.name.hasPrefix("Cites:") { return "arrow.up.doc" }
+        if collection.name.hasPrefix("Similar:") { return "doc.on.doc" }
+        if collection.name.hasPrefix("Co-Reads:") { return "person.2.fill" }
+        return "doc.text.magnifyingglass"
+    }
+
+    /// Check if this collection is the last child of its parent.
+    private func isLastChild(_ collection: CDCollection, in allCollections: [CDCollection]) -> Bool {
+        guard let parentID = collection.parentCollection?.id else {
+            // Root level - check if it's the last root
+            let rootCollections = allCollections.filter { $0.parentCollection == nil }
+            return rootCollections.last?.id == collection.id
+        }
+
+        // Find siblings (children of the same parent)
+        let siblings = allCollections.filter { $0.parentCollection?.id == parentID }
+        return siblings.last?.id == collection.id
+    }
+
+    /// Check if an ancestor at the given depth level has siblings after it.
+    /// Used to determine whether to draw a vertical tree line at that level.
+    private func hasAncestorSiblingBelow(_ collection: CDCollection, at level: Int, in allCollections: [CDCollection]) -> Bool {
+        // Walk up the tree to the ancestor at the specified level
+        var current: CDCollection? = collection
+        var currentLevel = Int(collection.depth)
+
+        while currentLevel > level, let c = current {
+            current = c.parentCollection
+            currentLevel -= 1
+        }
+
+        // Check if this ancestor has siblings below it
+        guard let ancestor = current else { return false }
+        return !isLastChild(ancestor, in: allCollections)
+    }
+
     /// Flatten collection hierarchy into a list with proper ordering
     private func flattenedExplorationCollections(from collections: Set<CDCollection>) -> [CDCollection] {
         var result: [CDCollection] = []
@@ -483,24 +567,48 @@ struct SidebarView: View {
         return result
     }
 
-    /// Row for an exploration collection (with indentation based on depth)
+    /// Row for an exploration collection (with tree lines and type-specific icons)
     /// Uses Finder-style selection: Option+click to toggle, Shift+click for range
     @ViewBuilder
     private func explorationCollectionRow(_ collection: CDCollection, allCollections: [CDCollection]) -> some View {
         let isMultiSelected = explorationMultiSelection.contains(collection.id)
+        let depth = Int(collection.depth)
+        let isLast = isLastChild(collection, in: allCollections)
 
-        HStack {
-            // Indent based on depth
-            if collection.depth > 0 {
-                Spacer()
-                    .frame(width: CGFloat(collection.depth) * 12)
+        HStack(spacing: 0) {
+            // Tree lines for each level
+            if depth > 0 {
+                ForEach(0..<depth, id: \.self) { level in
+                    if level == depth - 1 {
+                        // Final level: draw └ or ├
+                        Text(isLast ? "└" : "├")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.quaternary)
+                            .frame(width: 12)
+                    } else {
+                        // Parent levels: draw │ if siblings below, else space
+                        if hasAncestorSiblingBelow(collection, at: level, in: allCollections) {
+                            Text("│")
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundStyle(.quaternary)
+                                .frame(width: 12)
+                        } else {
+                            Spacer().frame(width: 12)
+                        }
+                    }
+                }
             }
 
-            Label {
-                Text(collection.name)
-            } icon: {
-                Image(systemName: "doc.text.magnifyingglass")
-            }
+            // Type-specific icon
+            Image(systemName: explorationIcon(for: collection))
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 16)
+                .padding(.trailing, 4)
+
+            // Collection name
+            Text(collection.name)
+                .lineLimit(1)
 
             Spacer()
 
@@ -632,7 +740,8 @@ struct SidebarView: View {
                         .tag(SidebarSection.smartSearch(smartSearch))
                         .contextMenu {
                             Button("Edit") {
-                                editingSmartSearch = smartSearch
+                                // Navigate to Search section with this smart search's query
+                                NotificationCenter.default.post(name: .editSmartSearch, object: smartSearch.id)
                             }
                             Button("Delete", role: .destructive) {
                                 deleteSmartSearch(smartSearch)
@@ -666,7 +775,8 @@ struct SidebarView: View {
             // Add buttons for smart search and collection
             Menu {
                 Button {
-                    newSmartSearchLibrary = library
+                    // Navigate to Search section for creating new smart search
+                    NotificationCenter.default.post(name: .navigateToSearchSection, object: library.id)
                 } label: {
                     Label("New Smart Search", systemImage: "magnifyingglass.circle")
                 }
@@ -1032,7 +1142,8 @@ struct SidebarView: View {
                     }
                 }
                 Button("Edit") {
-                    editingSmartSearch = feed
+                    // Navigate to Search section with this feed's query
+                    NotificationCenter.default.post(name: .editSmartSearch, object: feed.id)
                 }
                 Divider()
                 Button("Remove from Inbox", role: .destructive) {

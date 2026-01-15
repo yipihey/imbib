@@ -56,6 +56,9 @@ public struct ThemeProvider: ViewModifier {
         content
             .environment(\.themeColors, colors)
             .tint(colors.accent)
+            #if os(macOS)
+            .background(WindowBackgroundSetter(color: colors.detailBackground))
+            #endif
             .task {
                 settings = await ThemeSettingsStore.shared.settings
             }
@@ -66,6 +69,49 @@ public struct ThemeProvider: ViewModifier {
             }
     }
 }
+
+// MARK: - macOS Window Background
+
+#if os(macOS)
+import AppKit
+
+/// NSViewRepresentable that sets the window background color and titlebar appearance
+struct WindowBackgroundSetter: NSViewRepresentable {
+    let color: Color?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        view.wantsLayer = true
+        DispatchQueue.main.async {
+            updateWindowAppearance(for: view)
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            updateWindowAppearance(for: nsView)
+        }
+    }
+
+    private func updateWindowAppearance(for view: NSView) {
+        guard let window = view.window else { return }
+
+        if let color = color {
+            // Convert SwiftUI Color to NSColor
+            let nsColor = NSColor(color)
+            window.backgroundColor = nsColor
+            window.titlebarAppearsTransparent = true
+            window.isOpaque = false
+        } else {
+            // Reset to system default
+            window.backgroundColor = nil
+            window.titlebarAppearsTransparent = false
+            window.isOpaque = true
+        }
+    }
+}
+#endif
 
 // MARK: - View Extension
 

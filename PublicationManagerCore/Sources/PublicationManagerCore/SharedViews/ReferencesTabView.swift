@@ -541,10 +541,10 @@ public struct ReferenceRow: View {
         referenceCount: 3,
         references: sampleReferences,
         citations: sampleCitations,
-        source: .semanticScholar
+        source: .ads
     )
 
-    return ReferencesTabView(
+    ReferencesTabView(
         enrichmentData: enrichment,
         isLoading: .constant(false),
         onRefresh: { try? await Task.sleep(for: .seconds(1)) },

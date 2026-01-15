@@ -171,11 +171,14 @@ public actor SafariImportHandler {
             return
         }
 
-        let source = CrossrefSource()
-        let results = try await source.search(query: doi, maxResults: 1)
+        // Use ADS to resolve DOIs - it can search by DOI
+        let source = ADSSource()
+        let results = try await source.search(query: "doi:\(doi)", maxResults: 1)
 
         guard let result = results.first else {
-            throw SafariImportError.notFound("DOI: \(doi)")
+            // DOI not found in ADS, fall back to embedded metadata
+            try await importFromEmbedded(item)
+            return
         }
 
         let entry = try await source.fetchBibTeX(for: result)
@@ -183,7 +186,7 @@ public actor SafariImportHandler {
     }
 
     private func importFromPubMed(_ item: [String: Any]) async throws {
-        // If we have a DOI, prefer CrossRef for better BibTeX
+        // If we have a DOI, try ADS lookup
         if let doi = item["doi"] as? String, !doi.isEmpty {
             try await importFromDOI(item)
             return

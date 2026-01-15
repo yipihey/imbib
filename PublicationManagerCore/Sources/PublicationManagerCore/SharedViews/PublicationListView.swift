@@ -781,8 +781,8 @@ public struct PublicationListView: View {
             .onAppear {
                 scrollProxy = proxy
             }
-            // Apply list background tint from theme
-            .scrollContentBackground(theme.listBackgroundTint != nil ? .hidden : .automatic)
+            // Apply transparent background when theme has custom background color
+            .scrollContentBackground(theme.detailBackground != nil || theme.listBackgroundTint != nil ? .hidden : .automatic)
             .background {
                 if let tint = theme.listBackgroundTint {
                     tint.opacity(theme.listBackgroundTintOpacity)

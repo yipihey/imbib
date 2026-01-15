@@ -14,6 +14,7 @@ public enum SearchFormType: String, CaseIterable, Codable, Identifiable, Equatab
     case adsModern = "ads-modern"
     case adsClassic = "ads-classic"
     case adsPaper = "ads-paper"
+    case arxivAdvanced = "arxiv-advanced"
 
     public var id: String { rawValue }
 
@@ -22,6 +23,7 @@ public enum SearchFormType: String, CaseIterable, Codable, Identifiable, Equatab
         case .adsModern: return "ADS Modern"
         case .adsClassic: return "ADS Classic"
         case .adsPaper: return "ADS Paper"
+        case .arxivAdvanced: return "arXiv Advanced"
         }
     }
 
@@ -30,6 +32,7 @@ public enum SearchFormType: String, CaseIterable, Codable, Identifiable, Equatab
         case .adsModern: return "magnifyingglass"
         case .adsClassic: return "list.bullet.rectangle"
         case .adsPaper: return "doc.text.magnifyingglass"
+        case .arxivAdvanced: return "text.magnifyingglass"
         }
     }
 
@@ -38,6 +41,7 @@ public enum SearchFormType: String, CaseIterable, Codable, Identifiable, Equatab
         case .adsModern: return "Single search box with field syntax"
         case .adsClassic: return "Multi-field form (authors, title, abstract, year)"
         case .adsPaper: return "Find papers by bibcode, DOI, or arXiv ID"
+        case .arxivAdvanced: return "Multi-field search with category filters"
         }
     }
 }
@@ -60,7 +64,7 @@ public actor SearchFormStore {
 
     // MARK: - Default Values
 
-    public static let defaultOrder: [SearchFormType] = [.adsModern, .adsClassic, .adsPaper]
+    public static let defaultOrder: [SearchFormType] = [.adsModern, .adsClassic, .adsPaper, .arxivAdvanced]
 
     // MARK: - Order Methods
 

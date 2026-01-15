@@ -14,8 +14,6 @@ import Foundation
 
 /// Sources that can provide enrichment data.
 public enum EnrichmentSource: String, Codable, Sendable, CaseIterable, Identifiable {
-    case semanticScholar
-    case openAlex
     case ads
 
     public var id: String { rawValue }
@@ -23,16 +21,12 @@ public enum EnrichmentSource: String, Codable, Sendable, CaseIterable, Identifia
     /// The source plugin ID (lowercase, matching SourceMetadata.id)
     public var sourceID: String {
         switch self {
-        case .semanticScholar: return "semanticscholar"
-        case .openAlex: return "openalex"
         case .ads: return "ads"
         }
     }
 
     public var displayName: String {
         switch self {
-        case .semanticScholar: return "Semantic Scholar"
-        case .openAlex: return "OpenAlex"
         case .ads: return "NASA ADS"
         }
     }
@@ -40,8 +34,6 @@ public enum EnrichmentSource: String, Codable, Sendable, CaseIterable, Identifia
     /// Create from a source plugin ID
     public init?(sourceID: String) {
         switch sourceID.lowercased() {
-        case "semanticscholar": self = .semanticScholar
-        case "openalex": self = .openAlex
         case "ads": self = .ads
         default: return nil
         }
@@ -398,15 +390,15 @@ public struct EnrichmentSettings: Codable, Sendable, Equatable {
     public var refreshIntervalDays: Int
 
     public static let `default` = EnrichmentSettings(
-        preferredSource: .semanticScholar,
-        sourcePriority: [.semanticScholar, .openAlex, .ads],
+        preferredSource: .ads,
+        sourcePriority: [.ads],
         autoSyncEnabled: true,
         refreshIntervalDays: 7
     )
 
     public init(
-        preferredSource: EnrichmentSource = .semanticScholar,
-        sourcePriority: [EnrichmentSource] = [.semanticScholar, .openAlex, .ads],
+        preferredSource: EnrichmentSource = .ads,
+        sourcePriority: [EnrichmentSource] = [.ads],
         autoSyncEnabled: Bool = true,
         refreshIntervalDays: Int = 7
     ) {

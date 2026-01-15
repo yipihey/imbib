@@ -235,16 +235,12 @@ public actor SourceManager {
     public func registerBuiltInSources() async {
         Logger.sources.info("Registering built-in sources")
 
+        // arXiv - no credentials required
         register(ArXivSource())
-        register(CrossrefSource())
-        register(DBLPSource())
-        register(INSPIRESource())
 
-        // Sources requiring API keys - register but won't work without credentials
+        // ADS and SciX - require API key
         register(ADSSource(credentialManager: credentialManager))
         register(SciXSource(credentialManager: credentialManager))
-        register(SemanticScholarSource(credentialManager: credentialManager))
-        register(OpenAlexSource(credentialManager: credentialManager))
 
         Logger.sources.info("Registered \(self.plugins.count) sources")
     }

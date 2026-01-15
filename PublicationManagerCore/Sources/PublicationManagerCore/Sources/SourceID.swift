@@ -37,20 +37,11 @@ public enum SourceID: String, Sendable, Codable, CaseIterable, Hashable {
     /// arXiv preprint repository
     case arxiv
 
-    /// Crossref DOI registration agency
-    case crossref
-
-    /// DBLP computer science bibliography
-    case dblp
-
     /// NASA Astrophysics Data System
     case ads
 
-    /// Semantic Scholar AI-powered research tool
-    case semanticscholar
-
-    /// OpenAlex open catalog of scholarly works
-    case openalex
+    /// NASA Science Explorer (Earth/planetary science)
+    case scix
 
     // MARK: - Display Name
 
@@ -58,11 +49,8 @@ public enum SourceID: String, Sendable, Codable, CaseIterable, Hashable {
     public var displayName: String {
         switch self {
         case .arxiv: return "arXiv"
-        case .crossref: return "Crossref"
-        case .dblp: return "DBLP"
         case .ads: return "NASA ADS"
-        case .semanticscholar: return "Semantic Scholar"
-        case .openalex: return "OpenAlex"
+        case .scix: return "NASA SciX"
         }
     }
 
@@ -78,11 +66,8 @@ public enum SourceID: String, Sendable, Codable, CaseIterable, Hashable {
     public init?(string: String) {
         switch string.lowercased() {
         case "arxiv": self = .arxiv
-        case "crossref": self = .crossref
-        case "dblp": self = .dblp
         case "ads": self = .ads
-        case "semanticscholar": self = .semanticscholar
-        case "openalex": self = .openalex
+        case "scix": self = .scix
         default: return nil
         }
     }
@@ -93,11 +78,8 @@ public enum SourceID: String, Sendable, Codable, CaseIterable, Hashable {
     public var iconName: String {
         switch self {
         case .arxiv: return "doc.text"
-        case .crossref: return "link"
-        case .dblp: return "server.rack"
         case .ads: return "sparkles"
-        case .semanticscholar: return "brain"
-        case .openalex: return "books.vertical"
+        case .scix: return "globe.americas"
         }
     }
 }

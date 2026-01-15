@@ -560,6 +560,7 @@ struct InfoTab: View {
     let publication: CDPublication?
 
     @Environment(LibraryManager.self) private var libraryManager
+    @Environment(\.themeColors) private var theme
 
     // State for attachment deletion
     @State private var fileToDelete: CDLinkedFile?
@@ -668,6 +669,7 @@ struct InfoTab: View {
             .onChange(of: paper.id, initial: true) { _, _ in
                 proxy.scrollTo("top", anchor: .top)
             }
+            .scrollContentBackground(theme.detailBackground != nil ? .hidden : .automatic)
         }
         .onAppear {
             let elapsed = (CFAbsoluteTimeGetCurrent() - bodyStart) * 1000
