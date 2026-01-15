@@ -221,11 +221,13 @@ struct PDFKitViewRepresentable: NSViewRepresentable {
     }
 }
 
-/// macOS PDFKit wrapper with controls
+/// macOS PDFKit wrapper with controls and annotation support
 struct ControlledPDFKitView: NSViewRepresentable {
     let document: PDFDocument
     @Binding var currentPage: Int
     @Binding var scaleFactor: CGFloat
+    @Binding var hasSelection: Bool
+    var pdfViewRef: ((PDFView?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -255,6 +257,14 @@ struct ControlledPDFKitView: NSViewRepresentable {
             object: pdfView
         )
 
+        // Observe selection changes for annotation support
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.selectionChanged(_:)),
+            name: .PDFViewSelectionChanged,
+            object: pdfView
+        )
+
         // Observe search navigation requests
         NotificationCenter.default.addObserver(
             context.coordinator,
@@ -263,7 +273,33 @@ struct ControlledPDFKitView: NSViewRepresentable {
             object: nil
         )
 
+        // Observe annotation action requests
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.handleHighlight(_:)),
+            name: .highlightSelection,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.handleUnderline(_:)),
+            name: .underlineSelection,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.handleStrikethrough(_:)),
+            name: .strikethroughSelection,
+            object: nil
+        )
+
         context.coordinator.pdfView = pdfView
+
+        // Pass reference back to parent
+        DispatchQueue.main.async {
+            pdfViewRef?(pdfView)
+        }
+
         return pdfView
     }
 
@@ -313,6 +349,15 @@ struct ControlledPDFKitView: NSViewRepresentable {
             }
         }
 
+        @objc func selectionChanged(_ notification: Notification) {
+            guard let pdfView = pdfView else { return }
+            let hasSelection = pdfView.currentSelection != nil
+
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.hasSelection = hasSelection
+            }
+        }
+
         @objc func navigateToSelection(_ notification: Notification) {
             guard let pdfView = pdfView,
                   let selection = notification.userInfo?["selection"] as? PDFSelection else { return }
@@ -320,6 +365,44 @@ struct ControlledPDFKitView: NSViewRepresentable {
             DispatchQueue.main.async {
                 pdfView.setCurrentSelection(selection, animate: true)
                 pdfView.scrollSelectionToVisible(nil)
+            }
+        }
+
+        // MARK: - Annotation Handlers
+
+        @objc func handleHighlight(_ notification: Notification) {
+            guard let pdfView = pdfView else { return }
+
+            // Get color from notification or use default
+            let color: HighlightColor
+            if let colorName = notification.userInfo?["color"] as? String,
+               let highlightColor = HighlightColor(rawValue: colorName) {
+                color = highlightColor
+            } else {
+                color = .yellow
+            }
+
+            DispatchQueue.main.async {
+                _ = AnnotationService.shared.addHighlight(to: pdfView, color: color)
+                NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
+            }
+        }
+
+        @objc func handleUnderline(_ notification: Notification) {
+            guard let pdfView = pdfView else { return }
+
+            DispatchQueue.main.async {
+                _ = AnnotationService.shared.addUnderline(to: pdfView)
+                NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
+            }
+        }
+
+        @objc func handleStrikethrough(_ notification: Notification) {
+            guard let pdfView = pdfView else { return }
+
+            DispatchQueue.main.async {
+                _ = AnnotationService.shared.addStrikethrough(to: pdfView)
+                NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
             }
         }
     }
@@ -348,11 +431,13 @@ struct PDFKitViewRepresentable: UIViewRepresentable {
     }
 }
 
-/// iOS PDFKit wrapper with controls
+/// iOS PDFKit wrapper with controls and annotation support
 struct ControlledPDFKitView: UIViewRepresentable {
     let document: PDFDocument
     @Binding var currentPage: Int
     @Binding var scaleFactor: CGFloat
+    @Binding var hasSelection: Bool
+    var pdfViewRef: ((PDFView?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -382,6 +467,14 @@ struct ControlledPDFKitView: UIViewRepresentable {
             object: pdfView
         )
 
+        // Observe selection changes for annotation support
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.selectionChanged(_:)),
+            name: .PDFViewSelectionChanged,
+            object: pdfView
+        )
+
         // Observe search navigation requests
         NotificationCenter.default.addObserver(
             context.coordinator,
@@ -390,7 +483,33 @@ struct ControlledPDFKitView: UIViewRepresentable {
             object: nil
         )
 
+        // Observe annotation action requests
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.handleHighlight(_:)),
+            name: .highlightSelection,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.handleUnderline(_:)),
+            name: .underlineSelection,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.handleStrikethrough(_:)),
+            name: .strikethroughSelection,
+            object: nil
+        )
+
         context.coordinator.pdfView = pdfView
+
+        // Pass reference back to parent
+        DispatchQueue.main.async {
+            pdfViewRef?(pdfView)
+        }
+
         return pdfView
     }
 
@@ -440,6 +559,15 @@ struct ControlledPDFKitView: UIViewRepresentable {
             }
         }
 
+        @objc func selectionChanged(_ notification: Notification) {
+            guard let pdfView = pdfView else { return }
+            let hasSelection = pdfView.currentSelection != nil
+
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.hasSelection = hasSelection
+            }
+        }
+
         @objc func navigateToSelection(_ notification: Notification) {
             guard let pdfView = pdfView,
                   let selection = notification.userInfo?["selection"] as? PDFSelection else { return }
@@ -447,6 +575,43 @@ struct ControlledPDFKitView: UIViewRepresentable {
             DispatchQueue.main.async {
                 pdfView.setCurrentSelection(selection, animate: true)
                 pdfView.scrollSelectionToVisible(nil)
+            }
+        }
+
+        // MARK: - Annotation Handlers
+
+        @objc func handleHighlight(_ notification: Notification) {
+            guard let pdfView = pdfView else { return }
+
+            let color: HighlightColor
+            if let colorName = notification.userInfo?["color"] as? String,
+               let highlightColor = HighlightColor(rawValue: colorName) {
+                color = highlightColor
+            } else {
+                color = .yellow
+            }
+
+            DispatchQueue.main.async {
+                _ = AnnotationService.shared.addHighlight(to: pdfView, color: color)
+                NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
+            }
+        }
+
+        @objc func handleUnderline(_ notification: Notification) {
+            guard let pdfView = pdfView else { return }
+
+            DispatchQueue.main.async {
+                _ = AnnotationService.shared.addUnderline(to: pdfView)
+                NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
+            }
+        }
+
+        @objc func handleStrikethrough(_ notification: Notification) {
+            guard let pdfView = pdfView else { return }
+
+            DispatchQueue.main.async {
+                _ = AnnotationService.shared.addStrikethrough(to: pdfView)
+                NotificationCenter.default.post(name: .annotationsDidChange, object: nil)
             }
         }
     }
@@ -498,6 +663,14 @@ public struct PDFViewerWithControls: View {
     @State private var currentSearchIndex: Int = 0
     @State private var isSearching: Bool = false
 
+    // Annotation state
+    @State private var hasSelection: Bool = false
+    @State private var hasUnsavedAnnotations: Bool = false
+    @State private var highlightColor: HighlightColor = .yellow
+    @State private var showAnnotationToolbar: Bool = true
+    @State private var selectedAnnotationTool: AnnotationTool? = nil
+    @State private var pdfViewReference: PDFView? = nil
+
     // MARK: - Initialization
 
     public init(url: URL, publicationID: UUID? = nil, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
@@ -539,21 +712,39 @@ public struct PDFViewerWithControls: View {
 
     public var body: some View {
         VStack(spacing: 0) {
-            // PDF Content
-            Group {
-                if isLoading {
-                    ProgressView("Loading PDF...")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let error {
-                    errorView(error)
-                } else if let document = pdfDocument {
-                    ControlledPDFKitView(
-                        document: document,
-                        currentPage: $currentPage,
-                        scaleFactor: scaleFactorBinding
+            ZStack(alignment: .top) {
+                // PDF Content
+                Group {
+                    if isLoading {
+                        ProgressView("Loading PDF...")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if let error {
+                        errorView(error)
+                    } else if let document = pdfDocument {
+                        ControlledPDFKitView(
+                            document: document,
+                            currentPage: $currentPage,
+                            scaleFactor: scaleFactorBinding,
+                            hasSelection: $hasSelection,
+                            pdfViewRef: { pdfViewReference = $0 }
+                        )
+                    } else {
+                        errorView(.documentNotLoaded)
+                    }
+                }
+
+                // Floating annotation toolbar
+                if showAnnotationToolbar && pdfDocument != nil {
+                    AnnotationToolbar(
+                        selectedTool: $selectedAnnotationTool,
+                        highlightColor: $highlightColor,
+                        hasSelection: hasSelection,
+                        onHighlight: highlightSelection,
+                        onUnderline: underlineSelection,
+                        onStrikethrough: strikethroughSelection,
+                        onAddNote: addNoteAtSelection
                     )
-                } else {
-                    errorView(.documentNotLoaded)
+                    .padding(.top, 8)
                 }
             }
 
@@ -621,6 +812,52 @@ public struct PDFViewerWithControls: View {
     private func fitToWindow() {
         // Reset to auto-scale (scaleFactor 1.0 with autoScales = true gives fit behavior)
         scaleFactor = 1.0
+    }
+
+    // MARK: - Annotation Actions
+
+    private func highlightSelection() {
+        guard let pdfView = pdfViewReference else { return }
+        _ = AnnotationService.shared.addHighlight(to: pdfView, color: highlightColor)
+        hasUnsavedAnnotations = true
+    }
+
+    private func underlineSelection() {
+        guard let pdfView = pdfViewReference else { return }
+        _ = AnnotationService.shared.addUnderline(to: pdfView)
+        hasUnsavedAnnotations = true
+    }
+
+    private func strikethroughSelection() {
+        guard let pdfView = pdfViewReference else { return }
+        _ = AnnotationService.shared.addStrikethrough(to: pdfView)
+        hasUnsavedAnnotations = true
+    }
+
+    private func addNoteAtSelection() {
+        guard let pdfView = pdfViewReference else { return }
+        // For now, add a note with placeholder text
+        // In a full implementation, show a text input dialog
+        _ = AnnotationService.shared.addTextNoteAtSelection(in: pdfView, text: "Note")
+        hasUnsavedAnnotations = true
+    }
+
+    private func saveAnnotations() {
+        guard let document = pdfDocument else { return }
+
+        // Get the URL from source
+        guard case .url(let url) = source else {
+            Logger.files.warningCapture("Cannot save annotations: document not loaded from URL", category: "annotation")
+            return
+        }
+
+        do {
+            try AnnotationService.shared.save(document, to: url)
+            hasUnsavedAnnotations = false
+            Logger.files.infoCapture("Saved annotations to \(url.lastPathComponent)", category: "annotation")
+        } catch {
+            Logger.files.errorCapture("Failed to save annotations: \(error)", category: "annotation")
+        }
     }
 
     // MARK: - Reading Position
@@ -844,6 +1081,30 @@ public struct PDFViewerWithControls: View {
                 }
             }
 
+            Divider()
+                .frame(height: 20)
+
+            // Annotation controls
+            HStack(spacing: 8) {
+                // Toggle annotation toolbar
+                Button {
+                    showAnnotationToolbar.toggle()
+                } label: {
+                    Image(systemName: showAnnotationToolbar ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
+                }
+                .help(showAnnotationToolbar ? "Hide annotation toolbar" : "Show annotation toolbar")
+
+                // Save button (shown when unsaved changes)
+                if hasUnsavedAnnotations {
+                    Button {
+                        saveAnnotations()
+                    } label: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                    .help("Save annotations")
+                }
+            }
+
             Spacer()
 
             // Open in External App
@@ -978,7 +1239,57 @@ public struct PDFViewerWithControls: View {
     }
 
     private func openInExternalApp(url: URL) {
-        _ = FileManager_Opener.shared.openFile(url)
+        Logger.files.infoCapture("openInExternalApp called with URL: \(url.path)", category: "pdf")
+
+        // Determine the correct PDF URL (fix .tmp extension if needed)
+        var pdfURL = url
+        let needsExtensionFix = url.pathExtension.lowercased() == "tmp"
+        if needsExtensionFix {
+            // Replace .tmp with .pdf
+            pdfURL = url.deletingPathExtension().appendingPathExtension("pdf")
+            Logger.files.infoCapture("Correcting extension from .tmp to .pdf: \(pdfURL.path)", category: "pdf")
+        } else if url.pathExtension.lowercased() != "pdf" {
+            // Ensure it has .pdf extension
+            pdfURL = url.appendingPathExtension("pdf")
+        }
+
+        // Save the PDF with any annotations to the correct path
+        if let document = pdfDocument {
+            do {
+                try AnnotationService.shared.save(document, to: pdfURL)
+                hasUnsavedAnnotations = false
+                Logger.files.infoCapture("Saved PDF to: \(pdfURL.path)", category: "pdf")
+
+                // If we changed the extension, also remove the old .tmp file and update Core Data
+                if pdfURL != url && FileManager.default.fileExists(atPath: url.path) {
+                    try? FileManager.default.removeItem(at: url)
+                    Logger.files.infoCapture("Removed old .tmp file", category: "pdf")
+                }
+
+                // Update the CDLinkedFile's relativePath if we fixed the extension
+                if needsExtensionFix, let linkedFile = linkedFile {
+                    let oldPath = linkedFile.relativePath
+                    let newPath = oldPath.replacingOccurrences(of: ".tmp", with: ".pdf")
+                    if oldPath != newPath {
+                        linkedFile.relativePath = newPath
+                        linkedFile.filename = linkedFile.filename.replacingOccurrences(of: ".tmp", with: ".pdf")
+                        linkedFile.fileType = "pdf"
+                        PersistenceController.shared.save()
+                        Logger.files.infoCapture("Updated CDLinkedFile relativePath from .tmp to .pdf", category: "pdf")
+                    }
+                }
+            } catch {
+                Logger.files.errorCapture("Failed to save PDF: \(error)", category: "pdf")
+            }
+        }
+
+        Logger.files.infoCapture("Opening PDF with system default: \(pdfURL.path)", category: "pdf")
+
+        #if os(macOS)
+        NSWorkspace.shared.open(pdfURL)
+        #else
+        _ = FileManager_Opener.shared.openFile(pdfURL)
+        #endif
     }
 
     // MARK: - Error View

@@ -294,7 +294,23 @@ public final class AttachmentManager: ObservableObject {
         in library: CDLibrary? = nil,
         preserveFilename: Bool = false
     ) throws -> CDLinkedFile {
-        // Delegate to importAttachment with explicit preserveFilename
+        // Check if source file has a non-PDF extension (e.g., .tmp from URLSession downloads)
+        // In that case, read the data and use the data-based import which correctly forces .pdf extension
+        let sourceExtension = sourceURL.pathExtension.lowercased()
+        if sourceExtension != "pdf" && !sourceExtension.isEmpty {
+            Logger.files.infoCapture("Source file has non-PDF extension '\(sourceExtension)', reading data to force .pdf extension", category: "files")
+
+            // Start accessing security-scoped resource if needed
+            let accessing = sourceURL.startAccessingSecurityScopedResource()
+            defer {
+                if accessing { sourceURL.stopAccessingSecurityScopedResource() }
+            }
+
+            let data = try Data(contentsOf: sourceURL)
+            return try importPDF(data: data, for: publication, in: library)
+        }
+
+        // Normal PDF file - delegate to importAttachment
         return try importAttachment(
             from: sourceURL,
             for: publication,
