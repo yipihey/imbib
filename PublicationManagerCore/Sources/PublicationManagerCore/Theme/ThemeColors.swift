@@ -1,0 +1,158 @@
+//
+//  ThemeColors.swift
+//  PublicationManagerCore
+//
+//  Created by Claude on 2026-01-14.
+//
+
+import SwiftUI
+
+// MARK: - Theme Colors
+
+/// Resolved theme colors for the current color scheme.
+///
+/// This struct provides computed colors based on the current theme settings
+/// and whether the system is in light or dark mode.
+public struct ThemeColors: Sendable {
+
+    // MARK: - Properties
+
+    /// Primary accent color (buttons, links, selected items)
+    public let accent: Color
+
+    /// Unread indicator dot color
+    public let unreadDot: Color
+
+    /// Sidebar tint color (if applicable)
+    public let sidebarTint: Color?
+
+    /// Sidebar tint opacity
+    public let sidebarTintOpacity: Double
+
+    /// List background tint color (if applicable)
+    public let listBackgroundTint: Color?
+
+    /// List background tint opacity
+    public let listBackgroundTintOpacity: Double
+
+    /// Icon tint color for sidebar icons
+    public let iconTint: Color
+
+    /// Whether to use serif fonts for titles
+    public let useSerifTitles: Bool
+
+    /// The sidebar style
+    public let sidebarStyle: SidebarStyle
+
+    // MARK: - Initialization
+
+    /// Initialize from ThemeSettings respecting current color scheme
+    public init(from settings: ThemeSettings, colorScheme: ColorScheme) {
+        let isDark = colorScheme == .dark
+        let overrides = settings.darkModeOverrides
+
+        // Accent color
+        if isDark, let darkAccent = overrides?.accentColorHex {
+            self.accent = Color(hex: darkAccent) ?? Color.accentColor
+        } else {
+            self.accent = Color(hex: settings.accentColorHex) ?? Color.accentColor
+        }
+
+        // Unread dot color
+        if let dotHex = settings.unreadDotColorHex {
+            self.unreadDot = Color(hex: dotHex) ?? self.accent
+        } else {
+            self.unreadDot = self.accent
+        }
+
+        // Sidebar tint
+        self.sidebarStyle = settings.sidebarStyle
+
+        if settings.sidebarStyle != .system {
+            if isDark, let darkTint = overrides?.sidebarTintHex {
+                self.sidebarTint = Color(hex: darkTint)
+            } else if let tintHex = settings.sidebarTintHex {
+                self.sidebarTint = Color(hex: tintHex)
+            } else {
+                self.sidebarTint = nil
+            }
+            self.sidebarTintOpacity = settings.sidebarStyle == .vibrant ? 0.15 : 0.08
+        } else {
+            self.sidebarTint = nil
+            self.sidebarTintOpacity = 0
+        }
+
+        // List background tint
+        if let listHex = isDark ? overrides?.listBackgroundTintHex ?? settings.listBackgroundTintHex : settings.listBackgroundTintHex {
+            self.listBackgroundTint = Color(hex: listHex)
+            self.listBackgroundTintOpacity = settings.listBackgroundTintOpacity
+        } else {
+            self.listBackgroundTint = nil
+            self.listBackgroundTintOpacity = 0
+        }
+
+        // Icon tint
+        if let iconHex = settings.iconColorHex {
+            self.iconTint = Color(hex: iconHex) ?? self.accent
+        } else {
+            self.iconTint = self.accent
+        }
+
+        // Typography
+        self.useSerifTitles = settings.useSerifTitles
+    }
+
+    // MARK: - Default
+
+    /// Default theme colors (Mail theme)
+    public static let `default` = ThemeColors(from: .mail, colorScheme: .light)
+}
+
+// MARK: - Semantic Colors
+
+public extension ThemeColors {
+
+    /// Selected row background with theme accent
+    var selectedRowBackground: Color {
+        accent.opacity(0.15)
+    }
+
+    /// Hover row background with theme accent
+    var hoverRowBackground: Color {
+        accent.opacity(0.08)
+    }
+
+    /// Badge background using theme accent
+    var badgeBackground: Color {
+        accent.opacity(0.12)
+    }
+
+    /// Badge text color
+    var badgeText: Color {
+        accent
+    }
+}
+
+// MARK: - Font Helpers
+
+public extension ThemeColors {
+
+    /// Title font respecting serif preference
+    func titleFont(size: CGFloat = 17, weight: Font.Weight = .regular) -> Font {
+        if useSerifTitles {
+            return .system(size: size, weight: weight, design: .serif)
+        } else {
+            return .system(size: size, weight: weight)
+        }
+    }
+
+    /// Headline font respecting serif preference
+    var headlineFont: Font {
+        useSerifTitles ? .system(.headline, design: .serif) : .headline
+    }
+
+    /// Subheadline font respecting serif preference
+    var subheadlineFont: Font {
+        useSerifTitles ? .system(.subheadline, design: .serif) : .subheadline
+    }
+}

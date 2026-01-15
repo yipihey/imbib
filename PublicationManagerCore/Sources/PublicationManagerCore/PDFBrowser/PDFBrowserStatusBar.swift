@@ -33,14 +33,80 @@ public struct PDFBrowserStatusBar: View {
 
             Spacer()
 
-            // Right side: Progress or info
-            rightContent
+            // Middle: Progress or info
+            if let progress = viewModel.downloadProgress {
+                downloadProgressView(progress)
+            }
+
+            // Right side: Action buttons (always visible)
+            actionButtons
         }
         .padding(.horizontal)
         .padding(.vertical, 6)
         .background(.bar)
         .animation(.easeInOut(duration: 0.2), value: viewModel.detectedPDFFilename)
         .animation(.easeInOut(duration: 0.2), value: viewModel.isLoading)
+    }
+
+    // MARK: - Action Buttons
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        HStack(spacing: 8) {
+            // Apply Library Proxy button
+            Button {
+                viewModel.retryWithProxy()
+            } label: {
+                Label("Apply Proxy", systemImage: "building.columns")
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(!viewModel.proxyEnabled || viewModel.libraryProxyURL.isEmpty || viewModel.isProxied)
+            .help(proxyButtonHelp)
+
+            // Save Page as PDF button (captures/renders the page as PDF)
+            Button {
+                Task {
+                    await viewModel.attemptManualCapture()
+                }
+            } label: {
+                if viewModel.isCapturing {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Label("Save Page as PDF", systemImage: "doc.viewfinder")
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(viewModel.isCapturing || viewModel.isLoading)
+            .help("Capture and save the current page as PDF")
+
+            // Save PDF button (saves detected/downloaded PDF)
+            Button {
+                Task {
+                    await viewModel.saveDetectedPDF()
+                }
+            } label: {
+                Label("Save PDF", systemImage: "square.and.arrow.down")
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(viewModel.detectedPDFData == nil)
+            .help(viewModel.detectedPDFData != nil ? "Save detected PDF to library" : "No PDF detected")
+        }
+    }
+
+    private var proxyButtonHelp: String {
+        if !viewModel.proxyEnabled {
+            return "Library proxy not enabled in settings"
+        } else if viewModel.libraryProxyURL.isEmpty {
+            return "Library proxy URL not configured"
+        } else if viewModel.isProxied {
+            return "Already using library proxy"
+        } else {
+            return "Reload page through library proxy"
+        }
     }
 
     // MARK: - Status Content
@@ -105,14 +171,6 @@ public struct PDFBrowserStatusBar: View {
                     .lineLimit(1)
             }
 
-            Button("Save to Library") {
-                Task {
-                    await viewModel.saveDetectedPDF()
-                }
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-
             Button {
                 viewModel.clearDetectedPDF()
             } label: {
@@ -142,18 +200,7 @@ public struct PDFBrowserStatusBar: View {
         }
     }
 
-    // MARK: - Right Content
-
-    @ViewBuilder
-    private var rightContent: some View {
-        if let progress = viewModel.downloadProgress {
-            // Download progress
-            downloadProgressView(progress)
-        } else if let url = viewModel.currentURL {
-            // Domain info
-            domainView(url)
-        }
-    }
+    // MARK: - Download Progress
 
     private func downloadProgressView(_ progress: Double) -> some View {
         HStack(spacing: 8) {
@@ -165,12 +212,6 @@ public struct PDFBrowserStatusBar: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 40, alignment: .trailing)
         }
-    }
-
-    private func domainView(_ url: URL) -> some View {
-        Text(url.host ?? "")
-            .font(.caption)
-            .foregroundStyle(.tertiary)
     }
 }
 

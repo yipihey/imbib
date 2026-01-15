@@ -76,8 +76,13 @@ struct imbibApp: App {
         #endif
         appLogger.info("imbib app initializing...")
 
-        // Use shared credential manager singleton for persistence
+        // Run data migrations (backfill indexed fields, year from rawFields, etc.)
         var stepStart = CFAbsoluteTimeGetCurrent()
+        PersistenceController.shared.runMigrations()
+        appLogger.info("⏱ Migrations complete: \(Int((CFAbsoluteTimeGetCurrent() - stepStart) * 1000))ms")
+
+        // Use shared credential manager singleton for persistence
+        stepStart = CFAbsoluteTimeGetCurrent()
         let credentialManager = CredentialManager.shared
         let sourceManager = SourceManager(credentialManager: credentialManager)
         let repository = PublicationRepository()
@@ -149,6 +154,7 @@ struct imbibApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .withTheme()
                 .environment(libraryManager)
                 .environment(libraryViewModel)
                 .environment(searchViewModel)
@@ -508,6 +514,71 @@ struct AppCommands: Commands {
                 NotificationCenter.default.post(name: .deleteSelectedPapers, object: nil)
             }
             .keyboardShortcut(.delete, modifiers: .command)
+        }
+
+        // Annotate menu (PDF annotations)
+        CommandMenu("Annotate") {
+            Button("Highlight Selection") {
+                NotificationCenter.default.post(name: .highlightSelection, object: nil)
+            }
+            .keyboardShortcut("h", modifiers: .control)
+
+            Button("Underline Selection") {
+                NotificationCenter.default.post(name: .underlineSelection, object: nil)
+            }
+            .keyboardShortcut("u", modifiers: .control)
+
+            Button("Strikethrough Selection") {
+                NotificationCenter.default.post(name: .strikethroughSelection, object: nil)
+            }
+            .keyboardShortcut("t", modifiers: .control)
+
+            Divider()
+
+            Button("Add Note at Selection") {
+                NotificationCenter.default.post(name: .addNoteAtSelection, object: nil)
+            }
+            .keyboardShortcut("n", modifiers: .control)
+
+            Divider()
+
+            Menu("Highlight Color") {
+                Button("Yellow") {
+                    NotificationCenter.default.post(
+                        name: .highlightSelection,
+                        object: nil,
+                        userInfo: ["color": "yellow"]
+                    )
+                }
+                Button("Green") {
+                    NotificationCenter.default.post(
+                        name: .highlightSelection,
+                        object: nil,
+                        userInfo: ["color": "green"]
+                    )
+                }
+                Button("Blue") {
+                    NotificationCenter.default.post(
+                        name: .highlightSelection,
+                        object: nil,
+                        userInfo: ["color": "blue"]
+                    )
+                }
+                Button("Pink") {
+                    NotificationCenter.default.post(
+                        name: .highlightSelection,
+                        object: nil,
+                        userInfo: ["color": "pink"]
+                    )
+                }
+                Button("Purple") {
+                    NotificationCenter.default.post(
+                        name: .highlightSelection,
+                        object: nil,
+                        userInfo: ["color": "purple"]
+                    )
+                }
+            }
         }
 
         // Go menu (new)

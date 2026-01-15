@@ -23,6 +23,11 @@ struct SettingsView: View {
                 .tag(SettingsTab.general)
                 .help("App preferences")
 
+            AppearanceSettingsTab()
+                .tabItem { Label("Appearance", systemImage: "paintbrush") }
+                .tag(SettingsTab.appearance)
+                .help("Theme and colors")
+
             ViewingSettingsTab()
                 .tabItem { Label("Viewing", systemImage: "eye") }
                 .tag(SettingsTab.viewing)
@@ -66,6 +71,7 @@ struct SettingsView: View {
 
 enum SettingsTab: String, CaseIterable {
     case general
+    case appearance
     case viewing
     case notes
     case sources

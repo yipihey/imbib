@@ -52,9 +52,13 @@ public struct MailStylePublicationRow: View, Equatable {
     // MARK: - Equatable
 
     public static func == (lhs: MailStylePublicationRow, rhs: MailStylePublicationRow) -> Bool {
-        // Only compare data and settings - closures don't affect visual output
-        lhs.data == rhs.data && lhs.settings == rhs.settings
+        // Only compare data, settings, and rowNumber - closures don't affect visual output
+        lhs.data == rhs.data && lhs.settings == rhs.settings && lhs.rowNumber == rhs.rowNumber
     }
+
+    // MARK: - Environment
+
+    @Environment(\.themeColors) private var theme
 
     // MARK: - Properties
 
@@ -63,6 +67,9 @@ public struct MailStylePublicationRow: View, Equatable {
 
     /// List view settings controlling display options
     public var settings: ListViewSettings = .default
+
+    /// 1-indexed row number for display (independent of sort order)
+    public var rowNumber: Int?
 
     /// Action when toggle read/unread is requested
     public var onToggleRead: (() -> Void)?
@@ -97,11 +104,13 @@ public struct MailStylePublicationRow: View, Equatable {
     public init(
         data: PublicationRowData,
         settings: ListViewSettings = .default,
+        rowNumber: Int? = nil,
         onToggleRead: (() -> Void)? = nil,
         onCategoryTap: ((String) -> Void)? = nil
     ) {
         self.data = data
         self.settings = settings
+        self.rowNumber = rowNumber
         self.onToggleRead = onToggleRead
         self.onCategoryTap = onCategoryTap
     }
@@ -115,10 +124,19 @@ public struct MailStylePublicationRow: View, Equatable {
 
     private var rowContent: some View {
         HStack(alignment: .top, spacing: MailStyleTokens.dotContentSpacing) {
-            // Blue dot for unread (conditional)
+            // Row number (subtle, right-aligned)
+            if let number = rowNumber {
+                Text("\(number)")
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.quaternary)
+                    .frame(width: 28, alignment: .trailing)
+                    .padding(.top, 4)
+            }
+
+            // Themed dot for unread (conditional)
             if settings.showUnreadIndicator {
                 Circle()
-                    .fill(isUnread ? MailStyleTokens.unreadDotColor : .clear)
+                    .fill(isUnread ? MailStyleTokens.unreadDotColor(from: theme) : .clear)
                     .frame(
                         width: MailStyleTokens.unreadDotSize,
                         height: MailStyleTokens.unreadDotSize

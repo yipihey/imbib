@@ -57,6 +57,12 @@ struct IOSSettingsView: View {
                 // Display Settings
                 Section("Display") {
                     NavigationLink {
+                        IOSAppearanceSettingsView()
+                    } label: {
+                        Label("Appearance", systemImage: "paintbrush")
+                    }
+
+                    NavigationLink {
                         ListViewSettingsView()
                     } label: {
                         Label("List View", systemImage: "list.bullet")

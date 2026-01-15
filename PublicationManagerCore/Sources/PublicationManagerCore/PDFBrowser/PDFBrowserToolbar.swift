@@ -129,70 +129,17 @@ public struct PDFBrowserToolbar: View {
 
     @ViewBuilder
     private var actionButtons: some View {
-        HStack(spacing: 8) {
-            // Copy URL button
-            Button {
-                viewModel.copyURLToClipboard()
-            } label: {
-                Image(systemName: "doc.on.doc")
-                    .font(.body)
-            }
-            .help("Copy URL to clipboard")
-            #if os(macOS)
-            .buttonStyle(.borderless)
-            #endif
-
-            // Retry with proxy button - only shown when proxy is configured and not already proxied
-            if viewModel.proxyEnabled && !viewModel.libraryProxyURL.isEmpty && !viewModel.isProxied {
-                Button {
-                    viewModel.retryWithProxy()
-                } label: {
-                    Image(systemName: "building.columns")
-                        .font(.body)
-                }
-                .help("Reload page through library proxy")
-                #if os(macOS)
-                .buttonStyle(.borderless)
-                #endif
-            }
-
-            // Manual capture button - always visible as fallback
-            Button {
-                Task {
-                    await viewModel.attemptManualCapture()
-                }
-            } label: {
-                if viewModel.isCapturing {
-                    ProgressView()
-                        .controlSize(.small)
-                        .frame(width: 16, height: 16)
-                } else {
-                    Image(systemName: "camera.viewfinder")
-                        .font(.body)
-                }
-            }
-            .disabled(viewModel.isCapturing || viewModel.isLoading)
-            .help("Capture current page as PDF")
-            #if os(macOS)
-            .buttonStyle(.borderless)
-            #endif
-
-            // Save PDF button (only enabled when PDF detected)
-            Button {
-                Task {
-                    await viewModel.saveDetectedPDF()
-                }
-            } label: {
-                Image(systemName: "square.and.arrow.down")
-                    .font(.body)
-                    .foregroundStyle(viewModel.detectedPDFData != nil ? .blue : .secondary)
-            }
-            .disabled(viewModel.detectedPDFData == nil)
-            .help(viewModel.detectedPDFData != nil ? "Save detected PDF" : "No PDF detected")
-            #if os(macOS)
-            .buttonStyle(.borderless)
-            #endif
+        // Copy URL button
+        Button {
+            viewModel.copyURLToClipboard()
+        } label: {
+            Image(systemName: "doc.on.doc")
+                .font(.body)
         }
+        .help("Copy URL to clipboard")
+        #if os(macOS)
+        .buttonStyle(.borderless)
+        #endif
     }
 }
 

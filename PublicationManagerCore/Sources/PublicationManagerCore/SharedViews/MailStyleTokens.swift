@@ -15,11 +15,14 @@ import SwiftUI
 /// - Bold author names (like sender names)
 /// - Title as subject line
 /// - Abstract preview as message preview
+///
+/// Many colors can be customized via the theming system. Use the
+/// theme-aware accessors when a ThemeColors is available.
 public enum MailStyleTokens {
 
-    // MARK: - Colors
+    // MARK: - Default Colors
 
-    /// Blue dot color for unread publications
+    /// Default blue dot color for unread publications
     public static let unreadDotColor = Color.blue
 
     /// Secondary text color for dates, abstracts, etc.
@@ -31,6 +34,23 @@ public enum MailStyleTokens {
     #else
     public static let tertiaryTextColor = Color(uiColor: .tertiaryLabel)
     #endif
+
+    // MARK: - Theme-Aware Colors
+
+    /// Get unread dot color from theme
+    public static func unreadDotColor(from theme: ThemeColors) -> Color {
+        theme.unreadDot
+    }
+
+    /// Get accent color from theme
+    public static func accentColor(from theme: ThemeColors) -> Color {
+        theme.accent
+    }
+
+    /// Get icon tint color from theme
+    public static func iconTint(from theme: ThemeColors) -> Color {
+        theme.iconTint
+    }
 
     // MARK: - Spacing
 

@@ -84,6 +84,7 @@ struct imbibApp: App {
     var body: some Scene {
         WindowGroup {
             IOSContentView()
+                .withTheme()
                 .environment(libraryManager)
                 .environment(libraryViewModel)
                 .environment(searchViewModel)
