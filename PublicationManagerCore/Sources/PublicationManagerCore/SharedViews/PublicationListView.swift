@@ -664,18 +664,6 @@ public struct PublicationListView: View {
 
             Spacer()
 
-            // Filter button (unread only) - hidden for Inbox
-            if !disableUnreadFilter {
-                Button {
-                    showUnreadOnly.toggle()
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease")
-                }
-                .foregroundStyle(showUnreadOnly ? .blue : .secondary)
-                .help(showUnreadOnly ? "Show all publications" : "Show unread only")
-                .buttonStyle(.plain)
-            }
-
             // Import button
             if showImportButton, let onImport = onImport {
                 Button {
