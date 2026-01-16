@@ -680,25 +680,37 @@ extension ADSSource: BrowserURLProvider {
     /// Build the best URL to open in browser for interactive PDF fetch.
     ///
     /// Priority order for browser access (targeting published version):
-    /// 1. DOI resolver - redirects to publisher where user can authenticate
-    /// 2. ADS abstract page - shows all available full text sources
+    /// 1. Direct publisher PDF URLs from pdfLinks (e.g., article-pdf URLs)
+    /// 2. DOI resolver - redirects to publisher where user can authenticate
+    /// 3. ADS abstract page - shows all available full text sources
     ///
-    /// Note: We go to the ADS abstract page instead of link_gateway because:
-    /// - link_gateway URLs (PUB_PDF, PUB_HTML) often return 404
-    /// - The abstract page always works and shows all available sources
-    /// - User can choose the appropriate link from "Full Text Sources"
+    /// Note: We prefer direct PDF URLs over DOI resolver because:
+    /// - Direct URLs load the PDF immediately without extra clicks
+    /// - DOI resolver goes to landing pages that require navigation
+    /// - ADS link_gateway URLs are avoided (they often return 404)
     ///
     /// - Parameter publication: The publication to find a PDF URL for
     /// - Returns: A URL to open in the browser, or nil if this source can't help
     public static func browserPDFURL(for publication: CDPublication) -> URL? {
-        // Priority 1: DOI resolver - always redirects to publisher
-        // This is the most reliable way to get to the publisher's article page
+        // Priority 1: Direct publisher PDF URLs (not gateway URLs)
+        // These load the PDF directly without going through landing pages
+        for link in publication.pdfLinks {
+            if link.type == .publisher,
+               isDirectPDFURL(link.url),
+               !isGatewayURL(link.url) {
+                Logger.pdfBrowser.debug("ADS: Using direct publisher PDF: \(link.url.absoluteString)")
+                return link.url
+            }
+        }
+
+        // Priority 2: DOI resolver - redirects to publisher
+        // User will need to navigate from landing page to PDF
         if let doi = publication.doi, !doi.isEmpty {
             Logger.pdfBrowser.debug("ADS: Using DOI resolver for: \(doi)")
             return URL(string: "https://doi.org/\(doi)")
         }
 
-        // Priority 2: ADS abstract page - shows all available full text sources
+        // Priority 3: ADS abstract page - shows all available full text sources
         // This always works and lets user choose from available links
         if let bibcode = publication.bibcode {
             Logger.pdfBrowser.debug("ADS: Using abstract page for bibcode: \(bibcode)")
@@ -706,5 +718,34 @@ extension ADSSource: BrowserURLProvider {
         }
 
         return nil
+    }
+
+    /// Check if URL appears to be a direct PDF link
+    private static func isDirectPDFURL(_ url: URL) -> Bool {
+        let path = url.path.lowercased()
+        let host = url.host?.lowercased() ?? ""
+
+        // Direct PDF file extensions
+        if path.hasSuffix(".pdf") { return true }
+
+        // Known direct PDF hosts
+        if host.contains("arxiv.org") && path.contains("/pdf/") { return true }
+        if host.contains("article-pdf") { return true }  // OUP, etc.
+
+        return false
+    }
+
+    /// Check if URL is a gateway/redirect URL (often unreliable)
+    private static func isGatewayURL(_ url: URL) -> Bool {
+        let urlString = url.absoluteString.lowercased()
+
+        // ADS link_gateway URLs are notoriously unreliable
+        if urlString.contains("link_gateway") { return true }
+
+        // Generic gateway patterns
+        if urlString.contains("/gateway/") { return true }
+        if urlString.contains("/redirect/") { return true }
+
+        return false
     }
 }

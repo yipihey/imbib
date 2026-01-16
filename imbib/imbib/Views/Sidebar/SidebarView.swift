@@ -46,6 +46,8 @@ struct SidebarView: View {
     @State private var explorationMultiSelection: Set<UUID> = []  // Multi-selection for bulk delete (Option+click)
     @State private var lastSelectedExplorationID: UUID?  // For Shift+click range selection
     @State private var expandedExplorationCollections: Set<UUID> = []  // Expanded state for tree disclosure groups
+    @State private var searchMultiSelection: Set<UUID> = []  // Multi-selection for smart searches
+    @State private var lastSelectedSearchID: UUID?  // For Shift+click range selection on searches
 
     // Section ordering and collapsed state (persisted)
     @State private var sectionOrder: [SidebarSectionType] = SidebarSectionOrderStore.loadOrderSync()
@@ -479,6 +481,7 @@ struct SidebarView: View {
     @ViewBuilder
     private func explorationSearchRow(_ smartSearch: CDSmartSearch) -> some View {
         let isSelected = selection == .smartSearch(smartSearch)
+        let isMultiSelected = searchMultiSelection.contains(smartSearch.id)
         let count = smartSearch.resultCollection?.publications?.count ?? 0
 
         HStack(spacing: 6) {
@@ -500,23 +503,99 @@ struct SidebarView: View {
         }
         .padding(.leading, 4)
         .tag(SidebarSection.smartSearch(smartSearch))
-        .listRowBackground(isSelected ? Color.accentColor.opacity(0.2) : Color.clear)
-        .contextMenu {
-            Button("Edit Search...") {
-                // Navigate to Search section with this smart search's query
-                NotificationCenter.default.post(name: .editSmartSearch, object: smartSearch.id)
-            }
-
-            Divider()
-
-            Button("Delete", role: .destructive) {
-                SmartSearchRepository.shared.delete(smartSearch)
-                if selection == .smartSearch(smartSearch) {
-                    selection = nil
+        .listRowBackground(
+            isMultiSelected || isSelected
+                ? Color.accentColor.opacity(0.2)
+                : Color.clear
+        )
+        // Option+Click to toggle multi-selection
+        .gesture(
+            TapGesture()
+                .modifiers(.option)
+                .onEnded { _ in
+                    if searchMultiSelection.contains(smartSearch.id) {
+                        searchMultiSelection.remove(smartSearch.id)
+                    } else {
+                        searchMultiSelection.insert(smartSearch.id)
+                    }
+                    lastSelectedSearchID = smartSearch.id
                 }
-                explorationRefreshTrigger = UUID()
+        )
+        // Shift+Click for range selection
+        .gesture(
+            TapGesture()
+                .modifiers(.shift)
+                .onEnded { _ in
+                    handleShiftClickSearch(smartSearch: smartSearch, allSearches: explorationSmartSearches)
+                }
+        )
+        // Normal click clears multi-selection and navigates
+        .onTapGesture {
+            searchMultiSelection.removeAll()
+            searchMultiSelection.insert(smartSearch.id)
+            lastSelectedSearchID = smartSearch.id
+            selection = .smartSearch(smartSearch)
+        }
+        .contextMenu {
+            // Show batch delete if multiple searches selected
+            if searchMultiSelection.count > 1 {
+                Button("Delete \(searchMultiSelection.count) Searches", role: .destructive) {
+                    deleteSelectedSmartSearches()
+                }
+            } else {
+                Button("Edit Search...") {
+                    // Navigate to Search section with this smart search's query
+                    NotificationCenter.default.post(name: .editSmartSearch, object: smartSearch.id)
+                }
+
+                Divider()
+
+                Button("Delete", role: .destructive) {
+                    SmartSearchRepository.shared.delete(smartSearch)
+                    if selection == .smartSearch(smartSearch) {
+                        selection = nil
+                    }
+                    searchMultiSelection.remove(smartSearch.id)
+                    explorationRefreshTrigger = UUID()
+                }
             }
         }
+    }
+
+    /// Handle Shift+click for range selection on smart searches
+    private func handleShiftClickSearch(smartSearch: CDSmartSearch, allSearches: [CDSmartSearch]) {
+        guard let lastID = lastSelectedSearchID,
+              let lastIndex = allSearches.firstIndex(where: { $0.id == lastID }),
+              let currentIndex = allSearches.firstIndex(where: { $0.id == smartSearch.id }) else {
+            // No previous selection, just add this one
+            searchMultiSelection.insert(smartSearch.id)
+            lastSelectedSearchID = smartSearch.id
+            return
+        }
+
+        // Select range between last and current
+        let range = min(lastIndex, currentIndex)...max(lastIndex, currentIndex)
+        for i in range {
+            searchMultiSelection.insert(allSearches[i].id)
+        }
+    }
+
+    /// Delete all selected smart searches
+    private func deleteSelectedSmartSearches() {
+        // Clear main selection if any selected search is being deleted
+        if case .smartSearch(let selected) = selection,
+           searchMultiSelection.contains(selected.id) {
+            selection = nil
+        }
+
+        // Delete all selected smart searches
+        for smartSearch in explorationSmartSearches where searchMultiSelection.contains(smartSearch.id) {
+            SmartSearchRepository.shared.delete(smartSearch)
+        }
+
+        searchMultiSelection.removeAll()
+        lastSelectedSearchID = nil
+        explorationRefreshTrigger = UUID()
     }
 
     /// Delete all selected exploration collections

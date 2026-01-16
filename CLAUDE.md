@@ -412,6 +412,81 @@ Update the changelog below after significant work:
 
 ## Changelog
 
+### 2026-01-16 (Session 20)
+- PDF Auto-Download Improvements
+  - Fixed `resolveForAutoDownload()` to respect user's priority setting (preprint vs publisher)
+  - Gateway URLs (ADS link_gateway) now used as absolute last resort only
+  - Added `resolveGatewayURL()` method separated from main resolution flow
+  - ArXiv now uses direct PDF URLs (`https://arxiv.org/pdf/{id}.pdf`) instead of abstract pages
+- ArXiv BrowserURLProvider
+  - Added `BrowserURLProvider` conformance to ArXivSource for direct PDF URLs
+  - Registered ArXiv provider with highest priority (20) in both macOS and iOS apps
+  - ADS provider also updated to prefer direct PDFs over gateway URLs
+- PDF Resolution Priority (for auto-download):
+  - Publisher priority: OpenAlex OA → Direct publisher PDF → ADS scan → DOI resolver → (fallback to arXiv) → gateway
+  - Preprint priority: Direct arXiv PDF → preprint links → (fallback to publisher) → gateway
+- Sidebar Multi-Selection for Searches
+  - Added Option+Click to toggle individual search in multi-selection
+  - Added Shift+Click for range selection of searches
+  - Context menu shows "Delete N Searches" for batch delete
+  - Visual feedback with accent color background for selected items
+- New Tests (97 tests added):
+  - PDFURLResolverTests: 15 new tests for auto-download, gateway deprioritization
+  - PDFDownloadIntegrationTests: 18 tests for network mocking scenarios
+  - PDFValidationTests: 22 tests for PDF magic byte validation
+  - IdentifierExtractorTests: 36 tests for arXiv/DOI/bibcode extraction
+- Files: PDFURLResolver.swift, ArXivSource.swift, ADSSource.swift, SidebarView.swift,
+  imbibApp.swift (macOS + iOS), PDFURLResolverTests.swift, PDFDownloadIntegrationTests.swift,
+  PDFValidationTests.swift, IdentifierExtractorTests.swift
+- All tests passing
+
+### 2026-01-16 (Session 19)
+- ADR-018: AI Assistant Integration - Phase 1 & 2
+  - Core automation layer with rich data returns (not just notifications)
+  - Designed for MCP server, enhanced AppIntents, and REST API support
+- New Automation Types (`Automation/AutomationTypes.swift`):
+  - `PaperIdentifier`: Flexible lookup by citeKey, DOI, arXiv, bibcode, UUID, PMID, etc.
+  - `SearchFilters`: Year range, authors, read status, PDF status, collections
+  - `PaperResult`: Complete serializable paper representation
+  - `CollectionResult`, `LibraryResult`: Collection/library representations
+  - `AddPapersResult`, `ExportResult`, `DownloadResult`: Operation results
+  - `SearchOperationResult`: Search results with metadata
+  - `AutomationOperationError`: Domain-specific error types
+- AutomationOperations Protocol (`Automation/AutomationOperations.swift`):
+  - `searchLibrary()`, `searchExternal()`: Search with rich returns
+  - `getPaper()`, `getPapers()`: Lookup by identifier
+  - `addPapers()`: Add papers from DOI/arXiv/bibcode with PDF download
+  - `deletePapers()`, `markAsRead()`, `markAsUnread()`, `toggleReadStatus()`, `toggleStar()`
+  - `listCollections()`, `createCollection()`, `addToCollection()`, `removeFromCollection()`
+  - `listLibraries()`, `getDefaultLibrary()`, `getInboxLibrary()`
+  - `exportBibTeX()`, `exportRIS()`: Export with content returned
+  - `downloadPDFs()`, `checkPDFStatus()`: PDF operations
+  - `listSources()`: Available search sources
+- AutomationService Actor (`Automation/AutomationService.swift`):
+  - Implements AutomationOperations protocol
+  - Calls PublicationRepository and SourceManager directly
+  - Authorization check via AutomationSettingsStore
+  - Singleton pattern: `AutomationService.shared`
+- Enhanced AppIntents with Entity Support:
+  - `PaperEntity.swift`: AppEntity for papers with EntityQuery support
+  - `CollectionEntity.swift`: AppEntity for collections, LibraryEntity for libraries
+  - `AddPapersIntent.swift`: New intents for adding papers by identifier
+    - AddPapersIntent (batch), AddPaperByDOIIntent, AddPaperByArXivIntent, AddPaperByBibcodeIntent
+    - DownloadPDFsIntent, GetPaperIntent
+  - Updated `SearchIntents.swift` to return `[PaperEntity]` data
+    - SearchPapersIntent now returns actual results
+    - New SearchLibraryIntent, SearchExternalIntent
+  - Updated `ImbibShortcuts.swift` with new shortcuts
+- Key Design Decision:
+  - AutomationService **bypasses** URLSchemeHandler for data returns
+  - URLSchemeHandler still used for UI navigation notifications
+  - Enables MCP/Shortcuts to work with actual data, not just success/failure
+- Added 22 new tests (AutomationTypesTests)
+- Files: Automation/AutomationTypes.swift, Automation/AutomationOperations.swift,
+  Automation/AutomationService.swift, AppIntents/PaperEntity.swift,
+  AppIntents/CollectionEntity.swift, AppIntents/AddPapersIntent.swift
+- Build succeeds, all automation tests passing (46 tests)
+
 ### 2026-01-16 (Session 18)
 - iOS Siri Shortcuts / AppIntents Integration
   - AppIntents framework for Siri voice commands and Shortcuts app automation

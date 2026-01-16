@@ -597,3 +597,31 @@ private class ArXivAtomParser: NSObject, XMLParserDelegate {
             .trimmingCharacters(in: .whitespaces)
     }
 }
+
+// MARK: - BrowserURLProvider Conformance
+
+extension ArXivSource: BrowserURLProvider {
+
+    public static var sourceID: String { "arxiv" }
+
+    /// Return direct arXiv PDF URL for browser access.
+    ///
+    /// For arXiv papers, we can go directly to the PDF instead of the abstract page.
+    /// URL format: https://arxiv.org/pdf/{arxiv_id}.pdf
+    ///
+    /// - Parameter publication: The publication to find a PDF URL for
+    /// - Returns: Direct arXiv PDF URL, or nil if no arXiv ID
+    public static func browserPDFURL(for publication: CDPublication) -> URL? {
+        guard let arxivID = publication.arxivID, !arxivID.isEmpty else {
+            return nil
+        }
+
+        // Clean the arXiv ID (remove version suffix for consistent URL)
+        let cleanID = arxivID.trimmingCharacters(in: .whitespaces)
+
+        // Build direct PDF URL
+        let pdfURL = URL(string: "https://arxiv.org/pdf/\(cleanID).pdf")
+        Logger.pdfBrowser.debug("ArXiv: Using direct PDF URL for: \(cleanID)")
+        return pdfURL
+    }
+}

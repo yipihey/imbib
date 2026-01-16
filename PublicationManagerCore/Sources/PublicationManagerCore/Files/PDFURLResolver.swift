@@ -59,67 +59,173 @@ public struct PDFURLResolver {
         return resolve(for: publication, settings: settings)
     }
 
-    // MARK: - Auto-Download Resolution (OpenAlex Priority)
+    // MARK: - Auto-Download Resolution
 
-    /// Resolve PDF URL with OpenAlex → Publisher → arXiv priority for auto-download
+    /// Resolve PDF URL for auto-download, respecting user's priority setting
     ///
-    /// This method uses a fixed priority order optimized for automatic downloads:
-    /// 1. OpenAlex (Open Access - typically free)
-    /// 2. Other publisher PDFs (may require proxy)
-    /// 3. arXiv preprints (last resort)
+    /// This method applies user preferences while avoiding unreliable URLs:
+    /// - `.preprint`: Try arXiv/preprints first, then publisher
+    /// - `.publisher`: Try publisher first (via DOI or direct links), then preprints
+    ///
+    /// URL reliability order (within each category):
+    /// 1. Direct PDF URLs (arxiv.org/pdf, direct publisher links)
+    /// 2. OpenAlex Open Access URLs
+    /// 3. DOI with content negotiation (for publisher)
+    /// 4. ADS scanned articles (always work)
+    /// 5. ADS link_gateway (often unreliable - last resort)
     ///
     /// - Parameters:
     ///   - publication: The publication to resolve a PDF URL for
-    ///   - settings: User's PDF settings (for proxy configuration)
+    ///   - settings: User's PDF settings (priority, proxy configuration)
     /// - Returns: The resolved PDF URL, or nil if no PDF is available
     public static func resolveForAutoDownload(
         for publication: CDPublication,
         settings: PDFSettings
     ) -> URL? {
         Logger.files.infoCapture(
-            "[PDFURLResolver] Resolving PDF for auto-download: '\(publication.title?.prefix(50) ?? "untitled")...'",
+            "[PDFURLResolver] Resolving PDF for auto-download: '\(publication.title?.prefix(50) ?? "untitled")...', priority: \(settings.sourcePriority.rawValue)",
             category: "pdf"
         )
 
         // Log all available URLs for debugging
         logAllAvailableURLs(for: publication, settings: settings)
 
+        // Apply user's priority setting
+        // Note: Gateway URLs (like ADS link_gateway) are unreliable and only used as absolute last resort
+        let result: URL?
+        switch settings.sourcePriority {
+        case .preprint:
+            // Try preprint sources first, then publisher
+            result = resolvePreprintURL(for: publication, settings: settings)
+                ?? resolvePublisherURL(for: publication, settings: settings)
+        case .publisher:
+            // Try publisher first, then preprint
+            result = resolvePublisherURL(for: publication, settings: settings)
+                ?? resolvePreprintURL(for: publication, settings: settings)
+        }
+
+        // If we have a result, use it
+        if result != nil {
+            return result
+        }
+
+        // Absolute last resort: unreliable gateway URLs
+        return resolveGatewayURL(for: publication, settings: settings)
+    }
+
+    /// Resolve best preprint/arXiv PDF URL
+    private static func resolvePreprintURL(
+        for publication: CDPublication,
+        settings: PDFSettings
+    ) -> URL? {
+        // 1. Direct arXiv PDF (most reliable)
+        if let arxivID = publication.arxivID, !arxivID.isEmpty {
+            if let url = arXivPDFURL(arxivID: arxivID) {
+                Logger.files.infoCapture("[PDFURLResolver] Using direct arXiv PDF: \(arxivID)", category: "pdf")
+                return url
+            }
+        }
+
         let links = publication.pdfLinks
 
-        // 1. Try OpenAlex first (Open Access - typically free)
+        // 2. Preprint links from pdfLinks (may include arXiv added by sources)
+        if let preprintLink = links.first(where: { $0.type == .preprint && isDirectPDFURL($0.url) }) {
+            Logger.files.infoCapture("[PDFURLResolver] Using preprint PDF from \(preprintLink.sourceID ?? "unknown")", category: "pdf")
+            return preprintLink.url
+        }
+
+        // 3. Any preprint link (even if not direct PDF)
+        if let preprintLink = links.first(where: { $0.type == .preprint }) {
+            Logger.files.infoCapture("[PDFURLResolver] Using preprint link from \(preprintLink.sourceID ?? "unknown")", category: "pdf")
+            return preprintLink.url
+        }
+
+        return nil
+    }
+
+    /// Resolve best publisher PDF URL, avoiding unreliable gateway URLs
+    private static func resolvePublisherURL(
+        for publication: CDPublication,
+        settings: PDFSettings
+    ) -> URL? {
+        let links = publication.pdfLinks
+
+        // 1. OpenAlex Open Access (typically reliable and free)
         if let openAlexLink = links.first(where: { $0.sourceID == "openalex" }) {
             Logger.files.infoCapture("[PDFURLResolver] Using OpenAlex OA URL", category: "pdf")
             return applyProxy(to: openAlexLink.url, settings: settings)
         }
 
-        // 2. Try other publisher PDFs (non-OpenAlex, non-arXiv)
-        if let publisherLink = links.first(where: {
-            $0.type == .publisher && $0.sourceID != "openalex" && $0.sourceID != "arxiv"
+        // 2. Direct publisher PDF URLs (not gateway URLs)
+        if let directLink = links.first(where: {
+            $0.type == .publisher && isDirectPDFURL($0.url) && !isGatewayURL($0.url)
         }) {
-            Logger.files.infoCapture("[PDFURLResolver] Using publisher PDF from \(publisherLink.sourceID ?? "unknown")", category: "pdf")
-            return applyProxy(to: publisherLink.url, settings: settings)
+            Logger.files.infoCapture("[PDFURLResolver] Using direct publisher PDF", category: "pdf")
+            return applyProxy(to: directLink.url, settings: settings)
         }
 
-        // 3. Try ADS scanned articles (hosted directly by ADS, always free)
+        // 3. ADS scanned articles (always free and reliable)
         if let adsScanLink = links.first(where: { $0.type == .adsScan }) {
             Logger.files.infoCapture("[PDFURLResolver] Using ADS scan PDF", category: "pdf")
             return adsScanLink.url
         }
 
-        // 4. Try arXiv
-        if let arxivID = publication.arxivID {
-            Logger.files.infoCapture("[PDFURLResolver] Using arXiv PDF", category: "pdf")
-            return arXivPDFURL(arxivID: arxivID)
+        // 4. DOI-based PDF URL (use DOI resolver - more reliable than gateway)
+        if let doi = publication.doi, !doi.isEmpty {
+            let doiURL = URL(string: "https://doi.org/\(doi)")
+            Logger.files.infoCapture("[PDFURLResolver] Using DOI resolver: \(doi)", category: "pdf")
+            return applyProxy(to: doiURL!, settings: settings)
         }
 
-        // 5. Fallback: any available preprint link
-        if let preprintLink = links.first(where: { $0.type == .preprint }) {
-            Logger.files.infoCapture("[PDFURLResolver] Using preprint PDF from \(preprintLink.sourceID ?? "unknown")", category: "pdf")
-            return preprintLink.url
-        }
-
-        Logger.files.infoCapture("[PDFURLResolver] No PDF URL available for auto-download", category: "pdf")
+        // Note: Gateway URLs are NOT returned here - they're only used as absolute last resort
+        // in resolveGatewayURL() after both publisher AND preprint methods have failed
         return nil
+    }
+
+    /// Resolve gateway URLs as absolute last resort (often unreliable)
+    private static func resolveGatewayURL(
+        for publication: CDPublication,
+        settings: PDFSettings
+    ) -> URL? {
+        let links = publication.pdfLinks
+
+        // ADS link_gateway URLs - often unreliable but sometimes work
+        if let gatewayLink = links.first(where: { $0.type == .publisher && isGatewayURL($0.url) }) {
+            Logger.files.infoCapture("[PDFURLResolver] Using ADS gateway (unreliable last resort): \(gatewayLink.url.absoluteString)", category: "pdf")
+            return applyProxy(to: gatewayLink.url, settings: settings)
+        }
+
+        return nil
+    }
+
+    /// Check if URL appears to be a direct PDF link
+    private static func isDirectPDFURL(_ url: URL) -> Bool {
+        let path = url.path.lowercased()
+        let host = url.host?.lowercased() ?? ""
+
+        // Direct PDF file extensions
+        if path.hasSuffix(".pdf") { return true }
+
+        // Known direct PDF hosts
+        if host.contains("arxiv.org") && path.contains("/pdf/") { return true }
+        if host.contains("article-pdf") { return true }  // OUP, etc.
+
+        return false
+    }
+
+    /// Check if URL is a gateway/redirect URL (often unreliable)
+    private static func isGatewayURL(_ url: URL) -> Bool {
+        let path = url.path.lowercased()
+        let urlString = url.absoluteString.lowercased()
+
+        // ADS link_gateway URLs are notoriously unreliable
+        if urlString.contains("link_gateway") { return true }
+
+        // Generic gateway patterns
+        if path.contains("/gateway/") { return true }
+        if path.contains("/redirect/") { return true }
+
+        return false
     }
 
     /// Async version that fetches settings from PDFSettingsStore
@@ -132,8 +238,8 @@ public struct PDFURLResolver {
 
     /// Generate arXiv PDF URL from an arXiv ID string
     public static func arXivPDFURL(arxivID: String) -> URL? {
-        guard !arxivID.isEmpty else { return nil }
         let cleanID = arxivID.trimmingCharacters(in: .whitespaces)
+        guard !cleanID.isEmpty else { return nil }
         return URL(string: "https://arxiv.org/pdf/\(cleanID).pdf")
     }
 
@@ -260,6 +366,10 @@ public struct PDFURLResolver {
 
         Logger.files.infoCapture("──────────────────────────────────────────", category: "pdf")
         Logger.files.infoCapture("[PDFURLResolver] Available PDF URLs for '\(publication.citeKey)':", category: "pdf")
+
+        // Log raw identifier fields for debugging extraction issues
+        Logger.files.infoCapture("  [Fields] eprint='\(publication.fields["eprint"] ?? "nil")' arxivid='\(publication.fields["arxivid"] ?? "nil")' arxiv='\(publication.fields["arxiv"] ?? "nil")'", category: "pdf")
+        Logger.files.infoCapture("  [Extracted] arxivID property='\(arxivID ?? "nil")'", category: "pdf")
 
         // Log identifiers
         if let doi = doi {

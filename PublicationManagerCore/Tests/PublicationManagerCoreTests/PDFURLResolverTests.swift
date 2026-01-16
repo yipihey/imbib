@@ -385,4 +385,367 @@ final class PDFURLResolverTests: XCTestCase {
             "https://proxy.edu/login?url=https://doi.org/10.1234/test"
         )
     }
+
+    // MARK: - Auto-Download Tests (resolveForAutoDownload)
+
+    @MainActor
+    func testResolveForAutoDownload_arxivIDFromEprint_returnsArxivURL() {
+        // Given - arXiv ID set via eprint field
+        let publication = makePublication(arxivID: "2301.12345")
+        let settings = PDFSettings.default
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.absoluteString, "https://arxiv.org/pdf/2301.12345.pdf")
+    }
+
+    @MainActor
+    func testResolveForAutoDownload_arxivIDFromArxividField_returnsArxivURL() {
+        // Given - arXiv ID set via arxivid field (alternative field name)
+        let publication = CDPublication(context: persistenceController.viewContext)
+        publication.id = UUID()
+        publication.citeKey = "Test2024"
+        publication.entryType = "article"
+        publication.title = "Test Paper"
+        publication.year = 2024
+        publication.dateAdded = Date()
+        publication.dateModified = Date()
+        publication.fields = ["arxivid": "2301.98765"]
+
+        let settings = PDFSettings.default
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.absoluteString, "https://arxiv.org/pdf/2301.98765.pdf")
+    }
+
+    @MainActor
+    func testResolveForAutoDownload_arxivIDWithVersion_constructsCorrectURL() {
+        // Given - arXiv ID includes version suffix
+        let publication = makePublication(arxivID: "2301.12345v3")
+        let settings = PDFSettings.default
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.absoluteString, "https://arxiv.org/pdf/2301.12345v3.pdf")
+    }
+
+    @MainActor
+    func testResolveForAutoDownload_oldStyleArxivID_constructsCorrectURL() {
+        // Given - old-style arXiv ID (category/YYMMNNN)
+        let publication = makePublication(arxivID: "hep-ph/0601001")
+        let settings = PDFSettings.default
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.absoluteString, "https://arxiv.org/pdf/hep-ph/0601001.pdf")
+    }
+
+    @MainActor
+    func testResolveForAutoDownload_publisherPriority_prefersOpenAlexOverArxiv() {
+        // Given - both OpenAlex and arXiv available, publisher priority setting
+        let publication = CDPublication(context: persistenceController.viewContext)
+        publication.id = UUID()
+        publication.citeKey = "Test2024"
+        publication.entryType = "article"
+        publication.title = "Test Paper"
+        publication.year = 2024
+        publication.dateAdded = Date()
+        publication.dateModified = Date()
+        publication.fields = ["eprint": "2301.12345", "archiveprefix": "arXiv"]
+
+        // Add OpenAlex PDF link
+        publication.pdfLinks = [
+            PDFLink(url: URL(string: "https://openalex.org/paper.pdf")!, type: .publisher, sourceID: "openalex")
+        ]
+
+        // Use publisher priority - should prefer OpenAlex over arXiv
+        let settings = PDFSettings(sourcePriority: .publisher, libraryProxyURL: "", proxyEnabled: false)
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then - should prefer OpenAlex (publisher) over arXiv (preprint)
+        XCTAssertEqual(result?.absoluteString, "https://openalex.org/paper.pdf")
+    }
+
+    @MainActor
+    func testResolveForAutoDownload_preprintPriority_prefersArxivOverOpenAlex() {
+        // Given - both OpenAlex and arXiv available, preprint priority setting
+        let publication = CDPublication(context: persistenceController.viewContext)
+        publication.id = UUID()
+        publication.citeKey = "Test2024"
+        publication.entryType = "article"
+        publication.title = "Test Paper"
+        publication.year = 2024
+        publication.dateAdded = Date()
+        publication.dateModified = Date()
+        publication.fields = ["eprint": "2301.12345", "archiveprefix": "arXiv"]
+
+        // Add OpenAlex PDF link
+        publication.pdfLinks = [
+            PDFLink(url: URL(string: "https://openalex.org/paper.pdf")!, type: .publisher, sourceID: "openalex")
+        ]
+
+        // Use preprint priority (default) - should prefer arXiv over OpenAlex
+        let settings = PDFSettings(sourcePriority: .preprint, libraryProxyURL: "", proxyEnabled: false)
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then - should prefer arXiv (preprint) over OpenAlex (publisher)
+        XCTAssertEqual(result?.absoluteString, "https://arxiv.org/pdf/2301.12345.pdf")
+    }
+
+    @MainActor
+    func testResolveForAutoDownload_emptyArxivID_returnsNil() {
+        // Given - empty string in eprint field
+        let publication = CDPublication(context: persistenceController.viewContext)
+        publication.id = UUID()
+        publication.citeKey = "Test2024"
+        publication.entryType = "article"
+        publication.title = "Test Paper"
+        publication.year = 2024
+        publication.dateAdded = Date()
+        publication.dateModified = Date()
+        publication.fields = ["eprint": ""]  // Empty
+
+        let settings = PDFSettings.default
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then
+        XCTAssertNil(result)
+    }
+
+    @MainActor
+    func testResolveForAutoDownload_whitespaceOnlyArxivID_returnsNil() {
+        // Given - whitespace-only string in eprint field
+        let publication = CDPublication(context: persistenceController.viewContext)
+        publication.id = UUID()
+        publication.citeKey = "Test2024"
+        publication.entryType = "article"
+        publication.title = "Test Paper"
+        publication.year = 2024
+        publication.dateAdded = Date()
+        publication.dateModified = Date()
+        publication.fields = ["eprint": "   "]  // Whitespace only
+
+        let settings = PDFSettings.default
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then - should handle gracefully (may return URL but should trim)
+        // The arXivPDFURL function trims whitespace, so empty result
+        XCTAssertNil(result)
+    }
+
+    @MainActor
+    func testResolveForAutoDownload_noIdentifiers_returnsNil() {
+        // Given - no arXiv ID, no PDF links
+        let publication = CDPublication(context: persistenceController.viewContext)
+        publication.id = UUID()
+        publication.citeKey = "Test2024"
+        publication.entryType = "article"
+        publication.title = "Test Paper"
+        publication.year = 2024
+        publication.dateAdded = Date()
+        publication.dateModified = Date()
+        publication.fields = [:]  // No identifiers
+
+        let settings = PDFSettings.default
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then
+        XCTAssertNil(result)
+    }
+
+    @MainActor
+    func testResolveForAutoDownload_proxyNotAppliedToArxiv() {
+        // Given - arXiv paper with proxy enabled
+        let publication = makePublication(arxivID: "2301.12345")
+        let settings = PDFSettings(
+            sourcePriority: .preprint,
+            libraryProxyURL: "https://proxy.edu/login?url=",
+            proxyEnabled: true
+        )
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then - arXiv URL should NOT have proxy (arXiv is free)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.absoluteString, "https://arxiv.org/pdf/2301.12345.pdf")
+        XCTAssertFalse(result?.absoluteString.contains("proxy") ?? true)
+    }
+
+    @MainActor
+    func testResolveForAutoDownload_publisherLinkGetsProxy() {
+        // Given - publisher PDF with proxy enabled
+        let publication = CDPublication(context: persistenceController.viewContext)
+        publication.id = UUID()
+        publication.citeKey = "Test2024"
+        publication.entryType = "article"
+        publication.title = "Test Paper"
+        publication.year = 2024
+        publication.dateAdded = Date()
+        publication.dateModified = Date()
+        publication.fields = [:]  // No arXiv
+
+        // Add publisher PDF link (not OpenAlex, not arXiv)
+        publication.pdfLinks = [
+            PDFLink(url: URL(string: "https://publisher.com/paper.pdf")!, type: .publisher, sourceID: "crossref")
+        ]
+
+        let settings = PDFSettings(
+            sourcePriority: .publisher,
+            libraryProxyURL: "https://proxy.edu/login?url=",
+            proxyEnabled: true
+        )
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then - should have proxy prefix
+        XCTAssertNotNil(result)
+        XCTAssertTrue(result?.absoluteString.contains("proxy.edu") ?? false)
+    }
+
+    @MainActor
+    func testResolveForAutoDownload_adsScanNotProxied() {
+        // Given - ADS scan PDF (always free)
+        let publication = CDPublication(context: persistenceController.viewContext)
+        publication.id = UUID()
+        publication.citeKey = "Test1990"
+        publication.entryType = "article"
+        publication.title = "Old Paper"
+        publication.year = 1990
+        publication.dateAdded = Date()
+        publication.dateModified = Date()
+        publication.fields = [:]
+
+        // Add ADS scan link (older papers scanned by ADS)
+        publication.pdfLinks = [
+            PDFLink(url: URL(string: "https://articles.adsabs.harvard.edu/pdf/1990ApJ...355...52B")!, type: .adsScan, sourceID: "ads")
+        ]
+
+        let settings = PDFSettings(
+            sourcePriority: .publisher,
+            libraryProxyURL: "https://proxy.edu/login?url=",
+            proxyEnabled: true
+        )
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then - ADS scans are free, no proxy
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.absoluteString, "https://articles.adsabs.harvard.edu/pdf/1990ApJ...355...52B")
+        XCTAssertFalse(result?.absoluteString.contains("proxy") ?? true)
+    }
+
+    @MainActor
+    func testResolveForAutoDownload_gatewayURLsDeprioritized() {
+        // Given - both ADS link_gateway (unreliable) and arXiv available
+        let publication = CDPublication(context: persistenceController.viewContext)
+        publication.id = UUID()
+        publication.citeKey = "Test2024"
+        publication.entryType = "article"
+        publication.title = "Test Paper"
+        publication.year = 2024
+        publication.dateAdded = Date()
+        publication.dateModified = Date()
+        publication.fields = ["eprint": "2301.12345"]
+
+        // Add ADS link_gateway URL (unreliable) - should be deprioritized
+        publication.pdfLinks = [
+            PDFLink(url: URL(string: "https://ui.adsabs.harvard.edu/link_gateway/2024ApJ...123..456A/PUB_PDF")!, type: .publisher, sourceID: "ads")
+        ]
+
+        let settings = PDFSettings(sourcePriority: .publisher, libraryProxyURL: "", proxyEnabled: false)
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then - should use arXiv (fallback) instead of unreliable gateway
+        // Gateway is only used as last resort
+        XCTAssertNotNil(result)
+        XCTAssertTrue(result?.absoluteString.contains("arxiv.org/pdf") ?? false,
+                      "Should prefer arXiv over unreliable ADS gateway URL")
+    }
+
+    @MainActor
+    func testResolveForAutoDownload_gatewayUsedAsLastResort() {
+        // Given - only ADS link_gateway available (no arXiv, no DOI)
+        let publication = CDPublication(context: persistenceController.viewContext)
+        publication.id = UUID()
+        publication.citeKey = "Test2024"
+        publication.entryType = "article"
+        publication.title = "Test Paper"
+        publication.year = 2024
+        publication.dateAdded = Date()
+        publication.dateModified = Date()
+        publication.fields = [:]  // No arXiv
+
+        // Only gateway URL available
+        publication.pdfLinks = [
+            PDFLink(url: URL(string: "https://ui.adsabs.harvard.edu/link_gateway/2024ApJ...123..456A/PUB_PDF")!, type: .publisher, sourceID: "ads")
+        ]
+
+        let settings = PDFSettings(sourcePriority: .publisher, libraryProxyURL: "", proxyEnabled: false)
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then - should use gateway as last resort (better than nothing)
+        XCTAssertNotNil(result)
+        XCTAssertTrue(result?.absoluteString.contains("link_gateway") ?? false,
+                      "Should use gateway URL when no better option available")
+    }
+
+    @MainActor
+    func testResolveForAutoDownload_directPDFPreferredOverGateway() {
+        // Given - direct PDF URL and gateway URL available
+        let publication = CDPublication(context: persistenceController.viewContext)
+        publication.id = UUID()
+        publication.citeKey = "Test2024"
+        publication.entryType = "article"
+        publication.title = "Test Paper"
+        publication.year = 2024
+        publication.dateAdded = Date()
+        publication.dateModified = Date()
+        publication.fields = [:]
+
+        // Both direct PDF and gateway available
+        publication.pdfLinks = [
+            PDFLink(url: URL(string: "https://ui.adsabs.harvard.edu/link_gateway/2024ApJ...123..456A/PUB_PDF")!, type: .publisher, sourceID: "ads"),
+            PDFLink(url: URL(string: "https://academic.oup.com/article-pdf/123/456.pdf")!, type: .publisher, sourceID: "crossref")
+        ]
+
+        let settings = PDFSettings(sourcePriority: .publisher, libraryProxyURL: "", proxyEnabled: false)
+
+        // When
+        let result = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings)
+
+        // Then - should prefer direct PDF over gateway
+        XCTAssertNotNil(result)
+        XCTAssertTrue(result?.absoluteString.contains("article-pdf") ?? false,
+                      "Should prefer direct PDF URL over gateway URL")
+    }
 }

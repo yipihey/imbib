@@ -62,6 +62,8 @@ struct imbibApp: App {
             appLogger.info("Built-in sources registered")
 
             // Register browser URL providers for interactive PDF downloads
+            // Higher priority = tried first. ArXiv has highest priority (direct PDF, always free)
+            await BrowserURLProviderRegistry.shared.register(ArXivSource.self, priority: 20)
             await BrowserURLProviderRegistry.shared.register(ADSSource.self, priority: 10)
             appLogger.info("BrowserURLProviders registered")
 
