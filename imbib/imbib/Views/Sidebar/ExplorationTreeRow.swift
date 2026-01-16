@@ -38,6 +38,16 @@ struct ExplorationTreeRow: View {
     // MARK: - Body
 
     var body: some View {
+        // Guard against deleted Core Data objects
+        if collection.managedObjectContext == nil {
+            EmptyView()
+        } else {
+            rowContent
+        }
+    }
+
+    @ViewBuilder
+    private var rowContent: some View {
         HStack(spacing: 0) {
             // Indentation based on depth
             if depth > 0 {

@@ -480,6 +480,16 @@ struct SidebarView: View {
     /// Row for a search smart search in the exploration section
     @ViewBuilder
     private func explorationSearchRow(_ smartSearch: CDSmartSearch) -> some View {
+        // Guard against deleted Core Data objects
+        if smartSearch.managedObjectContext == nil {
+            EmptyView()
+        } else {
+            explorationSearchRowContent(smartSearch)
+        }
+    }
+
+    @ViewBuilder
+    private func explorationSearchRowContent(_ smartSearch: CDSmartSearch) -> some View {
         let isSelected = selection == .smartSearch(smartSearch)
         let isMultiSelected = searchMultiSelection.contains(smartSearch.id)
         let count = smartSearch.resultCollection?.publications?.count ?? 0
@@ -582,40 +592,51 @@ struct SidebarView: View {
 
     /// Delete all selected smart searches
     private func deleteSelectedSmartSearches() {
+        // Collect items to delete BEFORE clearing selection (avoid mutating during iteration)
+        let searchesToDelete = explorationSmartSearches.filter { searchMultiSelection.contains($0.id) }
+
         // Clear main selection if any selected search is being deleted
         if case .smartSearch(let selected) = selection,
            searchMultiSelection.contains(selected.id) {
             selection = nil
         }
 
-        // Delete all selected smart searches
-        for smartSearch in explorationSmartSearches where searchMultiSelection.contains(smartSearch.id) {
+        // Clear multi-selection BEFORE deleting to prevent view crashes
+        searchMultiSelection.removeAll()
+        lastSelectedSearchID = nil
+
+        // Now delete the collected items
+        for smartSearch in searchesToDelete {
             SmartSearchRepository.shared.delete(smartSearch)
         }
 
-        searchMultiSelection.removeAll()
-        lastSelectedSearchID = nil
         explorationRefreshTrigger = UUID()
     }
 
     /// Delete all selected exploration collections
     private func deleteSelectedExplorationCollections() {
+        // Collect items to delete BEFORE clearing selection (avoid mutating during iteration)
+        var collectionsToDelete: [CDCollection] = []
+        if let library = libraryManager.explorationLibrary,
+           let collections = library.collections {
+            collectionsToDelete = collections.filter { explorationMultiSelection.contains($0.id) }
+        }
+
         // Clear main selection if any selected collection is being deleted
         if case .collection(let selected) = selection,
            explorationMultiSelection.contains(selected.id) {
             selection = nil
         }
 
-        // Delete all selected collections
-        if let library = libraryManager.explorationLibrary,
-           let collections = library.collections {
-            for collection in collections where explorationMultiSelection.contains(collection.id) {
-                libraryManager.deleteExplorationCollection(collection)
-            }
-        }
-
+        // Clear multi-selection BEFORE deleting to prevent view crashes
         explorationMultiSelection.removeAll()
         lastSelectedExplorationID = nil
+
+        // Now delete the collected items
+        for collection in collectionsToDelete {
+            libraryManager.deleteExplorationCollection(collection)
+        }
+
         explorationRefreshTrigger = UUID()
     }
 
