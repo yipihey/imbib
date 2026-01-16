@@ -9,6 +9,7 @@ import SwiftUI
 import PublicationManagerCore
 import OSLog
 import UserNotifications
+import AppIntents
 
 private let appLogger = Logger(subsystem: "com.imbib.app", category: "app")
 
@@ -108,8 +109,21 @@ struct imbibApp: App {
                         await shareExtensionHandler?.handlePendingSharedItems()
                     }
                 }
+                .onOpenURL { url in
+                    // Handle automation URL scheme requests
+                    Task {
+                        await URLSchemeHandler.shared.handle(url)
+                    }
+                }
         }
     }
+
+    // MARK: - App Shortcuts
+
+    /// Expose shortcuts provider for Siri and Shortcuts app discovery.
+    /// This ensures the intents are linked into the app binary.
+    @available(iOS 16.0, *)
+    private static let _shortcutsProvider: any AppShortcutsProvider.Type = ImbibShortcuts.self
 
     // MARK: - Badge Management
 

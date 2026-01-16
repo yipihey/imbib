@@ -156,6 +156,25 @@ When adding features to macOS, check iOS parity:
   imbib paper Einstein1905 open-pdf
   ```
 
+### Siri Shortcuts / AppIntents (iOS)
+- AppIntents framework integration for Siri and Shortcuts app (iOS 16+, macOS 13+)
+- Wraps existing automation infrastructure (URLSchemeHandler)
+- Key components:
+  - `ImbibShortcuts`: AppShortcutsProvider with pre-defined shortcuts
+  - `AutomationIntent`: Protocol for intents that execute via URLSchemeHandler
+  - `IntentError`: Error type for intent execution failures
+- Available intents:
+  - Search: `SearchPapersIntent`, `SearchCategoryIntent`, `ShowSearchIntent`
+  - Navigation: `ShowInboxIntent`, `ShowLibraryIntent`, `ShowPDFTabIntent`, etc.
+  - Papers: `ToggleReadStatusIntent`, `MarkAllReadIntent`, `CopyBibTeXIntent`, etc.
+  - Inbox: `ArchiveInboxItemIntent`, `DismissInboxItemIntent`, `ToggleStarIntent`
+  - App: `RefreshDataIntent`, `ExportLibraryIntent`, `ToggleSidebarIntent`
+- Siri phrases:
+  - "Search imbib for {query}"
+  - "Show my imbib inbox"
+  - "Mark all papers as read in imbib"
+- Files: `PublicationManagerCore/Sources/PublicationManagerCore/AppIntents/`
+
 ## Coding Conventions
 
 ### Swift Style
@@ -275,7 +294,7 @@ struct RISEntry: Sendable {
 - [ ] JSON config bundles for user sources
 - [ ] JavaScriptCore for complex transformations
 - [ ] Keyboard shortcuts (macOS)
-- [ ] Shortcuts/Siri integration (iOS)
+- [x] Shortcuts/Siri integration (iOS) - AppIntents framework
 
 ### ADR-013: RIS Integration ✅ COMPLETE
 All phases complete: Core Module, Integration, Online Source Integration, and UI Polish.
@@ -392,6 +411,36 @@ When resuming work, check:
 Update the changelog below after significant work:
 
 ## Changelog
+
+### 2026-01-16 (Session 18)
+- iOS Siri Shortcuts / AppIntents Integration
+  - AppIntents framework for Siri voice commands and Shortcuts app automation
+  - Wraps existing URLSchemeHandler automation infrastructure
+  - Respects automation enable/disable setting
+- AppIntents Module (`AppIntents/`):
+  - `ImbibShortcuts.swift`: AppShortcutsProvider with 5 pre-configured shortcuts
+  - `SearchIntents.swift`: SearchPapersIntent, SearchCategoryIntent, ShowSearchIntent
+  - `NavigationIntents.swift`: ShowInboxIntent, ShowLibraryIntent, ShowPDFTabIntent, etc.
+  - `PaperIntents.swift`: ToggleReadStatusIntent, MarkAllReadIntent, CopyBibTeXIntent, etc.
+  - `InboxIntents.swift`: ArchiveInboxItemIntent, DismissInboxItemIntent, ToggleStarIntent
+  - `AppActionIntents.swift`: RefreshDataIntent, ExportLibraryIntent, ToggleSidebarIntent
+- Key Components:
+  - `AutomationIntent` protocol: Executes via URLSchemeHandler.execute()
+  - `IntentError`: automationDisabled, executionFailed, invalidParameter, paperNotFound
+  - `SearchSourceOption`: AppEnum for search source selection
+  - `ExportFormatOption`: AppEnum for export format selection
+- iOS App Integration:
+  - Added Siri entitlement (`com.apple.developer.siri`) to iOS entitlements
+  - Added `.onOpenURL` handler for URL scheme automation
+  - Linked ImbibShortcuts provider for Shortcuts app discovery
+- Siri Phrases:
+  - "Search imbib for {query}"
+  - "Show my imbib inbox"
+  - "Mark all papers as read in imbib"
+  - "Refresh imbib"
+- Added 54 new tests (AppIntentsTests, AppIntentsIntegrationTests)
+- Files: AppIntents/*.swift, imbib-iOS/imbibApp.swift, imbib-iOS.entitlements
+- All tests passing
 
 ### 2026-01-09 (Session 17)
 - Automation API for AI Agents & External Programs
