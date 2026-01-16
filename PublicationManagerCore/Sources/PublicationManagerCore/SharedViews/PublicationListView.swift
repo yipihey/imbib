@@ -171,6 +171,12 @@ public struct PublicationListView: View {
     /// Called when a category chip is tapped (e.g., to search for that category)
     public var onCategoryTap: ((String) -> Void)?
 
+    /// Called when refresh is requested (for smart searches and feeds)
+    public var onRefresh: (() async -> Void)?
+
+    /// Whether a refresh is in progress (shows loading indicator)
+    public var isRefreshing: Bool = false
+
     // MARK: - Internal State
 
     @State private var searchQuery: String = ""
@@ -326,7 +332,10 @@ public struct PublicationListView: View {
         onMuteAuthor: ((String) -> Void)? = nil,
         onMutePaper: ((CDPublication) -> Void)? = nil,
         // Category tap callback
-        onCategoryTap: ((String) -> Void)? = nil
+        onCategoryTap: ((String) -> Void)? = nil,
+        // Refresh callback and state
+        onRefresh: (() async -> Void)? = nil,
+        isRefreshing: Bool = false
     ) {
         self.publications = publications
         self._selection = selection
@@ -360,6 +369,9 @@ public struct PublicationListView: View {
         self.onMutePaper = onMutePaper
         // Category tap
         self.onCategoryTap = onCategoryTap
+        // Refresh
+        self.onRefresh = onRefresh
+        self.isRefreshing = isRefreshing
     }
 
     // MARK: - Body
@@ -661,6 +673,25 @@ public struct PublicationListView: View {
             .foregroundStyle(searchInPDFs ? .blue : .secondary)
             .help(searchInPDFs ? "Disable PDF content search" : "Include PDF content in search")
             .buttonStyle(.plain)
+
+            // Refresh button (only shown when onRefresh callback is provided)
+            if let onRefresh = onRefresh {
+                if isRefreshing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .scaleEffect(0.7)
+                } else {
+                    Button {
+                        Task { await onRefresh() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 12))
+                    }
+                    .foregroundStyle(.secondary)
+                    .help("Refresh")
+                    .buttonStyle(.plain)
+                }
+            }
 
             Spacer()
 

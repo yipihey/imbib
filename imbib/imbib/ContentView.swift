@@ -586,6 +586,14 @@ struct ContentView: View {
         case .arxivAdvanced:
             ArXivAdvancedSearchFormView()
                 .navigationTitle("arXiv Advanced Search")
+
+        case .arxivFeed:
+            ArXivFeedFormView()
+                .navigationTitle("arXiv Feed")
+
+        case .arxivGroupFeed:
+            GroupArXivFeedFormView()
+                .navigationTitle("Group arXiv Feed")
         }
     }
 
@@ -769,6 +777,9 @@ struct CollectionListView: View {
             listID: .collection(collection.id),
             filterScope: $filterScope,
             onDelete: { ids in
+                // Remove from local state FIRST to prevent SwiftUI from rendering deleted objects
+                publications.removeAll { ids.contains($0.id) }
+                multiSelection.subtract(ids)
                 await libraryViewModel.delete(ids: ids)
                 refreshPublications()
             },

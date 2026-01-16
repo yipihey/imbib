@@ -227,6 +227,24 @@ public extension ThemeColors {
     var badgeText: Color {
         accent
     }
+
+    /// Background color for content areas (notes panels, text editors, etc.)
+    ///
+    /// Falls back through: detailBackground → listBackgroundTint → system default
+    /// Use this for consistent theming across content areas.
+    var contentBackground: Color {
+        if let detail = detailBackground {
+            return detail
+        }
+        if let tint = listBackgroundTint {
+            return tint.opacity(listBackgroundTintOpacity)
+        }
+        #if os(macOS)
+        return Color(nsColor: .textBackgroundColor)
+        #else
+        return Color(.systemBackground)
+        #endif
+    }
 }
 
 // MARK: - Font Helpers

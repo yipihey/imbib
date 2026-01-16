@@ -46,6 +46,10 @@ public final class ExplorationService {
     /// Current error if exploration failed
     public private(set) var error: Error?
 
+    /// Current exploration context - the collection the user is currently viewing.
+    /// When set, new explorations will be created as children of this collection.
+    public var currentExplorationContext: CDCollection?
+
     // MARK: - Initialization
 
     public init(
@@ -77,13 +81,16 @@ public final class ExplorationService {
     ///
     /// - Parameters:
     ///   - publication: The publication to explore references for
-    ///   - parentCollection: Optional parent collection for drill-down hierarchy
+    ///   - parentCollection: Optional parent collection for drill-down hierarchy.
+    ///                       If nil, uses `currentExplorationContext` if set.
     /// - Returns: The created collection containing referenced papers
     /// - Throws: ExplorationError if exploration fails
     public func exploreReferences(
         of publication: CDPublication,
         parentCollection: CDCollection? = nil
     ) async throws -> CDCollection {
+        // Use explicit parent, or fall back to current context
+        let effectiveParent = parentCollection ?? currentExplorationContext
         Logger.viewModels.info("ExplorationService: exploring references of \(publication.citeKey)")
 
         isExploring = true
@@ -121,10 +128,10 @@ public final class ExplorationService {
         let collection = try await createExplorationCollection(
             name: collectionName,
             papers: references,
-            parentCollection: parentCollection
+            parentCollection: effectiveParent
         )
 
-        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(references.count) papers")
+        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(references.count) papers, parent=\(effectiveParent?.name ?? "none")")
 
         // Post notification for sidebar navigation with first publication for auto-selection
         let firstPubID = collection.publications?.first(where: { !$0.isDeleted })?.id
@@ -149,13 +156,16 @@ public final class ExplorationService {
     ///
     /// - Parameters:
     ///   - publication: The publication to explore citations for
-    ///   - parentCollection: Optional parent collection for drill-down hierarchy
+    ///   - parentCollection: Optional parent collection for drill-down hierarchy.
+    ///                       If nil, uses `currentExplorationContext` if set.
     /// - Returns: The created collection containing citing papers
     /// - Throws: ExplorationError if exploration fails
     public func exploreCitations(
         of publication: CDPublication,
         parentCollection: CDCollection? = nil
     ) async throws -> CDCollection {
+        // Use explicit parent, or fall back to current context
+        let effectiveParent = parentCollection ?? currentExplorationContext
         Logger.viewModels.info("ExplorationService: exploring citations of \(publication.citeKey)")
 
         isExploring = true
@@ -193,10 +203,10 @@ public final class ExplorationService {
         let collection = try await createExplorationCollection(
             name: collectionName,
             papers: citations,
-            parentCollection: parentCollection
+            parentCollection: effectiveParent
         )
 
-        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(citations.count) papers")
+        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(citations.count) papers, parent=\(effectiveParent?.name ?? "none")")
 
         // Post notification for sidebar navigation with first publication for auto-selection
         let firstPubID = collection.publications?.first(where: { !$0.isDeleted })?.id
@@ -221,13 +231,16 @@ public final class ExplorationService {
     ///
     /// - Parameters:
     ///   - publication: The publication to find similar papers for
-    ///   - parentCollection: Optional parent collection for drill-down hierarchy
+    ///   - parentCollection: Optional parent collection for drill-down hierarchy.
+    ///                       If nil, uses `currentExplorationContext` if set.
     /// - Returns: The created collection containing similar papers
     /// - Throws: ExplorationError if exploration fails
     public func exploreSimilar(
         of publication: CDPublication,
         parentCollection: CDCollection? = nil
     ) async throws -> CDCollection {
+        // Use explicit parent, or fall back to current context
+        let effectiveParent = parentCollection ?? currentExplorationContext
         Logger.viewModels.info("ExplorationService: exploring similar papers for \(publication.citeKey)")
 
         isExploring = true
@@ -276,10 +289,10 @@ public final class ExplorationService {
         let collection = try await createExplorationCollection(
             name: collectionName,
             papers: similar,
-            parentCollection: parentCollection
+            parentCollection: effectiveParent
         )
 
-        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(similar.count) papers")
+        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(similar.count) papers, parent=\(effectiveParent?.name ?? "none")")
 
         // Post notification for sidebar navigation with first publication for auto-selection
         let firstPubID = collection.publications?.first(where: { !$0.isDeleted })?.id
@@ -303,13 +316,16 @@ public final class ExplorationService {
     ///
     /// - Parameters:
     ///   - publication: The publication to find co-reads for
-    ///   - parentCollection: Optional parent collection for drill-down hierarchy
+    ///   - parentCollection: Optional parent collection for drill-down hierarchy.
+    ///                       If nil, uses `currentExplorationContext` if set.
     /// - Returns: The created collection containing co-read papers
     /// - Throws: ExplorationError if exploration fails
     public func exploreCoReads(
         of publication: CDPublication,
         parentCollection: CDCollection? = nil
     ) async throws -> CDCollection {
+        // Use explicit parent, or fall back to current context
+        let effectiveParent = parentCollection ?? currentExplorationContext
         Logger.viewModels.info("ExplorationService: exploring co-reads for \(publication.citeKey)")
 
         isExploring = true
@@ -358,10 +374,10 @@ public final class ExplorationService {
         let collection = try await createExplorationCollection(
             name: collectionName,
             papers: coReads,
-            parentCollection: parentCollection
+            parentCollection: effectiveParent
         )
 
-        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(coReads.count) papers")
+        Logger.viewModels.info("ExplorationService: created collection '\(collectionName)' with \(coReads.count) papers, parent=\(effectiveParent?.name ?? "none")")
 
         // Post notification for sidebar navigation with first publication for auto-selection
         let firstPubID = collection.publications?.first(where: { !$0.isDeleted })?.id

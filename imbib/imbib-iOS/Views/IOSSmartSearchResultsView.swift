@@ -37,6 +37,9 @@ struct SmartSearchResultsView: View {
             listID: .smartSearch(smartSearch.id),
             filterScope: $filterScope,
             onDelete: { ids in
+                // Remove from local state FIRST to prevent SwiftUI from rendering deleted objects
+                publications.removeAll { ids.contains($0.id) }
+                multiSelection.subtract(ids)
                 await libraryViewModel.delete(ids: ids)
                 await refreshResults()
             },
@@ -126,20 +129,31 @@ struct SmartSearchResultsView: View {
         isRefreshing = true
         defer { isRefreshing = false }
 
-        // Get provider from cache using the app's configured source manager
-        let provider = await SmartSearchProviderCache.shared.getOrCreate(
-            for: smartSearch,
-            sourceManager: searchViewModel.sourceManager,
-            repository: searchViewModel.repository
-        )
+        // Route group feeds to GroupFeedRefreshService for staggered per-author searches
+        if smartSearch.isGroupFeed {
+            do {
+                _ = try await GroupFeedRefreshService.shared.refreshGroupFeed(smartSearch)
+                errorMessage = nil
+            } catch {
+                errorMessage = error.localizedDescription
+                print("Group feed error: \(error)")
+            }
+        } else {
+            // Get provider from cache using the app's configured source manager
+            let provider = await SmartSearchProviderCache.shared.getOrCreate(
+                for: smartSearch,
+                sourceManager: searchViewModel.sourceManager,
+                repository: searchViewModel.repository
+            )
 
-        // Refresh the provider
-        do {
-            try await provider.refresh()
-            errorMessage = nil
-        } catch {
-            errorMessage = error.localizedDescription
-            print("Smart search error: \(error)")
+            // Refresh the provider
+            do {
+                try await provider.refresh()
+                errorMessage = nil
+            } catch {
+                errorMessage = error.localizedDescription
+                print("Smart search error: \(error)")
+            }
         }
 
         // Get publications from the smart search's result collection

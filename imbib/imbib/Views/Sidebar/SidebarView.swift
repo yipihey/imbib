@@ -45,6 +45,7 @@ struct SidebarView: View {
     @State private var explorationRefreshTrigger = UUID()  // Refresh exploration section
     @State private var explorationMultiSelection: Set<UUID> = []  // Multi-selection for bulk delete (Option+click)
     @State private var lastSelectedExplorationID: UUID?  // For Shift+click range selection
+    @State private var expandedExplorationCollections: Set<UUID> = []  // Expanded state for tree disclosure groups
 
     // Section ordering and collapsed state (persisted)
     @State private var sectionOrder: [SidebarSectionType] = SidebarSectionOrderStore.loadOrderSync()
@@ -142,8 +143,21 @@ struct SidebarView: View {
         .onReceive(NotificationCenter.default.publisher(for: .navigateToCollection)) { notification in
             // Navigate to the collection in the sidebar
             if let collection = notification.userInfo?["collection"] as? CDCollection {
+                // Expand all ancestors so the collection is visible in the tree
+                expandAncestors(of: collection)
                 selection = .collection(collection)
                 explorationRefreshTrigger = UUID()
+            }
+        }
+        // Auto-expand ancestors and set exploration context when selection changes
+        .onChange(of: selection) { _, newSelection in
+            if case .collection(let collection) = newSelection {
+                expandAncestors(of: collection)
+                // Set exploration context for building tree hierarchy
+                ExplorationService.shared.currentExplorationContext = collection
+            } else {
+                // Clear exploration context when not viewing an exploration collection
+                ExplorationService.shared.currentExplorationContext = nil
             }
         }
         .id(refreshTrigger)  // Re-render when refreshTrigger changes
@@ -259,11 +273,21 @@ struct SidebarView: View {
             .buttonStyle(.plain)
             .help("Add Library")
         case .exploration:
-            // Show selection count when multi-selected
-            if explorationMultiSelection.count > 1 {
-                Text("\(explorationMultiSelection.count) selected")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+            // Navigation buttons + selection count
+            HStack(spacing: 4) {
+                // Back/forward navigation buttons
+                NavigationButtonBar(
+                    navigationHistory: NavigationHistoryStore.shared,
+                    onBack: { NotificationCenter.default.post(name: .navigateBack, object: nil) },
+                    onForward: { NotificationCenter.default.post(name: .navigateForward, object: nil) }
+                )
+
+                // Show selection count when multi-selected
+                if explorationMultiSelection.count > 1 {
+                    Text("\(explorationMultiSelection.count) selected")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
             }
         default:
             EmptyView()
@@ -422,7 +446,7 @@ struct SidebarView: View {
             explorationSearchRow(smartSearch)
         }
 
-        // Exploration collections (Refs, Cites, Similar, Co-Reads)
+        // Exploration collections (Refs, Cites, Similar, Co-Reads) - hierarchical tree display
         if let library = libraryManager.explorationLibrary,
            let collections = library.collections,
            !collections.isEmpty {
@@ -432,9 +456,21 @@ struct SidebarView: View {
                     .padding(.vertical, 4)
             }
 
-            let flatCollections = flattenedExplorationCollections(from: collections)
-            ForEach(flatCollections, id: \.id) { collection in
-                explorationCollectionRow(collection, allCollections: flatCollections)
+            // Flatten and filter based on expanded state
+            let allCollections = flattenedExplorationCollections(from: collections)
+            let visibleCollections = filterVisibleCollections(allCollections)
+
+            ForEach(visibleCollections, id: \.id) { collection in
+                ExplorationTreeRow(
+                    collection: collection,
+                    allCollections: allCollections,
+                    selection: $selection,
+                    expandedCollections: $expandedExplorationCollections,
+                    multiSelection: $explorationMultiSelection,
+                    lastSelectedID: $lastSelectedExplorationID,
+                    onDelete: deleteExplorationCollection,
+                    onDeleteMultiple: deleteSelectedExplorationCollections
+                )
             }
         }
     }
@@ -567,6 +603,23 @@ struct SidebarView: View {
         return result
     }
 
+    /// Filter flattened collections to show only visible ones based on expanded state.
+    /// A collection is visible if all its ancestors are expanded.
+    private func filterVisibleCollections(_ collections: [CDCollection]) -> [CDCollection] {
+        collections.filter { collection in
+            // Root collections are always visible
+            guard collection.parentCollection != nil else { return true }
+
+            // Check if all ancestors are expanded
+            for ancestor in collection.ancestors {
+                if !expandedExplorationCollections.contains(ancestor.id) {
+                    return false
+                }
+            }
+            return true
+        }
+    }
+
     /// Row for an exploration collection (with tree lines and type-specific icons)
     /// Uses Finder-style selection: Option+click to toggle, Shift+click for range
     @ViewBuilder
@@ -694,6 +747,13 @@ struct SidebarView: View {
 
         libraryManager.deleteExplorationCollection(collection)
         explorationRefreshTrigger = UUID()
+    }
+
+    /// Expand all ancestors of a collection to make it visible in the tree
+    private func expandAncestors(of collection: CDCollection) {
+        for ancestor in collection.ancestors {
+            expandedExplorationCollections.insert(ancestor.id)
+        }
     }
 
     // MARK: - Section Reordering
@@ -1120,7 +1180,7 @@ struct SidebarView: View {
         ForEach(inboxFeeds, id: \.id) { feed in
             HStack {
                 Label(feed.name, systemImage: "antenna.radiowaves.left.and.right")
-                    .help("Papers matching this feed appear in Inbox")
+                    .help(tooltipForFeed(feed))
                 Spacer()
                 // Show unread count for this feed
                 let unreadCount = unreadCountForFeed(feed)
@@ -1142,8 +1202,25 @@ struct SidebarView: View {
                     }
                 }
                 Button("Edit") {
-                    // Navigate to Search section with this feed's query
-                    NotificationCenter.default.post(name: .editSmartSearch, object: feed.id)
+                    // Check feed type and route to appropriate editor
+                    if feed.isGroupFeed {
+                        // Navigate to Group arXiv Feed form
+                        selection = .searchForm(.arxivGroupFeed)
+                        // Delay notification to ensure view is mounted
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            NotificationCenter.default.post(name: .editGroupArXivFeed, object: feed)
+                        }
+                    } else if isArXivCategoryFeed(feed) {
+                        // Navigate to arXiv Feed form
+                        selection = .searchForm(.arxivFeed)
+                        // Delay notification to ensure view is mounted
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            NotificationCenter.default.post(name: .editArXivFeed, object: feed)
+                        }
+                    } else {
+                        // Navigate to Search section with this feed's query
+                        NotificationCenter.default.post(name: .editSmartSearch, object: feed.id)
+                    }
                 }
                 Divider()
                 Button("Remove from Inbox", role: .destructive) {
@@ -1181,6 +1258,65 @@ struct SidebarView: View {
         return publications.filter { !$0.isRead && !$0.isDeleted }.count
     }
 
+    /// Generate tooltip text for a feed
+    private func tooltipForFeed(_ feed: CDSmartSearch) -> String {
+        if feed.isGroupFeed {
+            // Group feed: show authors and categories
+            let authors = feed.groupFeedAuthors()
+            let categories = feed.groupFeedCategories()
+
+            var lines: [String] = []
+
+            if !authors.isEmpty {
+                lines.append("Authors:")
+                for author in authors {
+                    lines.append("  • \(author)")
+                }
+            }
+
+            if !categories.isEmpty {
+                if !lines.isEmpty { lines.append("") }
+                lines.append("Categories:")
+                for category in categories.sorted() {
+                    lines.append("  • \(category)")
+                }
+            }
+
+            return lines.isEmpty ? "Group feed" : lines.joined(separator: "\n")
+        } else if isArXivCategoryFeed(feed) {
+            // arXiv category feed: show categories from query
+            let categories = parseArXivCategories(from: feed.query)
+            if categories.isEmpty {
+                return "arXiv category feed"
+            }
+            var lines = ["Categories:"]
+            for category in categories.sorted() {
+                lines.append("  • \(category)")
+            }
+            return lines.joined(separator: "\n")
+        } else {
+            // Regular smart search: show query
+            return "Query: \(feed.query)"
+        }
+    }
+
+    /// Parse arXiv categories from a category feed query
+    private func parseArXivCategories(from query: String) -> [String] {
+        // Category feeds typically have queries like: cat:astro-ph.GA OR cat:astro-ph.CO
+        var categories: [String] = []
+        let pattern = #"cat:([a-zA-Z\-]+\.[A-Z]+)"#
+        if let regex = try? NSRegularExpression(pattern: pattern, options: []) {
+            let range = NSRange(query.startIndex..., in: query)
+            let matches = regex.matches(in: query, options: [], range: range)
+            for match in matches {
+                if let catRange = Range(match.range(at: 1), in: query) {
+                    categories.append(String(query[catRange]))
+                }
+            }
+        }
+        return categories
+    }
+
     /// Refresh a specific inbox feed
     private func refreshInboxFeed(_ feed: CDSmartSearch) async {
         guard let scheduler = await InboxCoordinator.shared.scheduler else { return }
@@ -1200,6 +1336,21 @@ struct SidebarView: View {
         feed.autoRefreshEnabled = false
         try? feed.managedObjectContext?.save()
         refreshTrigger = UUID()
+    }
+
+    /// Check if a feed is an arXiv category feed (query contains only cat: patterns)
+    private func isArXivCategoryFeed(_ feed: CDSmartSearch) -> Bool {
+        let query = feed.query
+        // arXiv feeds use only "arxiv" source and have cat: patterns in their query
+        guard feed.sources == ["arxiv"] else { return false }
+        guard query.contains("cat:") else { return false }
+
+        // Check that the query is primarily category-based (no search terms like ti:, au:, abs:)
+        let hasSearchTerms = query.contains("ti:") || query.contains("au:") ||
+                             query.contains("abs:") || query.contains("co:") ||
+                             query.contains("jr:") || query.contains("rn:") ||
+                             query.contains("id:") || query.contains("doi:")
+        return !hasSearchTerms
     }
 
     // MARK: - Helpers

@@ -34,6 +34,7 @@ public struct FormattingToolbar: View {
 
     // MARK: - Properties
 
+    @Environment(\.themeColors) private var theme
     @Binding public var text: String
 
     /// Optional: track cursor position for wrap-at-cursor behavior
@@ -131,11 +132,7 @@ public struct FormattingToolbar: View {
             .padding(.horizontal, compact ? 4 : 8)
             .padding(.vertical, compact ? 2 : 4)
         }
-        #if os(macOS)
-        .background(Color(nsColor: .controlBackgroundColor))
-        #else
-        .background(Color(.secondarySystemBackground))
-        #endif
+        .background(theme.contentBackground)
     }
 
     // MARK: - Toolbar Button

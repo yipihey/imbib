@@ -367,6 +367,9 @@ struct IOSLibraryListView: View {
             listID: .library(library.id),
             filterScope: $filterScope,
             onDelete: { ids in
+                // Remove from local state FIRST to prevent SwiftUI from rendering deleted objects
+                publications.removeAll { ids.contains($0.id) }
+                multiSelection.subtract(ids)
                 await libraryViewModel.delete(ids: ids)
                 refreshPublications()
             },

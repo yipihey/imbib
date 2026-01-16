@@ -399,25 +399,36 @@ public final class LibraryViewModel {
         await loadPublications()
     }
 
-    /// Apple Mail-style smart toggle for multiple publications.
-    /// - If ANY are unread → mark ALL as read
-    /// - If ALL are read → mark ALL as unread
+    /// Smart toggle for multiple publications with intuitive behavior:
+    ///
+    /// 1. **All read** → mark ALL as unread
+    /// 2. **All unread** → mark ALL as read
+    /// 3. **Mixed (some read, some unread)** → mark ALL as read (consolidate first)
+    ///
+    /// This provides predictable behavior: mixed selections become uniform on first toggle,
+    /// then alternate between all-read and all-unread on subsequent toggles.
     public func smartToggleReadStatus(_ publicationIDs: Set<UUID>) async {
         let selected = publications.filter { publicationIDs.contains($0.id) }
         guard !selected.isEmpty else { return }
 
-        // Check if any are unread
-        let anyUnread = selected.contains { !$0.isRead }
+        // Determine target state based on current states
+        let allRead = selected.allSatisfy { $0.isRead }
+        let allUnread = selected.allSatisfy { !$0.isRead }
 
-        if anyUnread {
-            // Make all read
-            for pub in selected where !pub.isRead {
+        if allRead {
+            // Case 1: All read → mark all unread
+            for pub in selected {
+                await repository.markAsUnread(pub)
+            }
+        } else if allUnread {
+            // Case 2: All unread → mark all read
+            for pub in selected {
                 await repository.markAsRead(pub)
             }
         } else {
-            // All are read, make all unread
-            for pub in selected {
-                await repository.markAsUnread(pub)
+            // Case 3: Mixed → mark all read (consolidate to uniform state)
+            for pub in selected where !pub.isRead {
+                await repository.markAsRead(pub)
             }
         }
 

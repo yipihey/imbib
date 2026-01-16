@@ -813,6 +813,66 @@ public extension CDSmartSearch {
     var usesAllSources: Bool {
         sources.isEmpty
     }
+
+    // MARK: - Group Feed Support
+
+    /// Whether this smart search is a group feed (monitors multiple authors)
+    var isGroupFeed: Bool {
+        get { query.hasPrefix("GROUP_FEED|") }
+        set {
+            // Setting to true doesn't change the query format
+            // Setting to false could convert the query, but for now we don't support this
+        }
+    }
+
+    /// Parse group feed authors from the query string
+    func groupFeedAuthors() -> [String] {
+        guard isGroupFeed else { return [] }
+
+        let parts = query.dropFirst("GROUP_FEED|".count).components(separatedBy: "|")
+        for part in parts {
+            if part.hasPrefix("authors:") {
+                let authorsString = String(part.dropFirst("authors:".count))
+                return authorsString
+                    .components(separatedBy: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+            }
+        }
+        return []
+    }
+
+    /// Parse group feed categories from the query string
+    func groupFeedCategories() -> Set<String> {
+        guard isGroupFeed else { return [] }
+
+        let parts = query.dropFirst("GROUP_FEED|".count).components(separatedBy: "|")
+        for part in parts {
+            if part.hasPrefix("categories:") {
+                let categoriesString = String(part.dropFirst("categories:".count))
+                let categories = categoriesString
+                    .components(separatedBy: ",")
+                    .map { $0.trimmingCharacters(in: .whitespaces) }
+                    .filter { !$0.isEmpty }
+                return Set(categories)
+            }
+        }
+        return []
+    }
+
+    /// Parse whether cross-listed papers should be included
+    func groupFeedIncludesCrossListed() -> Bool {
+        guard isGroupFeed else { return true }
+
+        let parts = query.dropFirst("GROUP_FEED|".count).components(separatedBy: "|")
+        for part in parts {
+            if part.hasPrefix("crosslist:") {
+                let value = String(part.dropFirst("crosslist:".count))
+                return value == "true"
+            }
+        }
+        return true  // Default to including cross-listed
+    }
 }
 
 // MARK: - Muted Item

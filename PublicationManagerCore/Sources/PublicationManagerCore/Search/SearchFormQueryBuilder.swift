@@ -298,4 +298,50 @@ public enum SearchFormQueryBuilder {
 
         return parts.joined(separator: " ")
     }
+
+    // MARK: - Group Feed Author Query
+
+    /// Build an arXiv API query for a single author in specific categories.
+    ///
+    /// This is used by group feeds to search for papers by individual authors
+    /// within the selected arXiv categories.
+    ///
+    /// - Parameters:
+    ///   - author: The author name to search for
+    ///   - categories: Set of arXiv category IDs (e.g., "astro-ph.GA", "hep-th")
+    ///   - includeCrossListed: Whether to include papers cross-listed to the categories
+    /// - Returns: An arXiv API query string
+    public static func buildArXivAuthorCategoryQuery(
+        author: String,
+        categories: Set<String>,
+        includeCrossListed: Bool
+    ) -> String {
+        var parts: [String] = []
+
+        // Author query
+        let trimmedAuthor = author.trimmingCharacters(in: .whitespaces)
+        if !trimmedAuthor.isEmpty {
+            // Wrap multi-word names in quotes
+            let formattedAuthor = trimmedAuthor.contains(" ") ? "\"\(trimmedAuthor)\"" : trimmedAuthor
+            parts.append("au:\(formattedAuthor)")
+        }
+
+        // Category filter
+        if !categories.isEmpty {
+            let sortedCategories = categories.sorted()
+            let catQuery = sortedCategories.map { "cat:\($0)" }.joined(separator: " OR ")
+            if categories.count > 1 {
+                parts.append("(\(catQuery))")
+            } else {
+                parts.append(catQuery)
+            }
+        }
+
+        // Combine with AND
+        if parts.count > 1 {
+            return parts.joined(separator: " AND ")
+        } else {
+            return parts.joined(separator: " ")
+        }
+    }
 }

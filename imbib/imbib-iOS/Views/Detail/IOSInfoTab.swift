@@ -145,7 +145,7 @@ struct IOSInfoTab: View {
             Text("Abstract")
                 .font(.headline)
 
-            AbstractRenderer(text: abstract, fontSize: 14, textColor: .secondary)
+            MathJaxAbstractView(text: abstract, fontSize: 14, textColor: .secondary)
         }
     }
 

@@ -39,6 +39,7 @@ public actor EnrichmentCoordinator {
 
     private let service: EnrichmentService
     private let repository: PublicationRepository
+    private let adsSource: ADSSource
     private var isStarted = false
 
     /// Public access to the enrichment service for citation explorer and other features
@@ -56,6 +57,7 @@ public actor EnrichmentCoordinator {
 
         // Create enrichment plugins - ADS only
         let ads = ADSSource(credentialManager: credentialManager)
+        self.adsSource = ads
 
         // Create service with ADS plugin for references/citations
         self.service = EnrichmentService(
@@ -170,6 +172,58 @@ public actor EnrichmentCoordinator {
     /// Check if background sync is running.
     public var isRunning: Bool {
         get async { await service.isRunning }
+    }
+
+    // MARK: - Immediate Batch Enrichment
+
+    /// Immediately enrich a batch of papers with ADS data.
+    ///
+    /// This is used for arXiv feed imports where we want quick bibcode resolution
+    /// to enable Similar Papers and Co-read features. Uses a single ADS API call
+    /// for up to 50 papers (much more efficient than individual calls).
+    ///
+    /// - Parameter papers: Publications to enrich (must have arXiv IDs)
+    /// - Returns: Number of papers successfully enriched
+    @discardableResult
+    public func enrichBatchImmediately(_ papers: [CDPublication]) async -> Int {
+        // Filter to papers with arXiv IDs that haven't been enriched yet
+        let arxivPapers = papers.filter { paper in
+            paper.fields["eprint"] != nil && paper.bibcodeNormalized == nil
+        }
+
+        guard !arxivPapers.isEmpty else {
+            Logger.enrichment.debug("No papers need immediate ADS enrichment")
+            return 0
+        }
+
+        Logger.enrichment.infoCapture(
+            "Immediate ADS enrichment: \(arxivPapers.count) papers with arXiv IDs",
+            category: "enrichment"
+        )
+
+        // Build batch request with identifiers
+        let requests: [(publicationID: UUID, identifiers: [IdentifierType: String])] = arxivPapers.map { paper in
+            (paper.id, paper.enrichmentIdentifiers)
+        }
+
+        // Use ADS batch enrichment (single API call)
+        let results = await adsSource.enrichBatch(requests: requests)
+
+        // Save successful results
+        var successCount = 0
+        for (pubID, result) in results {
+            if case .success(let enrichment) = result {
+                await repository.saveEnrichmentResult(publicationID: pubID, result: enrichment)
+                successCount += 1
+            }
+        }
+
+        Logger.enrichment.infoCapture(
+            "Immediate ADS enrichment complete: \(successCount)/\(arxivPapers.count) papers resolved",
+            category: "enrichment"
+        )
+
+        return successCount
     }
 }
 

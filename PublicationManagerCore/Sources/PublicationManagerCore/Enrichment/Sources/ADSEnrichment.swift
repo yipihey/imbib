@@ -113,9 +113,19 @@ extension ADSSource: EnrichmentPlugin {
 
         await rateLimiter.waitIfNeeded()
 
+        // Build the query - don't add bibcode: prefix if query already has a prefix
+        let query: String
+        if bibcodeQuery.hasPrefix("arXiv:") || bibcodeQuery.hasPrefix("doi:") {
+            // Use identifier: for arXiv and doi lookups
+            query = "identifier:\(bibcodeQuery)"
+        } else {
+            // Direct bibcode lookup
+            query = "bibcode:\(bibcodeQuery)"
+        }
+
         var components = URLComponents(string: "\(baseURL)/search/query")!
         components.queryItems = [
-            URLQueryItem(name: "q", value: "bibcode:\(bibcodeQuery)"),
+            URLQueryItem(name: "q", value: query),
             // Include esources, doi, identifier for PDF link discovery
             URLQueryItem(name: "fl", value: "bibcode,citation_count,abstract,[citations],reference,esources,doi,identifier"),
             URLQueryItem(name: "rows", value: "1"),
@@ -435,12 +445,22 @@ extension ADSSource: EnrichmentPlugin {
             return "doi:\"\(doi)\""
         }
 
-        // arXiv search
+        // arXiv search - strip version suffix (e.g., "2511.08706v1" → "2511.08706")
         if let arxiv = identifiers[.arxiv] {
-            return "arXiv:\(arxiv)"
+            let strippedArxiv = stripArxivVersion(arxiv)
+            return "arXiv:\(strippedArxiv)"
         }
 
         throw EnrichmentError.noIdentifier
+    }
+
+    /// Strip version suffix from arXiv ID (e.g., "2511.08706v1" → "2511.08706")
+    private func stripArxivVersion(_ arxivID: String) -> String {
+        // Match pattern: digits followed by v and more digits at the end
+        if let range = arxivID.range(of: #"v\d+$"#, options: .regularExpression) {
+            return String(arxivID[..<range.lowerBound])
+        }
+        return arxivID
     }
 
 }

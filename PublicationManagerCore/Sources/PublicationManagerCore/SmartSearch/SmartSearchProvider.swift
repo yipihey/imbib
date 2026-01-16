@@ -109,6 +109,17 @@ public actor SmartSearchProvider {
     ///
     /// Uses batch Core Data operations for performance: 2-3 saves instead of 100+.
     public func refresh() async throws {
+        // Safety check: Group feeds must be routed to GroupFeedRefreshService
+        // If this query slipped through, something went wrong in the routing logic
+        if query.hasPrefix("GROUP_FEED|") {
+            Logger.smartSearch.errorCapture(
+                "⚠️ Group feed '\(name)' incorrectly routed to SmartSearchProvider. " +
+                "This should use GroupFeedRefreshService instead.",
+                category: "smartsearch"
+            )
+            throw SmartSearchError.groupFeedMisrouted(name: name)
+        }
+
         let startTime = CFAbsoluteTimeGetCurrent()
         Logger.smartSearch.infoCapture("Executing smart search '\(name)': \(query)", category: "smartsearch")
         _isLoading = true
@@ -525,5 +536,19 @@ public struct SmartSearchDefinition: Sendable, Identifiable, Codable, Hashable {
         self.dateCreated = entity.dateCreated
         self.dateLastExecuted = entity.dateLastExecuted
         self.order = Int(entity.order)
+    }
+}
+
+// MARK: - Smart Search Error
+
+/// Errors that can occur during smart search operations.
+public enum SmartSearchError: LocalizedError {
+    case groupFeedMisrouted(name: String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .groupFeedMisrouted(let name):
+            return "Group feed '\(name)' was incorrectly routed to SmartSearchProvider. Use GroupFeedRefreshService instead."
+        }
     }
 }

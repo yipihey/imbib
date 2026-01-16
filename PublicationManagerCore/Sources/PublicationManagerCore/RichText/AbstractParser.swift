@@ -47,16 +47,19 @@ public enum AbstractParser {
 
     /// Parse abstract text into segments for rendering.
     public static func parse(_ text: String) -> [AbstractSegment] {
-        // Step 1: Convert MathML to LaTeX
-        var processed = MathMLToLaTeX.convert(text)
+        // Step 1: Normalize arXiv/JSON escaping (\\beta → \beta, \\[ → [, etc.)
+        var processed = normalizeArXivEscaping(text)
 
-        // Step 2: Decode HTML entities
+        // Step 2: Convert MathML to LaTeX
+        processed = MathMLToLaTeX.convert(processed)
+
+        // Step 3: Decode HTML entities
         processed = decodeHTMLEntities(processed)
 
-        // Step 3: Convert HTML sub/sup to LaTeX
+        // Step 4: Convert HTML sub/sup to LaTeX
         processed = convertHTMLSubSup(processed)
 
-        // Step 4: Parse into segments (text vs math)
+        // Step 5: Parse into segments (text vs math)
         return parseSegments(processed)
     }
 
@@ -67,6 +70,126 @@ public enum AbstractParser {
         text.contains("\\[") ||
         text.contains("<mml:") ||
         text.contains("<inline-formula")
+    }
+
+    // MARK: - ArXiv Escaping Normalization
+
+    /// Normalize arXiv/JSON-style double-escaping to proper LaTeX.
+    ///
+    /// ArXiv abstracts from API responses often have:
+    /// - `\\beta` instead of `\beta` (JSON escaping)
+    /// - `\[` for literal brackets inside `$...$`
+    /// - `\_` for underscores
+    /// - `\\,` for thin spaces
+    ///
+    /// This function normalizes these to standard LaTeX.
+    private static func normalizeArXivEscaping(_ text: String) -> String {
+        var result = text
+
+        // First, process math regions to handle \[ and \] as literal brackets inside $...$
+        // We need to be careful: \[ and \] at the TOP level are display math delimiters,
+        // but inside $...$ they should be literal brackets.
+        result = normalizeBracketsInMathMode(result)
+
+        // Common LaTeX commands that get double-escaped in JSON
+        // Convert \\command to \command
+        let latexCommands = [
+            "alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta",
+            "iota", "kappa", "lambda", "mu", "nu", "xi", "pi", "rho", "sigma",
+            "tau", "upsilon", "phi", "chi", "psi", "omega",
+            "Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta", "Eta", "Theta",
+            "Iota", "Kappa", "Lambda", "Mu", "Nu", "Xi", "Pi", "Rho", "Sigma",
+            "Tau", "Upsilon", "Phi", "Chi", "Psi", "Omega",
+            "pm", "mp", "times", "div", "cdot", "ast", "star", "circ", "bullet",
+            "oplus", "otimes", "odot", "oslash", "ominus",
+            "le", "ge", "leq", "geq", "ll", "gg", "subset", "supset", "subseteq", "supseteq",
+            "in", "notin", "ni", "forall", "exists", "neg", "land", "lor",
+            "cap", "cup", "setminus", "emptyset", "varnothing",
+            "equiv", "sim", "simeq", "approx", "cong", "neq", "ne", "propto", "doteq",
+            "infty", "nabla", "partial", "prime",
+            "sum", "prod", "int", "oint", "iint", "iiint",
+            "lim", "sup", "inf", "max", "min", "arg", "det", "dim", "ker", "hom",
+            "sin", "cos", "tan", "cot", "sec", "csc", "arcsin", "arccos", "arctan",
+            "sinh", "cosh", "tanh", "coth", "log", "ln", "exp", "lg",
+            "sqrt", "frac", "tfrac", "dfrac", "binom", "tbinom", "dbinom",
+            "overline", "underline", "widehat", "widetilde", "hat", "tilde", "bar", "vec", "dot", "ddot",
+            "left", "right", "big", "Big", "bigg", "Bigg",
+            "text", "mathrm", "mathbf", "mathit", "mathsf", "mathtt", "mathcal", "mathbb", "mathfrak",
+            "hspace", "vspace", "quad", "qquad", "hfill", "vfill",
+            "over", "atop", "above", "choose",
+            "to", "rightarrow", "leftarrow", "Rightarrow", "Leftarrow", "leftrightarrow", "Leftrightarrow",
+            "uparrow", "downarrow", "Uparrow", "Downarrow",
+            "cdots", "ldots", "vdots", "ddots",
+        ]
+
+        for cmd in latexCommands {
+            // Replace \\cmd with \cmd (but not \\\cmd which would be escaped backslash + cmd)
+            // Use word boundary to avoid partial matches
+            result = result.replacingOccurrences(
+                of: "\\\\\(cmd)(?![a-zA-Z])",
+                with: "\\\(cmd)",
+                options: .regularExpression
+            )
+        }
+
+        // Handle spacing commands: \\, \\; \\: \\! \\ (space)
+        result = result.replacingOccurrences(of: "\\\\,", with: "\\,")
+        result = result.replacingOccurrences(of: "\\\\;", with: "\\;")
+        result = result.replacingOccurrences(of: "\\\\:", with: "\\:")
+        result = result.replacingOccurrences(of: "\\\\!", with: "\\!")
+        result = result.replacingOccurrences(of: "\\\\ ", with: "\\ ")
+
+        // Handle escaped underscore: \_ → _ (in math mode, _ is already subscript)
+        result = result.replacingOccurrences(of: "\\_", with: "_")
+
+        // Handle escaped braces: \\{ → \{ and \\} → \}
+        result = result.replacingOccurrences(of: "\\\\{", with: "\\{")
+        result = result.replacingOccurrences(of: "\\\\}", with: "\\}")
+
+        return result
+    }
+
+    /// Convert \[ and \] to literal brackets when inside $...$ math regions.
+    private static func normalizeBracketsInMathMode(_ text: String) -> String {
+        var result = ""
+        var index = text.startIndex
+        var inMathMode = false
+
+        while index < text.endIndex {
+            // Check for $$ (display math delimiter)
+            if text[index...].hasPrefix("$$") {
+                result.append(contentsOf: "$$")
+                index = text.index(index, offsetBy: 2)
+                continue
+            }
+
+            // Check for $ (toggle inline math mode)
+            if text[index] == "$" {
+                inMathMode.toggle()
+                result.append("$")
+                index = text.index(after: index)
+                continue
+            }
+
+            // If in math mode, convert \[ and \] to [ and ]
+            if inMathMode {
+                if text[index...].hasPrefix("\\[") {
+                    result.append("[")
+                    index = text.index(index, offsetBy: 2)
+                    continue
+                }
+                if text[index...].hasPrefix("\\]") {
+                    result.append("]")
+                    index = text.index(index, offsetBy: 2)
+                    continue
+                }
+            }
+
+            result.append(text[index])
+            index = text.index(after: index)
+        }
+
+        return result
     }
 
     // MARK: - HTML Entity Decoding

@@ -118,72 +118,44 @@ struct DetailView: View {
         // This prevents SwiftUI from doing expensive diffing when switching papers.
         let pubID = publication?.id
 
-        return TabView(selection: $selectedTab) {
-            // OPTIMIZATION: Lazy tab construction - only render the selected tab.
-            // Previously all 4 tabs were created upfront even when not visible.
-            Group {
-                if selectedTab == .info {
-                    InfoTab(paper: paper, publication: publication)
-                        .onAppear {
-                            let elapsed = (CFAbsoluteTimeGetCurrent() - bodyStart) * 1000
-                            logger.info("⏱ DetailView.body → InfoTab.onAppear: \(elapsed, format: .fixed(precision: 1))ms")
-                        }
-                } else {
-                    // Placeholder for non-selected tab
-                    Color.clear
-                }
-            }
-            .id(pubID)  // Stable identity per publication
-            .tabItem { Label("Info", systemImage: "info.circle") }
-            .tag(DetailTab.info)
-            .help("Publication details and abstract")
-
-            Group {
-                if selectedTab == .bibtex {
-                    BibTeXTab(paper: paper, publication: publication, publications: publication.map { [$0] } ?? [])
-                } else {
-                    Color.clear
-                }
-            }
-            .id(pubID)
-            .tabItem { Label("BibTeX", systemImage: "chevron.left.forwardslash.chevron.right") }
-            .tag(DetailTab.bibtex)
-            .help("View and edit citation")
-
-            Group {
-                if selectedTab == .pdf {
-                    PDFTab(paper: paper, publication: publication, selectedTab: $selectedTab, isMultiSelection: isMultiSelection)
-                } else {
-                    Color.clear
-                }
-            }
-            .id(pubID)
-            .tabItem { Label("PDF", systemImage: "doc.richtext") }
-            .tag(DetailTab.pdf)
-            .help("View attached PDF")
-
-            // Notes tab only for persistent papers
-            if canEdit, let pub = publication {
-                Group {
-                    if selectedTab == .notes {
-                        NotesTab(publication: pub)
-                    } else {
-                        Color.clear
+        // Tab content with toolbar in proper position
+        return Group {
+            switch selectedTab {
+            case .info:
+                InfoTab(paper: paper, publication: publication)
+                    .onAppear {
+                        let elapsed = (CFAbsoluteTimeGetCurrent() - bodyStart) * 1000
+                        logger.info("⏱ DetailView.body → InfoTab.onAppear: \(elapsed, format: .fixed(precision: 1))ms")
                     }
+            case .bibtex:
+                BibTeXTab(paper: paper, publication: publication, publications: publication.map { [$0] } ?? [])
+            case .pdf:
+                PDFTab(paper: paper, publication: publication, selectedTab: $selectedTab, isMultiSelection: isMultiSelection)
+            case .notes:
+                if let pub = publication {
+                    NotesTab(publication: pub)
+                } else {
+                    Color.clear
                 }
-                .id(pubID)
-                .tabItem { Label("Notes", systemImage: "note.text") }
-                .tag(DetailTab.notes)
-                .help("Reading notes")
             }
         }
-        .navigationTitle(paper.title)
+        .id(pubID)  // Stable identity per publication
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         #if os(macOS)
-        .navigationSubtitle(navigationSubtitle)
-        #endif
+        // macOS: Use window toolbar for proper positioning at top
         .toolbar {
-            toolbarContent
+            ToolbarItemGroup(placement: .automatic) {
+                tabPickerToolbarContent
+            }
         }
+        #else
+        // iOS: Use inline toolbar
+        .safeAreaInset(edge: .top, spacing: 0) {
+            detailToolbar
+        }
+        #endif
+        // Match the paper title to the navigation bar
+        .navigationTitle(paper.title)
         .task(id: publication?.id) {
             // Auto-mark as read after brief delay (Apple Mail style)
             await autoMarkAsRead()
@@ -255,51 +227,49 @@ struct DetailView: View {
         return subtitle
     }
 
-    // MARK: - Toolbar
+    // MARK: - macOS Toolbar Content
 
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup {
-            // Download PDFs button (multi-selection mode)
-            if isMultiSelection, let onDownloadPDFs = onDownloadPDFs {
-                Button {
-                    onDownloadPDFs()
-                } label: {
-                    Label("Download PDFs (\(selectedPublicationIDs.count))", systemImage: "arrow.down.doc")
-                }
-                .help("Download PDFs for all selected papers")
+    #if os(macOS)
+    /// Tab picker and action buttons for the macOS window toolbar
+    @ViewBuilder
+    private var tabPickerToolbarContent: some View {
+        // Tab Picker (no background - buttons appear directly on toolbar)
+        HStack(spacing: 2) {
+            tabButton(tab: .info, label: "Info", icon: "info.circle")
+            tabButton(tab: .bibtex, label: "BibTeX", icon: "chevron.left.forwardslash.chevron.right")
+            tabButton(tab: .pdf, label: "PDF", icon: "doc.richtext")
+            if canEdit {
+                tabButton(tab: .notes, label: "Notes", icon: "note.text")
             }
+        }
 
-            // Open PDF button (for papers with PDF)
-            if paper.hasPDF {
-                Button {
-                    openPDF()
-                } label: {
-                    Label("Open PDF", systemImage: "doc.richtext")
-                }
-                .help("Open PDF with default app")
-            }
+        Spacer()
 
-            // Copy BibTeX button
+        // Action buttons (compact, smaller icons)
+        HStack(spacing: 6) {
+            // Copy BibTeX
             Button {
                 copyBibTeX()
             } label: {
-                Label("Copy BibTeX", systemImage: "doc.on.doc")
+                Image(systemName: "doc.on.doc")
+                    .font(.caption)
             }
-            .help("Copy citation to clipboard")
+            .buttonStyle(.borderless)
+            .help("Copy BibTeX to clipboard")
 
-            // Open in Browser (for papers with web URL)
+            // Open in Browser
             if let webURL = publication?.webURLObject {
                 Link(destination: webURL) {
-                    Label("Open in Browser", systemImage: "safari")
+                    Image(systemName: "link")
+                        .font(.caption)
                 }
+                .buttonStyle(.borderless)
                 .help("Open paper's web page")
             }
 
-            // Share menu (for library papers)
+            // Share menu
             if let pub = publication {
                 Menu {
-                    // Quick share (text only - for iMessage, WhatsApp, etc.)
                     ShareLink(
                         item: shareText(for: pub),
                         subject: Text(pub.title ?? "Paper"),
@@ -310,7 +280,6 @@ struct DetailView: View {
 
                     Divider()
 
-                    // Copy actions
                     Button {
                         copyBibTeX()
                     } label: {
@@ -323,21 +292,150 @@ struct DetailView: View {
                         Label("Copy Link", systemImage: "link")
                     }
 
-                    #if os(macOS)
                     Divider()
 
-                    // Email with attachments (macOS only)
                     Button {
                         shareViaEmail(pub)
                     } label: {
                         Label("Email with PDF & BibTeX...", systemImage: "envelope.badge.fill")
                     }
-                    .disabled(pub.linkedFiles?.isEmpty ?? true)
-                    #endif
                 } label: {
-                    Label("Share", systemImage: "square.and.arrow.up")
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.caption)
                 }
-                .help("Share or export reference")
+                .menuStyle(.borderlessButton)
+                .help("Share options")
+            }
+        }
+    }
+    #endif
+
+    // MARK: - Inline Toolbar
+
+    /// Compact toolbar at the top of the detail view (both platforms)
+    private var detailToolbar: some View {
+        HStack(spacing: 8) {
+            // Tab Picker (no background - buttons appear directly)
+            HStack(spacing: 2) {
+                tabButton(tab: .info, label: "Info", icon: "info.circle")
+                tabButton(tab: .bibtex, label: "BibTeX", icon: "chevron.left.forwardslash.chevron.right")
+                tabButton(tab: .pdf, label: "PDF", icon: "doc.richtext")
+                if canEdit {
+                    tabButton(tab: .notes, label: "Notes", icon: "note.text")
+                }
+            }
+
+            Spacer()
+
+            // Action buttons (compact, smaller icons)
+            HStack(spacing: 6) {
+                // Copy BibTeX
+                Button {
+                    copyBibTeX()
+                } label: {
+                    Image(systemName: "doc.on.doc")
+                        .font(.caption)
+                }
+                .buttonStyle(.borderless)
+                .help("Copy BibTeX to clipboard")
+
+                // Open in Browser
+                if let webURL = publication?.webURLObject {
+                    Link(destination: webURL) {
+                        Image(systemName: "link")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Open paper's web page")
+                }
+
+                // Share menu
+                if let pub = publication {
+                    Menu {
+                        ShareLink(
+                            item: shareText(for: pub),
+                            subject: Text(pub.title ?? "Paper"),
+                            message: Text(shareText(for: pub))
+                        ) {
+                            Label("Share Text...", systemImage: "text.bubble")
+                        }
+
+                        Divider()
+
+                        Button {
+                            copyBibTeX()
+                        } label: {
+                            Label("Copy BibTeX", systemImage: "doc.on.doc")
+                        }
+
+                        Button {
+                            copyLink(for: pub)
+                        } label: {
+                            Label("Copy Link", systemImage: "link")
+                        }
+
+                        #if os(macOS)
+                        Divider()
+
+                        Button {
+                            shareViaEmail(pub)
+                        } label: {
+                            Label("Email with PDF & BibTeX...", systemImage: "envelope.badge.fill")
+                        }
+                        #endif
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.caption)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .help("Share options")
+                }
+            }
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background {
+            // Match list header background using theme colors
+            if let tint = theme.listBackgroundTint {
+                tint.opacity(theme.listBackgroundTintOpacity)
+            } else {
+                Color.clear
+            }
+        }
+    }
+
+    /// Individual tab button for the compact tab picker
+    private func tabButton(tab: DetailTab, label: String, icon: String) -> some View {
+        Button {
+            selectedTab = tab
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: icon)
+                    .font(.system(size: 10))
+                Text(label)
+                    .font(.system(size: 11))
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(selectedTab == tab ? Color.accentColor.opacity(0.2) : Color.clear)
+            .foregroundStyle(selectedTab == tab ? Color.accentColor : Color.primary)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Window Toolbar (for multi-selection mode only)
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        // Only show window toolbar items in multi-selection mode
+        if isMultiSelection, let onDownloadPDFs = onDownloadPDFs {
+            ToolbarItemGroup {
+                Button {
+                    onDownloadPDFs()
+                } label: {
+                    Label("Download PDFs (\(selectedPublicationIDs.count))", systemImage: "arrow.down.doc")
+                }
+                .help("Download PDFs for all selected papers")
             }
         }
     }
@@ -620,14 +718,8 @@ struct InfoTab: View {
 
                     // MARK: - Abstract (Body)
                     if let abstract = paper.abstract, !abstract.isEmpty {
-                        let parseStart = CFAbsoluteTimeGetCurrent()
-                        let abstractView = AbstractRenderer(text: abstract, fontSize: 14)
-                        let parseElapsed = (CFAbsoluteTimeGetCurrent() - parseStart) * 1000
-                        let _ = infoTabLogger.info("⏱ AbstractRenderer: \(parseElapsed, format: .fixed(precision: 1))ms (\(abstract.count) chars)")
-
                         infoSection("Abstract") {
-                            abstractView
-                                .textSelection(.enabled)
+                            MathJaxAbstractView(text: abstract, fontSize: 14)
                         }
                         Divider()
                     }
@@ -759,7 +851,7 @@ struct InfoTab: View {
 
             // Subject: Title
             infoRow("Subject") {
-                AbstractRenderer(text: paper.title, fontSize: 16)
+                Text(paper.title)
                     .textSelection(.enabled)
             }
 
@@ -2306,6 +2398,7 @@ struct NotesTab: View {
 
     @Environment(LibraryViewModel.self) private var viewModel
     @Environment(LibraryManager.self) private var libraryManager
+    @Environment(\.themeColors) private var theme
     @AppStorage("notesPosition") private var notesPositionRaw: String = "below"
     @AppStorage("notesPanelSize") private var notesPanelSize: Double = 400  // ~60 chars at 13pt monospace
     @AppStorage("notesPanelCollapsed") private var isNotesPanelCollapsed = false
@@ -2502,6 +2595,7 @@ struct NotesPanel: View {
     let orientation: NotesPanelOrientation
 
     @Environment(LibraryViewModel.self) private var viewModel
+    @Environment(\.themeColors) private var theme
     @State private var isResizing = false
     @State private var isEditingFreeformNotes = false  // Controls edit vs preview mode
     @FocusState private var isFreeformNotesFocused: Bool  // Controls TextEditor focus
@@ -2555,11 +2649,7 @@ struct NotesPanel: View {
                 .frame(width: isCollapsed ? headerSize : size)
             }
         }
-        #if os(macOS)
-        .background(Color(nsColor: .controlBackgroundColor))
-        #else
-        .background(Color(.secondarySystemBackground))
-        #endif
+        .background(theme.contentBackground)
         .task {
             // Load annotation field settings
             annotationSettings = await QuickAnnotationSettingsStore.shared.settings
@@ -2745,11 +2835,7 @@ struct NotesPanel: View {
                 .lineLimit(1)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 3)
-                #if os(macOS)
-                .background(Color(nsColor: .textBackgroundColor))
-                #else
-                .background(Color(.systemBackground))
-                #endif
+                .background(theme.contentBackground)
                 .cornerRadius(3)
         }
     }
@@ -2794,17 +2880,13 @@ struct NotesPanel: View {
                     CompactFormattingBar(text: $freeformNotes)
                         .cornerRadius(4)
 
-                    // Text editor
+                    // Text editor with theme background
                     TextEditor(text: $freeformNotes)
                         .font(.system(size: 13, design: .monospaced))
                         .frame(minHeight: 80)
                         .scrollContentBackground(.hidden)
                         .padding(6)
-                        #if os(macOS)
-                        .background(Color(nsColor: .textBackgroundColor))
-                        #else
-                        .background(Color(.systemBackground))
-                        #endif
+                        .background(theme.contentBackground)
                         .focused($isFreeformNotesFocused)
                         .onChange(of: freeformNotes) { _, _ in
                             scheduleSave()
@@ -2844,11 +2926,7 @@ struct NotesPanel: View {
                         .padding(.horizontal, 6)
                         .padding(.bottom, 6)
                 }
-                #if os(macOS)
-                .background(Color(nsColor: .textBackgroundColor))
-                #else
-                .background(Color(.systemBackground))
-                #endif
+                .background(theme.contentBackground)
                 .cornerRadius(4)
                 .overlay(
                     RoundedRectangle(cornerRadius: 4)

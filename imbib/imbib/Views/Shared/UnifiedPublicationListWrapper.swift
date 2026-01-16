@@ -106,16 +106,29 @@ struct UnifiedPublicationListWrapper: View {
 
     // MARK: - Computed Properties
 
+    /// Check if the source (library or smart search) is still valid (not deleted)
+    private var isSourceValid: Bool {
+        switch source {
+        case .library(let library):
+            return library.managedObjectContext != nil && !library.isDeleted
+        case .smartSearch(let smartSearch):
+            return smartSearch.managedObjectContext != nil && !smartSearch.isDeleted
+        }
+    }
+
     private var navigationTitle: String {
         switch source {
         case .library(let library):
+            guard library.managedObjectContext != nil else { return "" }
             return filterMode == .unread ? "Unread" : library.displayName
         case .smartSearch(let smartSearch):
+            guard smartSearch.managedObjectContext != nil else { return "" }
             return smartSearch.name
         }
     }
 
     private var currentLibrary: CDLibrary? {
+        guard isSourceValid else { return nil }
         switch source {
         case .library(let library):
             return library
@@ -155,6 +168,7 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Check if we're viewing the Inbox library or an Inbox feed
     private var isInboxView: Bool {
+        guard isSourceValid else { return false }
         switch source {
         case .library(let library):
             return library.isInbox
@@ -165,7 +179,12 @@ struct UnifiedPublicationListWrapper: View {
     }
 
     var body: some View {
-        bodyContent
+        // Guard against deleted source - return empty view to prevent crash
+        if !isSourceValid {
+            Color.clear
+        } else {
+            bodyContent
+        }
     }
 
     /// Main body content separated to help compiler type-checking
@@ -294,6 +313,11 @@ struct UnifiedPublicationListWrapper: View {
             disableUnreadFilter: false,
             filterScope: $filterScope,
             onDelete: { ids in
+                // Remove from local state FIRST to prevent SwiftUI from rendering deleted objects
+                publications.removeAll { ids.contains($0.id) }
+                // Clear selection for deleted items
+                selectedPublicationIDs.subtract(ids)
+                // Then delete from Core Data
                 await libraryViewModel.delete(ids: ids)
                 refreshPublicationsList()
             },
@@ -354,7 +378,12 @@ struct UnifiedPublicationListWrapper: View {
             } : nil,
             onMutePaper: isInboxView ? { publication in
                 mutePaper(publication)
-            } : nil
+            } : nil,
+            // Refresh callback (shown as small button in list header)
+            onRefresh: {
+                await refreshFromNetwork()
+            },
+            isRefreshing: isLoading || isBackgroundRefreshing
         )
     }
 
@@ -362,32 +391,11 @@ struct UnifiedPublicationListWrapper: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        // Note: All/Unread filter removed from toolbar (use Cmd+\ to toggle)
-
-        // Refresh button (both sources) with background refresh indicator
+        // Toolbar is now mostly empty - refresh moved to inline toolbar in list view
+        // EmptyView is needed for the ToolbarContentBuilder
         ToolbarItem(placement: .automatic) {
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-            } else if isBackgroundRefreshing {
-                // Subtle indicator for background refresh (non-blocking)
-                HStack(spacing: 4) {
-                    ProgressView()
-                        .controlSize(.mini)
-                    Text("Refreshing...")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                Button {
-                    Task { await refreshFromNetwork() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .help(source.isLibrary ? "Refresh library" : "Refresh search results")
-            }
+            EmptyView()
         }
-
     }
 
     // MARK: - Data Refresh
@@ -409,6 +417,10 @@ struct UnifiedPublicationListWrapper: View {
     /// Simplified: All papers in a library are in `library.publications`.
     /// No merge logic needed - smart search results are added to the library relationship.
     private func refreshCurrentScopePublications() {
+        guard isSourceValid else {
+            publications = []
+            return
+        }
         switch source {
         case .library(let library):
             // Simple: just use the library's publications relationship
@@ -489,6 +501,11 @@ struct UnifiedPublicationListWrapper: View {
 
     /// Refresh from network (async operation with loading state)
     private func refreshFromNetwork() async {
+        guard isSourceValid else {
+            isLoading = false
+            return
+        }
+
         // Reset snapshot on explicit refresh (Apple Mail behavior)
         unreadFilterSnapshot = nil
 
@@ -507,23 +524,40 @@ struct UnifiedPublicationListWrapper: View {
 
         case .smartSearch(let smartSearch):
             logger.info("Smart search refresh requested for: \(smartSearch.name)")
-            let cachedProvider = await SmartSearchProviderCache.shared.getOrCreate(
-                for: smartSearch,
-                sourceManager: searchViewModel.sourceManager,
-                repository: libraryViewModel.repository
-            )
-            provider = cachedProvider
 
-            do {
-                try await cachedProvider.refresh()
-                await MainActor.run {
-                    SmartSearchRepository.shared.markExecuted(smartSearch)
-                    refreshPublicationsList()
+            // Route group feeds to GroupFeedRefreshService for staggered per-author searches
+            if smartSearch.isGroupFeed {
+                logger.info("Routing group feed '\(smartSearch.name)' to GroupFeedRefreshService")
+                do {
+                    _ = try await GroupFeedRefreshService.shared.refreshGroupFeed(smartSearch)
+                    await MainActor.run {
+                        refreshPublicationsList()
+                    }
+                    logger.info("Group feed refresh completed for '\(smartSearch.name)'")
+                } catch {
+                    logger.error("Group feed refresh failed: \(error.localizedDescription)")
+                    self.error = error
                 }
-                logger.info("Smart search refresh completed")
-            } catch {
-                logger.error("Smart search refresh failed: \(error.localizedDescription)")
-                self.error = error
+            } else {
+                // Regular smart search - use provider
+                let cachedProvider = await SmartSearchProviderCache.shared.getOrCreate(
+                    for: smartSearch,
+                    sourceManager: searchViewModel.sourceManager,
+                    repository: libraryViewModel.repository
+                )
+                provider = cachedProvider
+
+                do {
+                    try await cachedProvider.refresh()
+                    await MainActor.run {
+                        SmartSearchRepository.shared.markExecuted(smartSearch)
+                        refreshPublicationsList()
+                    }
+                    logger.info("Smart search refresh completed")
+                } catch {
+                    logger.error("Smart search refresh failed: \(error.localizedDescription)")
+                    self.error = error
+                }
             }
         }
 
@@ -535,6 +569,9 @@ struct UnifiedPublicationListWrapper: View {
     /// This does NOT block the UI - cached results are shown immediately while
     /// the refresh happens in the background via SmartSearchRefreshService.
     private func queueBackgroundRefreshIfNeeded(_ smartSearch: CDSmartSearch) async {
+        // Guard against deleted smart search
+        guard smartSearch.managedObjectContext != nil, !smartSearch.isDeleted else { return }
+
         // Get provider to check staleness
         let cachedProvider = await SmartSearchProviderCache.shared.getOrCreate(
             for: smartSearch,
@@ -836,6 +873,7 @@ struct UnifiedPublicationListWrapper: View {
     /// Capture current unread publication IDs for Apple Mail-style snapshot.
     /// Items in the snapshot stay visible even after being marked as read.
     private func captureUnreadSnapshot() -> Set<UUID> {
+        guard isSourceValid else { return [] }
         switch source {
         case .library(let library):
             let unread = (library.publications ?? [])

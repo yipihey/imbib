@@ -80,17 +80,25 @@ struct MathViewRepresentable: NSViewRepresentable {
     func makeNSView(context: Context) -> MTMathUILabel {
         let label = MTMathUILabel()
         configureLabel(label)
+        // Force layout calculation for accurate intrinsic size
+        label.invalidateIntrinsicContentSize()
         return label
     }
 
     func updateNSView(_ label: MTMathUILabel, context: Context) {
         configureLabel(label)
+        // Force layout calculation when content changes
+        label.invalidateIntrinsicContentSize()
     }
 
     /// Report intrinsic content size to SwiftUI for proper layout in WrappingHStack
     @MainActor
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: MTMathUILabel, context: Context) -> CGSize? {
-        return nsView.intrinsicContentSize
+        // Ensure the size is calculated with current content
+        nsView.invalidateIntrinsicContentSize()
+        let size = nsView.intrinsicContentSize
+        // Add small buffer to prevent clipping
+        return CGSize(width: size.width + 1, height: size.height)
     }
 
     private func configureLabel(_ label: MTMathUILabel) {
@@ -115,17 +123,25 @@ struct MathViewRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> MTMathUILabel {
         let label = MTMathUILabel()
         configureLabel(label)
+        // Force layout calculation for accurate intrinsic size
+        label.invalidateIntrinsicContentSize()
         return label
     }
 
     func updateUIView(_ label: MTMathUILabel, context: Context) {
         configureLabel(label)
+        // Force layout calculation when content changes
+        label.invalidateIntrinsicContentSize()
     }
 
     /// Report intrinsic content size to SwiftUI for proper layout in WrappingHStack
     @MainActor
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: MTMathUILabel, context: Context) -> CGSize? {
-        return uiView.intrinsicContentSize
+        // Ensure the size is calculated with current content
+        uiView.invalidateIntrinsicContentSize()
+        let size = uiView.intrinsicContentSize
+        // Add small buffer to prevent clipping
+        return CGSize(width: size.width + 1, height: size.height)
     }
 
     private func configureLabel(_ label: MTMathUILabel) {
@@ -197,6 +213,16 @@ public struct InlineMathView: View {
             textAlignment: .left,
             labelMode: .text
         )
+        // Ensure the view uses its natural size and doesn't get compressed
+        .fixedSize()
+        // Add horizontal padding so math doesn't touch adjacent text
+        .padding(.horizontal, 2)
+        // Provide baseline alignment guide for proper inline text alignment.
+        // The baseline is approximately 80% down from the top for math expressions,
+        // matching typical text baseline positioning.
+        .alignmentGuide(.firstTextBaseline) { d in
+            d.height * 0.8
+        }
     }
 }
 

@@ -301,7 +301,26 @@ public actor SmartSearchRefreshService {
         let name = smartSearch.name
         Logger.smartSearch.infoCapture("Starting background refresh of '\(name)'", category: "refresh")
 
-        // Get or create provider
+        // Route group feeds to GroupFeedRefreshService (staggered per-author searches)
+        if smartSearch.isGroupFeed {
+            do {
+                _ = try await GroupFeedRefreshService.shared.refreshGroupFeed(smartSearch)
+
+                Logger.smartSearch.infoCapture("Group feed refresh completed for '\(name)'", category: "refresh")
+                refreshComplete(smartSearchID, error: nil)
+
+                // Post notification for UI updates
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .smartSearchRefreshCompleted, object: smartSearchID)
+                }
+            } catch {
+                Logger.smartSearch.errorCapture("Group feed refresh failed for '\(name)': \(error.localizedDescription)", category: "refresh")
+                refreshComplete(smartSearchID, error: error)
+            }
+            return
+        }
+
+        // Get or create provider for regular smart searches
         let provider = await SmartSearchProviderCache.shared.getOrCreate(
             for: smartSearch,
             sourceManager: sourceManager,
@@ -315,6 +334,23 @@ public actor SmartSearchRefreshService {
             // Mark as executed on main actor
             await MainActor.run {
                 SmartSearchRepository.shared.markExecuted(smartSearch)
+            }
+
+            // Immediate ADS enrichment for arXiv feeds
+            // Get newly created papers (not yet enriched) with arXiv IDs
+            if smartSearch.sources.contains("arxiv"),
+               let collection = smartSearch.resultCollection,
+               let publications = collection.publications {
+                let unenrichedArxivPapers = publications.filter { paper in
+                    paper.bibcodeNormalized == nil && paper.fields["eprint"] != nil
+                }
+                if !unenrichedArxivPapers.isEmpty {
+                    let enrichedCount = await EnrichmentCoordinator.shared.enrichBatchImmediately(Array(unenrichedArxivPapers))
+                    Logger.smartSearch.infoCapture(
+                        "ADS enrichment: \(enrichedCount)/\(unenrichedArxivPapers.count) papers resolved with bibcodes",
+                        category: "refresh"
+                    )
+                }
             }
 
             Logger.smartSearch.infoCapture("Background refresh completed for '\(name)'", category: "refresh")

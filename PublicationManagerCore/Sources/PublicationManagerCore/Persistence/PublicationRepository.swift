@@ -265,6 +265,15 @@ public actor PublicationRepository {
             if let ssID = result.resolvedIdentifiers[.semanticScholar], publication.semanticScholarID == nil {
                 publication.semanticScholarID = ssID
             }
+            // Bibcode from ADS enrichment - critical for Similar/Co-read features
+            if let bibcode = result.resolvedIdentifiers[.bibcode] {
+                publication.bibcodeNormalized = bibcode
+                // Also store in fields dict for BibTeX export
+                var fields = publication.fields
+                fields["bibcode"] = bibcode
+                publication.fields = fields
+                Logger.persistence.info("Resolved bibcode: \(bibcode) for \(publication.citeKey)")
+            }
 
             // Update enrichment tracking fields
             publication.enrichmentSource = data.source.sourceID

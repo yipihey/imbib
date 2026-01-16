@@ -41,10 +41,21 @@ public actor ArXivSource: SourcePlugin {
     // MARK: - SourcePlugin
 
     public func search(query: String, maxResults: Int = 50) async throws -> [SearchResult] {
-        try await searchWithRetry(query: query, maxResults: maxResults, retryCount: 0)
+        try await searchWithRetry(query: query, maxResults: maxResults, daysBack: nil, retryCount: 0)
     }
 
-    private func searchWithRetry(query: String, maxResults: Int, retryCount: Int) async throws -> [SearchResult] {
+    /// Search with a custom date range.
+    ///
+    /// - Parameters:
+    ///   - query: The search query
+    ///   - maxResults: Maximum number of results
+    ///   - daysBack: Number of days back to search. If nil, uses default (7 days for category searches, no limit otherwise).
+    ///               Use 0 to disable the automatic date filter entirely.
+    public func search(query: String, maxResults: Int = 50, daysBack: Int?) async throws -> [SearchResult] {
+        try await searchWithRetry(query: query, maxResults: maxResults, daysBack: daysBack, retryCount: 0)
+    }
+
+    private func searchWithRetry(query: String, maxResults: Int, daysBack: Int?, retryCount: Int) async throws -> [SearchResult] {
         Logger.sources.entering()
         defer { Logger.sources.exiting() }
 
@@ -61,12 +72,24 @@ public actor ArXivSource: SourcePlugin {
         let sortBy = isCategorySearch ? "submittedDate" : "relevance"
         let sortOrder = "descending"
 
-        // For category searches, add date filter to get recent papers (last 7 days)
+        // Apply date filter:
+        // - If daysBack is 0, no date filter
+        // - If daysBack is specified (non-nil, non-zero), use that
+        // - If daysBack is nil and it's a category search, default to 7 days
         var finalQuery = apiQuery
-        if isCategorySearch {
+        let effectiveDaysBack: Int?
+        if let days = daysBack {
+            effectiveDaysBack = days > 0 ? days : nil  // 0 means no filter
+        } else if isCategorySearch {
+            effectiveDaysBack = 7  // Default for category searches
+        } else {
+            effectiveDaysBack = nil
+        }
+
+        if let days = effectiveDaysBack {
             let calendar = Calendar.current
             let endDate = Date()
-            let startDate = calendar.date(byAdding: .day, value: -7, to: endDate)!
+            let startDate = calendar.date(byAdding: .day, value: -days, to: endDate)!
 
             let formatter = DateFormatter()
             formatter.dateFormat = "yyyyMMddHHmm"
@@ -109,7 +132,7 @@ public actor ArXivSource: SourcePlugin {
                 let waitSeconds = 30 * (retryCount + 1)  // 30s, then 60s
                 Logger.sources.warningCapture("arXiv rate limited (429), waiting \(waitSeconds) seconds before retry \(retryCount + 1)/2...", category: "sources")
                 try await Task.sleep(nanoseconds: UInt64(waitSeconds) * 1_000_000_000)
-                return try await searchWithRetry(query: query, maxResults: maxResults, retryCount: retryCount + 1)
+                return try await searchWithRetry(query: query, maxResults: maxResults, daysBack: daysBack, retryCount: retryCount + 1)
             } else {
                 Logger.sources.errorCapture("arXiv rate limited after 2 retries, please wait a few minutes", category: "sources")
                 throw SourceError.rateLimited(retryAfter: 300)  // Suggest 5 minutes

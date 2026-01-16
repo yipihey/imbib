@@ -57,7 +57,8 @@ public struct AbstractRenderer: View {
 
     public var body: some View {
         // Use a flow layout for inline rendering
-        WrappingHStack(alignment: .firstTextBaseline, spacing: 2) {
+        // spacing: 0 because text words include trailing spaces and math has padding
+        WrappingHStack(alignment: .firstTextBaseline, spacing: 0) {
             ForEach(Array(segments.enumerated()), id: \.offset) { index, segment in
                 segmentView(segment)
             }
@@ -91,10 +92,11 @@ public struct AbstractRenderer: View {
 
 // MARK: - Wrapping HStack
 
-/// A layout that wraps content horizontally like text.
+/// A layout that wraps content horizontally like text with proper baseline alignment.
 struct WrappingHStack: Layout {
     var alignment: VerticalAlignment = .center
-    var spacing: CGFloat = 4
+    var spacing: CGFloat = 0           // Horizontal spacing between elements
+    var lineSpacing: CGFloat = 4       // Vertical spacing between lines
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let result = layout(proposal: proposal, subviews: subviews)
@@ -117,32 +119,127 @@ struct WrappingHStack: Layout {
 
     private func layout(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
         let maxWidth = proposal.width ?? .infinity
-        var positions: [CGPoint] = []
+
+        // First pass: determine line breaks and line properties
+        struct LineInfo {
+            var startIndex: Int
+            var endIndex: Int
+            var maxBaseline: CGFloat  // Maximum baseline value (distance from top to baseline)
+            var maxHeight: CGFloat
+            var maxBelowBaseline: CGFloat  // Maximum distance below baseline
+        }
+
+        var lines: [LineInfo] = []
+        var currentLineStart = 0
         var currentX: CGFloat = 0
-        var currentY: CGFloat = 0
-        var lineHeight: CGFloat = 0
-        var totalHeight: CGFloat = 0
-        var totalWidth: CGFloat = 0
+
+        // Calculate sizes and baselines for all subviews
+        var sizes: [CGSize] = []
+        var baselines: [CGFloat] = []
 
         for subview in subviews {
             let size = subview.sizeThatFits(.unspecified)
+            sizes.append(size)
 
-            // Check if we need to wrap
-            if currentX + size.width > maxWidth && currentX > 0 {
-                currentX = 0
-                currentY += lineHeight + spacing
-                lineHeight = 0
+            // Get the baseline value using dimensions for alignment guide access
+            let baseline: CGFloat
+            if alignment == .firstTextBaseline {
+                let dimensions = subview.dimensions(in: .unspecified)
+                let baselineValue = dimensions[VerticalAlignment.firstTextBaseline]
+                // If baseline is at the bottom (equals height), use 80% as a reasonable fallback
+                baseline = (baselineValue >= size.height) ? size.height * 0.8 : baselineValue
+            } else {
+                baseline = size.height * 0.5  // center alignment fallback
             }
-
-            positions.append(CGPoint(x: currentX, y: currentY))
-
-            currentX += size.width + spacing
-            lineHeight = max(lineHeight, size.height)
-            totalWidth = max(totalWidth, currentX)
-            totalHeight = currentY + lineHeight
+            baselines.append(baseline)
         }
 
-        return (CGSize(width: totalWidth, height: totalHeight), positions)
+        // Group subviews into lines
+        for (index, size) in sizes.enumerated() {
+            // Check if we need to wrap
+            if currentX + size.width > maxWidth && currentX > 0 {
+                // Finalize current line
+                let lineIndices = currentLineStart..<index
+                var maxBaseline: CGFloat = 0
+                var maxHeight: CGFloat = 0
+                var maxBelowBaseline: CGFloat = 0
+
+                for i in lineIndices {
+                    let baseline = baselines[i]
+                    let height = sizes[i].height
+                    maxBaseline = max(maxBaseline, baseline)
+                    maxHeight = max(maxHeight, height)
+                    maxBelowBaseline = max(maxBelowBaseline, height - baseline)
+                }
+
+                lines.append(LineInfo(
+                    startIndex: currentLineStart,
+                    endIndex: index,
+                    maxBaseline: maxBaseline,
+                    maxHeight: maxHeight,
+                    maxBelowBaseline: maxBelowBaseline
+                ))
+
+                currentLineStart = index
+                currentX = 0
+            }
+
+            currentX += size.width + spacing
+        }
+
+        // Finalize last line
+        if currentLineStart < subviews.count {
+            let lineIndices = currentLineStart..<subviews.count
+            var maxBaseline: CGFloat = 0
+            var maxHeight: CGFloat = 0
+            var maxBelowBaseline: CGFloat = 0
+
+            for i in lineIndices {
+                let baseline = baselines[i]
+                let height = sizes[i].height
+                maxBaseline = max(maxBaseline, baseline)
+                maxHeight = max(maxHeight, height)
+                maxBelowBaseline = max(maxBelowBaseline, height - baseline)
+            }
+
+            lines.append(LineInfo(
+                startIndex: currentLineStart,
+                endIndex: subviews.count,
+                maxBaseline: maxBaseline,
+                maxHeight: maxHeight,
+                maxBelowBaseline: maxBelowBaseline
+            ))
+        }
+
+        // Second pass: calculate positions with proper baseline alignment
+        var positions: [CGPoint] = Array(repeating: .zero, count: subviews.count)
+        var currentY: CGFloat = 0
+        var totalWidth: CGFloat = 0
+
+        for line in lines {
+            var lineX: CGFloat = 0
+            // Line height is the sum of max baseline and max below-baseline
+            let lineHeight = line.maxBaseline + line.maxBelowBaseline
+
+            for index in line.startIndex..<line.endIndex {
+                let size = sizes[index]
+                let baseline = baselines[index]
+
+                // Align based on baseline: position the top of the view such that
+                // its baseline aligns with the line's baseline
+                let yOffset = line.maxBaseline - baseline
+                positions[index] = CGPoint(x: lineX, y: currentY + yOffset)
+
+                lineX += size.width + spacing
+            }
+
+            totalWidth = max(totalWidth, lineX)
+            currentY += lineHeight + lineSpacing
+        }
+
+        let totalHeight = currentY - lineSpacing  // Remove trailing line spacing
+
+        return (CGSize(width: totalWidth, height: max(0, totalHeight)), positions)
     }
 }
 
@@ -197,5 +294,17 @@ public extension View {
     AbstractRenderer(
         text: "The fine structure constant $\\alpha \\approx 1/137$ determines the strength of electromagnetic interactions."
     )
+    .padding()
+}
+
+#Preview("ArXiv Abstract - 2601.08933") {
+    ScrollView {
+        AbstractRenderer(
+            text: """
+            This study aims at using Sunyaev-Zel'dovich (SZ) data to test four different functional forms for the cluster pressure profile: generalized Navarro-Frenk-White (gNFW), $\\beta$-model, polytropic, and exponential. A set of 3496 ACT-DR4 galaxy clusters, spanning the mass range $\\[10^{14},10^{15.1}\\]\\,\\text{M}_{\\odot}$ and the redshift range $\\[0,2\\]$, is stacked on the ACT-DR6 Compton parameter $y$ map over $\\sim13,000\\,\\text{deg}^2$.
+            """
+        )
+        .padding()
+    }
     .padding()
 }
