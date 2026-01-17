@@ -766,12 +766,16 @@ struct UnifiedPublicationListWrapper: View {
             }
             logger.info("Archived \(ids.count) papers from Inbox to \(targetLibrary.displayName)")
         } else if case .smartSearch(let smartSearch) = source {
-            // For smart searches: add to target library, remove from result collection
-            await libraryViewModel.addToLibrary(ids, library: targetLibrary)
+            // For smart searches (feeds): use InboxManager to properly archive
+            // This removes from Inbox, adds to target, and tracks dismissal
+            let inboxManager = InboxManager.shared
+            let pubs = ids.compactMap { id in publications.first(where: { $0.id == id }) }
+            for pub in pubs {
+                inboxManager.archiveToLibrary(pub, library: targetLibrary)
+            }
 
-            // Remove from smart search result collection
+            // Also remove from smart search result collection
             if let resultCollection = smartSearch.resultCollection {
-                let pubs = ids.compactMap { id in publications.first(where: { $0.id == id }) }
                 for pub in pubs {
                     pub.removeFromCollection(resultCollection)
                 }
