@@ -733,10 +733,18 @@ struct UnifiedPublicationListWrapper: View {
         // For Inbox, use InboxManager which handles special Inbox logic
         if isInboxView {
             let inboxManager = InboxManager.shared
-            for uuid in ids {
-                if let publication = publications.first(where: { $0.id == uuid }) {
-                    inboxManager.archiveToLibrary(publication, library: targetLibrary)
+            let pubs = ids.compactMap { id in publications.first(where: { $0.id == id }) }
+            for pub in pubs {
+                inboxManager.archiveToLibrary(pub, library: targetLibrary)
+            }
+
+            // Also remove from smart search result collection if viewing a feed
+            if case .smartSearch(let smartSearch) = source,
+               let resultCollection = smartSearch.resultCollection {
+                for pub in pubs {
+                    pub.removeFromCollection(resultCollection)
                 }
+                try? PersistenceController.shared.viewContext.save()
             }
             logger.info("Archived \(ids.count) papers from Inbox to \(targetLibrary.displayName)")
         } else if case .smartSearch(let smartSearch) = source {

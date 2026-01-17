@@ -13,6 +13,30 @@ import OSLog
 
 private let sidebarLogger = Logger(subsystem: "com.imbib.app", category: "sidebar-dragdrop")
 
+/// Log drag-drop info to both system console AND app's Console window
+private func dragDropLog(_ message: String) {
+    dragDropLog("\(message)")
+    Task { @MainActor in
+        LogStore.shared.log(level: .info, category: "dragdrop", message: message)
+    }
+}
+
+/// Log drag-drop error to both system console AND app's Console window
+private func dragDropError(_ message: String) {
+    dragDropError("\(message)")
+    Task { @MainActor in
+        LogStore.shared.log(level: .error, category: "dragdrop", message: message)
+    }
+}
+
+/// Log drag-drop warning to both system console AND app's Console window
+private func dragDropWarning(_ message: String) {
+    dragDropWarning("\(message)")
+    Task { @MainActor in
+        LogStore.shared.log(level: .warning, category: "dragdrop", message: message)
+    }
+}
+
 struct SidebarView: View {
 
     // MARK: - Properties
@@ -990,23 +1014,23 @@ struct SidebarView: View {
             }
             .tag(SidebarSection.library(library))
             .onDrop(of: DragDropCoordinator.acceptedTypes + [.publicationID], isTargeted: makeLibraryTargetBinding(library.id)) { providers in
-                sidebarLogger.info("📦 DROP on library '\(library.displayName)' (id: \(library.id.uuidString))")
-                sidebarLogger.info("  - Provider count: \(providers.count)")
+                dragDropLog("📦 DROP on library '\(library.displayName)' (id: \(library.id.uuidString))")
+                dragDropLog("  - Provider count: \(providers.count)")
                 for (i, provider) in providers.enumerated() {
                     let types = provider.registeredTypeIdentifiers
-                    sidebarLogger.info("  - Provider[\(i)] types: \(types.joined(separator: ", "))")
-                    sidebarLogger.info("  - Provider[\(i)] hasPublicationID: \(provider.hasItemConformingToTypeIdentifier(UTType.publicationID.identifier))")
-                    sidebarLogger.info("  - Provider[\(i)] hasPDF: \(provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier))")
-                    sidebarLogger.info("  - Provider[\(i)] hasFileURL: \(provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier))")
+                    dragDropLog("  - Provider[\(i)] types: \(types.joined(separator: ", "))")
+                    dragDropLog("  - Provider[\(i)] hasPublicationID: \(provider.hasItemConformingToTypeIdentifier(UTType.publicationID.identifier))")
+                    dragDropLog("  - Provider[\(i)] hasPDF: \(provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier))")
+                    dragDropLog("  - Provider[\(i)] hasFileURL: \(provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier))")
                 }
 
                 if hasFileDrops(providers) {
-                    sidebarLogger.info("  → Routing to file drop handler")
+                    dragDropLog("  → Routing to file drop handler")
                     handleFileDrop(providers, libraryID: library.id)
                 } else {
-                    sidebarLogger.info("  → Routing to publication drop handler")
+                    dragDropLog("  → Routing to publication drop handler")
                     handleDrop(providers: providers) { uuids in
-                        sidebarLogger.info("  → handleDrop completed with \(uuids.count) UUIDs: \(uuids.map { $0.uuidString })")
+                        dragDropLog("  → handleDrop completed with \(uuids.count) UUIDs: \(uuids.map { $0.uuidString })")
                         Task { await addPublicationsToLibrary(uuids, library: library) }
                     }
                 }
@@ -1229,26 +1253,26 @@ struct SidebarView: View {
             }
         }
         .onDrop(of: DragDropCoordinator.acceptedTypes + [.publicationID], isTargeted: makeLibraryHeaderTargetBinding(library.id)) { providers in
-            sidebarLogger.info("📦 DROP on library HEADER '\(library.displayName)' (id: \(library.id.uuidString))")
-            sidebarLogger.info("  - Provider count: \(providers.count)")
+            dragDropLog("📦 DROP on library HEADER '\(library.displayName)' (id: \(library.id.uuidString))")
+            dragDropLog("  - Provider count: \(providers.count)")
             for (i, provider) in providers.enumerated() {
                 let types = provider.registeredTypeIdentifiers
-                sidebarLogger.info("  - Provider[\(i)] types: \(types.joined(separator: ", "))")
+                dragDropLog("  - Provider[\(i)] types: \(types.joined(separator: ", "))")
             }
 
             // Auto-expand collapsed library when dropping on header
             if !expandedLibraries.contains(library.id) {
-                sidebarLogger.info("  - Auto-expanding library")
+                dragDropLog("  - Auto-expanding library")
                 expandedLibraries.insert(library.id)
             }
 
             if hasFileDrops(providers) {
-                sidebarLogger.info("  → Routing to file drop handler")
+                dragDropLog("  → Routing to file drop handler")
                 handleFileDrop(providers, libraryID: library.id)
             } else {
-                sidebarLogger.info("  → Routing to publication drop handler")
+                dragDropLog("  → Routing to publication drop handler")
                 handleDrop(providers: providers) { uuids in
-                    sidebarLogger.info("  → handleDrop completed with \(uuids.count) UUIDs")
+                    dragDropLog("  → handleDrop completed with \(uuids.count) UUIDs")
                     Task { await addPublicationsToLibrary(uuids, library: library) }
                 }
             }
@@ -1284,23 +1308,23 @@ struct SidebarView: View {
                 )
             }
             .onDrop(of: DragDropCoordinator.acceptedTypes + [.publicationID], isTargeted: makeCollectionTargetBinding(collection.id)) { providers in
-                sidebarLogger.info("📦 DROP on collection '\(collection.name)' (id: \(collection.id.uuidString))")
-                sidebarLogger.info("  - Provider count: \(providers.count)")
+                dragDropLog("📦 DROP on collection '\(collection.name)' (id: \(collection.id.uuidString))")
+                dragDropLog("  - Provider count: \(providers.count)")
                 for (i, provider) in providers.enumerated() {
                     let types = provider.registeredTypeIdentifiers
-                    sidebarLogger.info("  - Provider[\(i)] types: \(types.joined(separator: ", "))")
+                    dragDropLog("  - Provider[\(i)] types: \(types.joined(separator: ", "))")
                 }
 
                 let libraryID = collection.effectiveLibrary?.id ?? collection.library?.id ?? UUID()
-                sidebarLogger.info("  - Effective library ID: \(libraryID.uuidString)")
+                dragDropLog("  - Effective library ID: \(libraryID.uuidString)")
 
                 if hasFileDrops(providers) {
-                    sidebarLogger.info("  → Routing to file drop handler")
+                    dragDropLog("  → Routing to file drop handler")
                     handleFileDropOnCollection(providers, collectionID: collection.id, libraryID: libraryID)
                 } else {
-                    sidebarLogger.info("  → Routing to publication drop handler")
+                    dragDropLog("  → Routing to publication drop handler")
                     handleDrop(providers: providers) { uuids in
-                        sidebarLogger.info("  → handleDrop completed with \(uuids.count) UUIDs")
+                        dragDropLog("  → handleDrop completed with \(uuids.count) UUIDs")
                         Task { await addPublications(uuids, to: collection) }
                     }
                 }
@@ -1349,7 +1373,7 @@ struct SidebarView: View {
     // MARK: - Drop Handler
 
     private func handleDrop(providers: [NSItemProvider], action: @escaping ([UUID]) -> Void) {
-        sidebarLogger.info("🔄 handleDrop started with \(providers.count) providers")
+        dragDropLog("🔄 handleDrop started with \(providers.count) providers")
         var collectedUUIDs: [UUID] = []
         let group = DispatchGroup()
         var loadAttempts = 0
@@ -1357,47 +1381,47 @@ struct SidebarView: View {
         for (index, provider) in providers.enumerated() {
             // Try to load as our custom publication ID type
             let hasPublicationID = provider.hasItemConformingToTypeIdentifier(UTType.publicationID.identifier)
-            sidebarLogger.info("  Provider[\(index)] hasPublicationID: \(hasPublicationID)")
+            dragDropLog("  Provider[\(index)] hasPublicationID: \(hasPublicationID)")
 
             if hasPublicationID {
                 loadAttempts += 1
                 group.enter()
-                sidebarLogger.info("  Provider[\(index)] loading data representation...")
+                dragDropLog("  Provider[\(index)] loading data representation...")
                 provider.loadDataRepresentation(forTypeIdentifier: UTType.publicationID.identifier) { data, error in
                     defer { group.leave() }
                     if let error = error {
-                        sidebarLogger.error("  ❌ Provider[\(index)] load error: \(error.localizedDescription)")
+                        dragDropError("  ❌ Provider[\(index)] load error: \(error.localizedDescription)")
                         return
                     }
                     if let data = data {
-                        sidebarLogger.info("  Provider[\(index)] received \(data.count) bytes")
+                        dragDropLog("  Provider[\(index)] received \(data.count) bytes")
                         // Log raw data for debugging
                         if let dataString = String(data: data, encoding: .utf8) {
-                            sidebarLogger.info("  Provider[\(index)] raw data: \(dataString)")
+                            dragDropLog("  Provider[\(index)] raw data: \(dataString)")
                         }
                         // UUID is encoded as JSON via CodableRepresentation
                         if let uuid = try? JSONDecoder().decode(UUID.self, from: data) {
-                            sidebarLogger.info("  ✅ Provider[\(index)] decoded UUID: \(uuid.uuidString)")
+                            dragDropLog("  ✅ Provider[\(index)] decoded UUID: \(uuid.uuidString)")
                             collectedUUIDs.append(uuid)
                         } else {
-                            sidebarLogger.error("  ❌ Provider[\(index)] failed to decode UUID from data")
+                            dragDropError("  ❌ Provider[\(index)] failed to decode UUID from data")
                         }
                     } else {
-                        sidebarLogger.error("  ❌ Provider[\(index)] received nil data")
+                        dragDropError("  ❌ Provider[\(index)] received nil data")
                     }
                 }
             }
         }
 
-        sidebarLogger.info("  Initiated \(loadAttempts) load attempts, waiting for completion...")
+        dragDropLog("  Initiated \(loadAttempts) load attempts, waiting for completion...")
 
         group.notify(queue: .main) {
-            sidebarLogger.info("  DispatchGroup completed - collected \(collectedUUIDs.count) UUIDs")
+            dragDropLog("  DispatchGroup completed - collected \(collectedUUIDs.count) UUIDs")
             if !collectedUUIDs.isEmpty {
-                sidebarLogger.info("  Calling action with UUIDs: \(collectedUUIDs.map { $0.uuidString })")
+                dragDropLog("  Calling action with UUIDs: \(collectedUUIDs.map { $0.uuidString })")
                 action(collectedUUIDs)
             } else {
-                sidebarLogger.warning("  ⚠️ No UUIDs collected, action will NOT be called")
+                dragDropWarning("  ⚠️ No UUIDs collected, action will NOT be called")
             }
         }
     }
@@ -1865,9 +1889,9 @@ struct SidebarView: View {
 
     /// Add publications to a library (publications can belong to multiple libraries)
     private func addPublicationsToLibrary(_ uuids: [UUID], library: CDLibrary) async {
-        sidebarLogger.info("📚 addPublicationsToLibrary called")
-        sidebarLogger.info("  - Target library: '\(library.displayName)' (id: \(library.id.uuidString))")
-        sidebarLogger.info("  - UUIDs to add: \(uuids.count)")
+        dragDropLog("📚 addPublicationsToLibrary called")
+        dragDropLog("  - Target library: '\(library.displayName)' (id: \(library.id.uuidString))")
+        dragDropLog("  - UUIDs to add: \(uuids.count)")
 
         let context = PersistenceController.shared.viewContext
         var addedCount = 0
@@ -1880,31 +1904,31 @@ struct SidebarView: View {
                 request.fetchLimit = 1
 
                 if let publication = try? context.fetch(request).first {
-                    sidebarLogger.info("  ✅ Found publication '\(publication.citeKey)' for UUID \(uuid.uuidString)")
+                    dragDropLog("  ✅ Found publication '\(publication.citeKey)' for UUID \(uuid.uuidString)")
                     let beforeCount = publication.libraries?.count ?? 0
                     publication.addToLibrary(library)
                     let afterCount = publication.libraries?.count ?? 0
-                    sidebarLogger.info("    Libraries before: \(beforeCount), after: \(afterCount)")
+                    dragDropLog("    Libraries before: \(beforeCount), after: \(afterCount)")
                     addedCount += 1
                 } else {
-                    sidebarLogger.error("  ❌ No publication found for UUID \(uuid.uuidString)")
+                    dragDropError("  ❌ No publication found for UUID \(uuid.uuidString)")
                     notFoundCount += 1
                 }
             }
 
             do {
                 try context.save()
-                sidebarLogger.info("  ✅ Context saved successfully")
+                dragDropLog("  ✅ Context saved successfully")
             } catch {
-                sidebarLogger.error("  ❌ Context save failed: \(error.localizedDescription)")
+                dragDropError("  ❌ Context save failed: \(error.localizedDescription)")
             }
         }
 
-        sidebarLogger.info("  Summary: added \(addedCount), not found \(notFoundCount)")
+        dragDropLog("  Summary: added \(addedCount), not found \(notFoundCount)")
 
         // Trigger sidebar refresh to update counts
         await MainActor.run {
-            sidebarLogger.info("  🔄 Triggering sidebar refresh")
+            dragDropLog("  🔄 Triggering sidebar refresh")
             refreshTrigger = UUID()
         }
     }
