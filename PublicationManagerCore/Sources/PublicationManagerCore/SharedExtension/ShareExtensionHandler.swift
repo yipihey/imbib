@@ -120,6 +120,9 @@ public final class ShareExtensionHandler {
     // MARK: - Private Handlers
 
     /// Create a smart search from a shared item
+    ///
+    /// For search URLs, always creates the smart search in the Exploration library
+    /// (not the user's active library) so it appears in the Exploration section.
     private func createSmartSearchFromSharedItem(_ item: ShareExtensionService.SharedItem) async throws {
         // Use the query from the shared item (extracted via JS preprocessing)
         // Fall back to parsing from URL if not available
@@ -136,22 +139,16 @@ public final class ShareExtensionHandler {
             throw ShareExtensionError.invalidURL
         }
 
-        // Find the target library
-        let targetLibrary: CDLibrary
-        if let libraryID = item.libraryID,
-           let library = libraryManager.find(id: libraryID) {
-            targetLibrary = library
-        } else if let activeLib = libraryManager.activeLibrary {
-            targetLibrary = activeLib
-        } else if let firstLib = libraryManager.libraries.first(where: { !$0.isInbox }) {
-            targetLibrary = firstLib
-        } else {
-            throw ShareExtensionError.noLibrary
-        }
+        // Always use Exploration library for search URLs from share extension
+        // This makes them appear in the Exploration section of the sidebar
+        let targetLibrary = libraryManager.getOrCreateExplorationLibrary()
+
+        // Create a truncated name from the query
+        let truncatedQuery = String(query.prefix(40)) + (query.count > 40 ? "..." : "")
+        let name = item.name ?? "Search: \(truncatedQuery)"
 
         // Create the smart search
-        let name = item.name ?? "Shared Search"
-        _ = SmartSearchRepository.shared.create(
+        let smartSearch = SmartSearchRepository.shared.create(
             name: name,
             query: query,
             sourceIDs: [sourceID],
@@ -159,7 +156,26 @@ public final class ShareExtensionHandler {
             maxResults: 100
         )
 
-        Logger.shareExtension.infoCapture("Created smart search '\(name)' with query '\(query)' from shared URL", category: "shareext")
+        Logger.shareExtension.infoCapture("Created smart search '\(name)' in Exploration library", category: "shareext")
+
+        // Auto-execute the search to populate results
+        do {
+            let provider = SmartSearchProvider(
+                from: smartSearch,
+                sourceManager: sourceManager,
+                repository: repository
+            )
+            try await provider.refresh()
+            SmartSearchRepository.shared.markExecuted(smartSearch)
+            Logger.shareExtension.infoCapture("Auto-executed smart search '\(name)' successfully", category: "shareext")
+        } catch {
+            // Log but don't fail - the search was created, it can be refreshed later
+            Logger.shareExtension.warningCapture("Auto-execute failed for '\(name)': \(error.localizedDescription)", category: "shareext")
+        }
+
+        // Notify sidebar to refresh and navigate to the new search
+        NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+        NotificationCenter.default.post(name: .navigateToSmartSearch, object: smartSearch.id)
     }
 
     /// Import a paper from a shared item

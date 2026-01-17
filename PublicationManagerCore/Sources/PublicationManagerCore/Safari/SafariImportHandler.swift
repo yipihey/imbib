@@ -43,6 +43,7 @@ public actor SafariImportHandler {
     // Keys for App Group UserDefaults
     private enum Keys {
         static let importQueue = "safariImportQueue"
+        static let smartSearchQueue = "safariSmartSearchQueue"
         static let knownIdentifiers = "knownIdentifiers"
         static let availableLibraries = "availableLibraries"
     }
@@ -96,6 +97,105 @@ public actor SafariImportHandler {
         defaults.synchronize()
 
         logger.info("Safari import complete: \(processed) succeeded, \(failed) failed")
+    }
+
+    /// Process any pending smart search creation requests from the Safari extension.
+    /// Creates smart searches in the Exploration library and auto-executes them.
+    public func processPendingSmartSearches() async {
+        guard let defaults = defaults else {
+            logger.error("App Group not available")
+            return
+        }
+
+        guard let queue = defaults.array(forKey: Keys.smartSearchQueue) as? [[String: Any]], !queue.isEmpty else {
+            logger.debug("No pending Safari smart searches")
+            return
+        }
+
+        logger.info("Processing \(queue.count) Safari smart search request(s)")
+
+        var processed = 0
+        var failed = 0
+
+        for item in queue {
+            do {
+                try await processSmartSearchItem(item)
+                processed += 1
+            } catch {
+                logger.error("Safari smart search creation failed: \(error.localizedDescription)")
+                failed += 1
+            }
+        }
+
+        // Clear processed queue
+        defaults.removeObject(forKey: Keys.smartSearchQueue)
+        defaults.synchronize()
+
+        logger.info("Safari smart search processing complete: \(processed) succeeded, \(failed) failed")
+    }
+
+    /// Process a single smart search creation request.
+    private func processSmartSearchItem(_ item: [String: Any]) async throws {
+        guard let query = item["query"] as? String, !query.isEmpty else {
+            throw SafariImportError.missingSourceType  // Reuse error for missing query
+        }
+
+        let name = item["name"] as? String ?? "Search: \(String(query.prefix(40)))"
+        let sourceID = item["sourceID"] as? String ?? "ads"
+
+        logger.info("Creating smart search: \(name) with query: \(query)")
+
+        // Get the exploration library
+        let explorationLibrary = await getOrCreateExplorationLibrary()
+
+        // Create the smart search in exploration library
+        let smartSearch = await MainActor.run {
+            SmartSearchRepository.shared.create(
+                name: name,
+                query: query,
+                sourceIDs: [sourceID],
+                library: explorationLibrary,
+                maxResults: 100
+            )
+        }
+
+        // Create source manager for search execution
+        let sourceManager = SourceManager()
+        await sourceManager.registerBuiltInSources()
+
+        // Auto-execute the search to populate results
+        let provider = SmartSearchProvider(
+            from: smartSearch,
+            sourceManager: sourceManager,
+            repository: PublicationRepository()
+        )
+
+        do {
+            try await provider.refresh()
+            await MainActor.run {
+                SmartSearchRepository.shared.markExecuted(smartSearch)
+            }
+            logger.info("Auto-executed smart search '\(name)' successfully")
+        } catch {
+            logger.warning("Auto-execute failed for '\(name)': \(error.localizedDescription)")
+            // Don't rethrow - the search was created, it can be refreshed later
+        }
+
+        // Notify sidebar to refresh and navigate to the new search
+        await MainActor.run {
+            NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+            NotificationCenter.default.post(name: .navigateToSmartSearch, object: smartSearch.id)
+        }
+
+        logger.info("Created smart search '\(name)' in Exploration library")
+    }
+
+    /// Get or create the exploration library (app-level, not user library)
+    private func getOrCreateExplorationLibrary() async -> CDLibrary {
+        return await MainActor.run {
+            let manager = LibraryManager()
+            return manager.getOrCreateExplorationLibrary()
+        }
     }
 
     /// Process a single import item.
@@ -369,10 +469,11 @@ public actor SafariImportHandler {
 
     // MARK: - Darwin Notification Observer
 
-    /// Set up Darwin notification observer for import notifications from the extension.
+    /// Set up Darwin notification observers for notifications from the extension.
     /// Call this on app startup.
     public nonisolated func setupNotificationObserver() {
-        let name = "com.imbib.safariImportReceived" as CFString
+        // Import notification
+        let importName = "com.imbib.safariImportReceived" as CFString
 
         CFNotificationCenterAddObserver(
             CFNotificationCenterGetDarwinNotifyCenter(),
@@ -388,7 +489,24 @@ public actor SafariImportHandler {
                     await SafariImportHandler.shared.syncAvailableLibraries()
                 }
             },
-            name,
+            importName,
+            nil,
+            .deliverImmediately
+        )
+
+        // Smart search notification
+        let smartSearchName = "com.imbib.safariSmartSearchReceived" as CFString
+
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            nil,
+            { _, _, _, _, _ in
+                Task {
+                    // Process any pending smart search requests from the Safari extension
+                    await SafariImportHandler.shared.processPendingSmartSearches()
+                }
+            },
+            smartSearchName,
             nil,
             .deliverImmediately
         )
@@ -396,7 +514,7 @@ public actor SafariImportHandler {
         // Use a detached logger call since we're nonisolated
         Task { @MainActor in
             Logger(subsystem: "com.imbib", category: "safari-import")
-                .info("Darwin notification observer registered")
+                .info("Darwin notification observers registered (import + smart search)")
         }
     }
 }

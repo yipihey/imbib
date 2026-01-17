@@ -66,20 +66,55 @@ public extension AutomationIntent {
 // MARK: - App Shortcuts Provider
 
 /// Provides shortcuts that appear in the Shortcuts app and can be invoked via Siri.
+/// ADR-018: Enhanced with data-returning intents.
 @available(iOS 16.0, macOS 13.0, *)
 public struct ImbibShortcuts: AppShortcutsProvider {
 
     public static var appShortcuts: [AppShortcut] {
-        // Search Papers
+        // Search Papers - phrases can't use String parameter interpolation
+        // User will be prompted for query after invoking the shortcut
         AppShortcut(
             intent: SearchPapersIntent(),
             phrases: [
-                "Search \(.applicationName) for \(\.$query)",
-                "Find papers about \(\.$query) in \(.applicationName)",
-                "Look up \(\.$query) in \(.applicationName)"
+                "Search \(.applicationName) for papers",
+                "Find papers in \(.applicationName)",
+                "Search papers with \(.applicationName)"
             ],
             shortTitle: "Search Papers",
             systemImageName: "magnifyingglass"
+        )
+
+        // Search Library
+        AppShortcut(
+            intent: SearchLibraryIntent(),
+            phrases: [
+                "Search my \(.applicationName) library",
+                "Find papers in my \(.applicationName) library"
+            ],
+            shortTitle: "Search Library",
+            systemImageName: "book.closed"
+        )
+
+        // Add Paper by DOI - user will be prompted for DOI
+        AppShortcut(
+            intent: AddPaperByDOIIntent(),
+            phrases: [
+                "Add paper by DOI to \(.applicationName)",
+                "Import DOI to \(.applicationName)"
+            ],
+            shortTitle: "Add by DOI",
+            systemImageName: "plus.circle"
+        )
+
+        // Add Paper by arXiv - user will be prompted for arXiv ID
+        AppShortcut(
+            intent: AddPaperByArXivIntent(),
+            phrases: [
+                "Add arXiv paper to \(.applicationName)",
+                "Import arXiv paper to \(.applicationName)"
+            ],
+            shortTitle: "Add by arXiv",
+            systemImageName: "plus.circle"
         )
 
         // Show Inbox

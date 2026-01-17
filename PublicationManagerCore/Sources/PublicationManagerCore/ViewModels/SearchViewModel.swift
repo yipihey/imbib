@@ -13,6 +13,10 @@ import SwiftUI
 
 /// Stores the state of the ADS Classic search form for persistence across navigation
 public struct ClassicFormState {
+    /// Raw query text for advanced/modern query building
+    public var rawQuery: String = ""
+
+    // Classic form fields
     public var authors: String = ""
     public var objects: String = ""
     public var titleWords: String = ""
@@ -28,6 +32,7 @@ public struct ClassicFormState {
     public init() {}
 
     public mutating func clear() {
+        rawQuery = ""
         authors = ""
         objects = ""
         titleWords = ""
@@ -42,7 +47,8 @@ public struct ClassicFormState {
     }
 
     public var isEmpty: Bool {
-        SearchFormQueryBuilder.isClassicFormEmpty(
+        let hasRawQuery = !rawQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasClassicFields = !SearchFormQueryBuilder.isClassicFormEmpty(
             authors: authors,
             objects: objects,
             titleWords: titleWords,
@@ -50,6 +56,7 @@ public struct ClassicFormState {
             yearFrom: yearFrom,
             yearTo: yearTo
         )
+        return !hasRawQuery && !hasClassicFields
     }
 }
 

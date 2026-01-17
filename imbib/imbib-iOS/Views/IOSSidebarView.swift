@@ -77,6 +77,19 @@ struct IOSSidebarView: View {
         .onReceive(NotificationCenter.default.publisher(for: .explorationLibraryDidChange)) { _ in
             explorationRefreshID = UUID()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToSmartSearch)) { notification in
+            // Navigate to a smart search in the sidebar (from share extension or other source)
+            if let searchID = notification.object as? UUID,
+               let library = libraryManager.explorationLibrary,
+               let searches = library.smartSearches,
+               let smartSearch = searches.first(where: { $0.id == searchID }) {
+                selection = .smartSearch(smartSearch)
+                // For iPhone, also trigger the callback for programmatic navigation
+                onNavigateToSmartSearch?(smartSearch)
+            }
+            // Refresh exploration to show the new/updated search
+            explorationRefreshID = UUID()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToCollection)) { notification in
             if let collection = notification.userInfo?["collection"] as? CDCollection {
                 selection = .collection(collection)

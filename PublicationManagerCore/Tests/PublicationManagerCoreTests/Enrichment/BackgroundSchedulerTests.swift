@@ -361,8 +361,8 @@ final class BackgroundSchedulerTests: XCTestCase {
 // MARK: - Mock Settings Provider
 
 actor MockEnrichmentSettingsProvider: EnrichmentSettingsProvider {
-    private var _preferredSource: EnrichmentSource = .semanticScholar
-    private var _sourcePriority: [EnrichmentSource] = [.semanticScholar, .openAlex, .ads]
+    private var _preferredSource: EnrichmentSource = .ads
+    private var _sourcePriority: [EnrichmentSource] = [.ads]
     private var _autoSyncEnabled: Bool = true
     private var _refreshIntervalDays: Int = 7
 

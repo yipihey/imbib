@@ -70,6 +70,20 @@ final class ADSURLParserTests: XCTestCase {
         }
     }
 
+    func testParseSearchURL_complexFilterQuery_extractsMainQuery() {
+        // Real URL from ADS with filter params, main query, and sort order
+        // Example: https://ui.adsabs.harvard.edu/search/fq=%7B!type%3Daqp%20v%3D%24fq_database%7D&fq_database=database%3A%20astronomy&p_=0&q=author%3A(%22Dalal%2C%20Neal%22)&sort=date%20desc%2C%20bibcode%20desc
+        let url = URL(string: "https://ui.adsabs.harvard.edu/search/fq=%7B!type%3Daqp%20v%3D%24fq_database%7D&fq_database=database%3A%20astronomy&p_=0&q=author%3A(%22Dalal%2C%20Neal%22)&sort=date%20desc%2C%20bibcode%20desc")!
+        let result = ADSURLParser.parse(url)
+
+        if case .search(let query, _) = result {
+            // Should extract just the main query, ignoring filter params
+            XCTAssertEqual(query, "author:(\"Dalal, Neal\")")
+        } else {
+            XCTFail("Expected .search case, got \(String(describing: result))")
+        }
+    }
+
     func testParseSearchURL_emptyQuery_returnsNil() {
         let url = URL(string: "https://ui.adsabs.harvard.edu/search/q=")!
         let result = ADSURLParser.parse(url)

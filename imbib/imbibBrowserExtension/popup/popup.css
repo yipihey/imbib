@@ -310,3 +310,57 @@ main {
 .error-state p {
     color: var(--error-color);
 }
+
+/* Search Page Content */
+.search-page-content {
+    text-align: center;
+    padding: 16px;
+}
+
+.search-page-content .icon-large {
+    margin-bottom: 12px;
+}
+
+/* Smart Search Section */
+.smart-search-section {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-color);
+}
+
+.smart-search-section.hidden {
+    display: none;
+}
+
+.search-query-preview {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 8px 12px;
+    background: var(--background-secondary);
+    border-radius: var(--border-radius);
+    margin-bottom: 12px;
+    text-align: left;
+}
+
+.search-query-preview .label {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    flex-shrink: 0;
+}
+
+.search-query-preview code {
+    font-family: ui-monospace, SFMono-Regular, monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+    word-break: break-all;
+}
+
+.smart-search-section .button {
+    width: 100%;
+}
+
+.smart-search-section .hint {
+    margin-top: 8px;
+}

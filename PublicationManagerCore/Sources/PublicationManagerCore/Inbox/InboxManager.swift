@@ -41,6 +41,17 @@ public final class InboxManager {
     /// All muted items
     public private(set) var mutedItems: [CDMutedItem] = []
 
+    /// Number of dismissed papers (for Settings display)
+    public var dismissedPaperCount: Int {
+        let request = NSFetchRequest<CDDismissedPaper>(entityName: "DismissedPaper")
+        do {
+            return try persistenceController.viewContext.count(for: request)
+        } catch {
+            Logger.inbox.errorCapture("Failed to count dismissed papers: \(error.localizedDescription)", category: "dismiss")
+            return 0
+        }
+    }
+
     // MARK: - Dependencies
 
     private let persistenceController: PersistenceController

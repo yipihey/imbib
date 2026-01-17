@@ -87,42 +87,6 @@ final class IdentifierResolverTests: XCTestCase {
 
     // MARK: - Can Resolve Tests
 
-    func testCanResolveToSemanticScholar() async {
-        // DOI
-        var canResolve = await resolver.canResolve([.doi: "10.1234/test"], to: .semanticScholar)
-        XCTAssertTrue(canResolve)
-
-        // arXiv
-        canResolve = await resolver.canResolve([.arxiv: "2301.12345"], to: .semanticScholar)
-        XCTAssertTrue(canResolve)
-
-        // PubMed
-        canResolve = await resolver.canResolve([.pmid: "12345678"], to: .semanticScholar)
-        XCTAssertTrue(canResolve)
-
-        // S2 ID directly
-        canResolve = await resolver.canResolve([.semanticScholar: "abc123"], to: .semanticScholar)
-        XCTAssertTrue(canResolve)
-
-        // Bibcode only - not supported
-        canResolve = await resolver.canResolve([.bibcode: "2020ApJ...123...45A"], to: .semanticScholar)
-        XCTAssertFalse(canResolve)
-    }
-
-    func testCanResolveToOpenAlex() async {
-        // DOI
-        var canResolve = await resolver.canResolve([.doi: "10.1234/test"], to: .openAlex)
-        XCTAssertTrue(canResolve)
-
-        // OpenAlex ID directly
-        canResolve = await resolver.canResolve([.openAlex: "W12345"], to: .openAlex)
-        XCTAssertTrue(canResolve)
-
-        // arXiv only - not supported
-        canResolve = await resolver.canResolve([.arxiv: "2301.12345"], to: .openAlex)
-        XCTAssertFalse(canResolve)
-    }
-
     func testCanResolveToADS() async {
         // Bibcode
         var canResolve = await resolver.canResolve([.bibcode: "2020ApJ...123...45A"], to: .ads)
@@ -142,60 +106,6 @@ final class IdentifierResolverTests: XCTestCase {
     }
 
     // MARK: - Preferred Identifier Tests
-
-    func testPreferredIdentifierForSemanticScholar() async {
-        // S2 ID is most preferred
-        var result = await resolver.preferredIdentifier(
-            from: [.semanticScholar: "s2id", .doi: "10.1234/test"],
-            for: .semanticScholar
-        )
-        XCTAssertEqual(result?.type, .semanticScholar)
-        XCTAssertEqual(result?.value, "s2id")
-
-        // DOI is second choice
-        result = await resolver.preferredIdentifier(
-            from: [.doi: "10.1234/test", .arxiv: "2301.12345"],
-            for: .semanticScholar
-        )
-        XCTAssertEqual(result?.type, .doi)
-
-        // arXiv is third choice
-        result = await resolver.preferredIdentifier(
-            from: [.arxiv: "2301.12345", .pmid: "12345678"],
-            for: .semanticScholar
-        )
-        XCTAssertEqual(result?.type, .arxiv)
-
-        // PubMed is fourth choice
-        result = await resolver.preferredIdentifier(
-            from: [.pmid: "12345678"],
-            for: .semanticScholar
-        )
-        XCTAssertEqual(result?.type, .pmid)
-    }
-
-    func testPreferredIdentifierForOpenAlex() async {
-        // OpenAlex ID is most preferred
-        var result = await resolver.preferredIdentifier(
-            from: [.openAlex: "W12345", .doi: "10.1234/test"],
-            for: .openAlex
-        )
-        XCTAssertEqual(result?.type, .openAlex)
-
-        // DOI is second choice
-        result = await resolver.preferredIdentifier(
-            from: [.doi: "10.1234/test"],
-            for: .openAlex
-        )
-        XCTAssertEqual(result?.type, .doi)
-
-        // No supported identifier
-        result = await resolver.preferredIdentifier(
-            from: [.arxiv: "2301.12345"],
-            for: .openAlex
-        )
-        XCTAssertNil(result)
-    }
 
     func testPreferredIdentifierForADS() async {
         // Bibcode is most preferred
@@ -293,12 +203,12 @@ final class IdentifierResolverTests: XCTestCase {
     }
 
     func testCanResolveEmptyIdentifiers() async {
-        let canResolve = await resolver.canResolve([:], to: .semanticScholar)
+        let canResolve = await resolver.canResolve([:], to: .ads)
         XCTAssertFalse(canResolve)
     }
 
     func testPreferredIdentifierEmptyIdentifiers() async {
-        let result = await resolver.preferredIdentifier(from: [:], for: .semanticScholar)
+        let result = await resolver.preferredIdentifier(from: [:], for: .ads)
         XCTAssertNil(result)
     }
 }

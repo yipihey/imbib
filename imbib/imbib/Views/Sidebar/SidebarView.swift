@@ -142,6 +142,15 @@ struct SidebarView: View {
             // Refresh exploration section
             explorationRefreshTrigger = UUID()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .navigateToSmartSearch)) { notification in
+            // Navigate to a smart search in the sidebar (from share extension or other source)
+            if let searchID = notification.object as? UUID,
+               let smartSearch = explorationSmartSearches.first(where: { $0.id == searchID }) {
+                selection = .smartSearch(smartSearch)
+            }
+            // Refresh exploration to show the new/updated search
+            explorationRefreshTrigger = UUID()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .navigateToCollection)) { notification in
             // Navigate to the collection in the sidebar
             if let collection = notification.userInfo?["collection"] as? CDCollection {

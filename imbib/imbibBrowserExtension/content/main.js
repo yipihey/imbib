@@ -66,12 +66,17 @@
     function extractADS() {
         const url = window.location.href;
 
-        // Detect search results page - suggest clicking on a paper
+        // Detect search results page - extract query for smart search creation
         if (url.includes('/search/') || url.includes('/search?')) {
+            const searchQuery = extractADSSearchQuery(url);
             return {
                 sourceType: 'ads',
                 isSearchPage: true,
-                message: 'This is a search results page. Click on a paper to import it.'
+                searchQuery: searchQuery,
+                searchURL: url,
+                message: searchQuery
+                    ? `Search: ${searchQuery.length > 50 ? searchQuery.substring(0, 50) + '...' : searchQuery}`
+                    : 'This is a search results page. Click on a paper to import it.'
             };
         }
 
@@ -122,6 +127,38 @@
         if (arxivMeta) return arxivMeta;
 
         return null;
+    }
+
+    // Extract search query from ADS search URL
+    // Handles both traditional (?q=) and path-based (/search/q=) formats
+    function extractADSSearchQuery(url) {
+        try {
+            const urlObj = new URL(url);
+
+            // Traditional format: /search?q=...
+            let query = urlObj.searchParams.get('q');
+
+            // Path-based format: /search/q=...&sort=...
+            if (!query && urlObj.pathname.startsWith('/search/')) {
+                const pathQuery = urlObj.pathname.substring('/search/'.length);
+                // Parse path as query params
+                const pathParams = new URLSearchParams(pathQuery);
+                query = pathParams.get('q');
+            }
+
+            if (!query) return null;
+
+            // Decode and clean up the query
+            query = decodeURIComponent(query).trim();
+
+            // Skip docs() selection queries - those are temporary and shouldn't be saved
+            if (query.startsWith('docs(')) return null;
+
+            return query;
+        } catch (e) {
+            console.error('imbib: Error parsing ADS search URL:', e);
+            return null;
+        }
     }
 
     // ==================== arXiv Scraper ====================

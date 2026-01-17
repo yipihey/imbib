@@ -37,6 +37,9 @@ public enum AutomationCommand: Sendable {
     /// Search within a specific arXiv category
     case searchCategory(category: String)
 
+    /// Create a smart search in the exploration library
+    case createSmartSearch(query: String, name: String?, sourceID: String?)
+
     // MARK: - Navigation
 
     /// Navigate to a specific view
@@ -252,6 +255,10 @@ public struct URLCommandParser {
 
         switch command {
         case "search":
+            // Check for subcommand: imbib://search/create-smart-search?...
+            if pathComponents.count > 1 && pathComponents[1] == "create-smart-search" {
+                return try parseCreateSmartSearchCommand(queryParams)
+            }
             return try parseSearchCommand(queryParams)
 
         case "search-category":
@@ -325,6 +332,15 @@ public struct URLCommandParser {
             throw AutomationError.missingParameter("category")
         }
         return .searchCategory(category: category)
+    }
+
+    private func parseCreateSmartSearchCommand(_ params: [String: String]) throws -> AutomationCommand {
+        guard let query = params["query"], !query.isEmpty else {
+            throw AutomationError.missingParameter("query")
+        }
+        let name = params["name"]
+        let sourceID = params["sourceID"]
+        return .createSmartSearch(query: query, name: name, sourceID: sourceID)
     }
 
     private func parseImportCommand(_ params: [String: String]) throws -> AutomationCommand {

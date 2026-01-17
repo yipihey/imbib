@@ -2002,6 +2002,7 @@ struct PDFTab: View {
     @State private var checkPDFTask: Task<Void, Never>?
     @State private var showFileImporter = false
     @State private var isCheckingPDF = true  // Start in loading state
+    @State private var browserFallbackURL: URL?  // URL to open in browser when publisher PDF fails
 
     var body: some View {
         Group {
@@ -2090,21 +2091,72 @@ struct PDFTab: View {
         ContentUnavailableView {
             Label("Download Failed", systemImage: "exclamationmark.triangle")
         } description: {
-            Text(error.localizedDescription)
-        } actions: {
-            Button("Retry") {
-                Task { await downloadPDF() }
-            }
-            .buttonStyle(.borderedProminent)
-            .help("Retry PDF download")
+            VStack(spacing: 8) {
+                Text(error.localizedDescription)
 
-            #if os(macOS)
-            Button("Open in Browser") {
-                Task { await openPDFBrowser() }
+                // Show the attempted URL for browser fallback (clickable to open in system browser)
+                if let fallbackURL = browserFallbackURL {
+                    Text("Publisher URL:")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    #if os(macOS)
+                    Button {
+                        NSWorkspace.shared.open(fallbackURL)
+                    } label: {
+                        Text(fallbackURL.absoluteString)
+                            .font(.caption)
+                            .foregroundStyle(.blue)
+                            .underline()
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                            .multilineTextAlignment(.center)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Click to open in Safari")
+                    #else
+                    Link(destination: fallbackURL) {
+                        Text(fallbackURL.absoluteString)
+                            .font(.caption)
+                            .foregroundStyle(.blue)
+                            .underline()
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                    }
+                    #endif
+                }
             }
-            .buttonStyle(.bordered)
-            .help("Open publisher page to download PDF interactively")
-            #endif
+        } actions: {
+            // Show "Open in Browser" as primary action when we have a fallback URL
+            if let fallbackURL = browserFallbackURL {
+                #if os(macOS)
+                Button("Open in Browser") {
+                    Task { await openPDFBrowserWithURL(fallbackURL) }
+                }
+                .buttonStyle(.borderedProminent)
+                .help("Open publisher page in built-in browser to download PDF")
+                #endif
+
+                Button("Retry") {
+                    Task { await downloadPDF() }
+                }
+                .buttonStyle(.bordered)
+                .help("Retry PDF download")
+            } else {
+                Button("Retry") {
+                    Task { await downloadPDF() }
+                }
+                .buttonStyle(.borderedProminent)
+                .help("Retry PDF download")
+
+                #if os(macOS)
+                Button("Open in Browser") {
+                    Task { await openPDFBrowser() }
+                }
+                .buttonStyle(.bordered)
+                .help("Open publisher page to download PDF interactively")
+                #endif
+            }
 
             Button("Add PDF...") {
                 showFileImporter = true
@@ -2160,6 +2212,7 @@ struct PDFTab: View {
 
         linkedFile = nil
         downloadError = nil
+        browserFallbackURL = nil
         isDownloading = false
         hasRemotePDF = false
         isCheckingPDF = true  // Show loading state
@@ -2242,31 +2295,88 @@ struct PDFTab: View {
     }
 
     private func downloadPDF() async {
+        logger.info("[PDFTab] downloadPDF() called - starting download attempt")
+
         guard let pub = publication else {
-            logger.warning("[PDFTab] No publication available for PDF download")
+            logger.warning("[PDFTab] downloadPDF() FAILED: publication is nil")
+            return
+        }
+        logger.info("[PDFTab] downloadPDF() - publication: \(pub.citeKey)")
+
+        // Use resolveWithDetails to get full resolution info (including browser fallback)
+        let settings = await PDFSettingsStore.shared.settings
+        let resolution = PDFURLResolver.resolveWithDetails(for: pub, settings: settings)
+
+        // Store browser fallback URL if resolution failed but we have an attempted URL
+        await MainActor.run {
+            browserFallbackURL = resolution.attemptedURL
+        }
+
+        guard let resolvedURL = resolution.url else {
+            // Log detailed info about what identifiers were available
+            logger.warning("[PDFTab] downloadPDF() FAILED: No URL resolved")
+            logger.info("[PDFTab]   pdfLinks: \(pub.pdfLinks.map { $0.url.absoluteString })")
+            logger.info("[PDFTab]   arxivID: \(pub.arxivID ?? "nil")")
+            logger.info("[PDFTab]   eprint: \(pub.fields["eprint"] ?? "nil")")
+            logger.info("[PDFTab]   bibcode: \(pub.bibcodeNormalized ?? "nil")")
+            logger.info("[PDFTab]   doi: \(pub.doi ?? "nil")")
+
+            // Always show an error when resolution fails
+            await MainActor.run {
+                if let attemptedURL = resolution.attemptedURL {
+                    logger.info("[PDFTab]   Browser fallback URL available: \(attemptedURL.absoluteString)")
+                    downloadError = PDFDownloadError.publisherNotAvailable
+
+                    // Auto-open the built-in browser when resolution fails but we have a fallback URL
+                    #if os(macOS)
+                    Task {
+                        await openPDFBrowserWithURL(attemptedURL)
+                    }
+                    #endif
+                } else {
+                    logger.info("[PDFTab]   No browser fallback URL available")
+                    downloadError = PDFDownloadError.noPDFAvailable
+                }
+            }
             return
         }
 
-        // Use resolveForAutoDownload with OpenAlex → Publisher → arXiv priority
-        let settings = await PDFSettingsStore.shared.settings
-        guard let resolvedURL = PDFURLResolver.resolveForAutoDownload(for: pub, settings: settings) else {
-            logger.warning("[PDFTab] No PDF URL could be resolved for paper: \(paper.id)")
-            return
+        // Log if this is a fallback resolution
+        if resolution.isFallback {
+            logger.info("[PDFTab] Using fallback source: \(resolution.sourceType?.rawValue ?? "unknown") (preferred: \(resolution.preferredSourceType.rawValue))")
         }
 
         logger.info("[PDFTab] Downloading PDF from: \(resolvedURL.absoluteString)")
 
         isDownloading = true
         downloadError = nil
+        browserFallbackURL = nil  // Clear since we found a URL to try
 
         do {
             // Download to temp location
-            let (tempURL, _) = try await URLSession.shared.download(from: resolvedURL)
+            logger.info("[PDFTab] Starting URLSession download...")
+            let (tempURL, response) = try await URLSession.shared.download(from: resolvedURL)
+
+            // Log HTTP response details
+            if let httpResponse = response as? HTTPURLResponse {
+                let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
+                let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length") ?? "unknown"
+                logger.info("[PDFTab] Download response: HTTP \(httpResponse.statusCode), Content-Type: \(contentType), Content-Length: \(contentLength)")
+                if httpResponse.statusCode != 200 {
+                    logger.warning("[PDFTab] Non-200 HTTP status! Headers: \(httpResponse.allHeaderFields)")
+                }
+            } else {
+                logger.info("[PDFTab] Download complete (non-HTTP response)")
+            }
 
             // Validate it's actually a PDF (check for %PDF header)
             let fileHandle = try FileHandle(forReadingFrom: tempURL)
-            let header = fileHandle.readData(ofLength: 4)
+            let header = fileHandle.readData(ofLength: 100) // Read more for debugging
             try fileHandle.close()
+
+            // Log header bytes for debugging
+            let headerHex = header.prefix(16).map { String(format: "%02x", $0) }.joined(separator: " ")
+            logger.info("[PDFTab] PDF validation - first 16 bytes: \(headerHex)")
 
             guard header.count >= 4,
                   header[0] == 0x25, // %
@@ -2275,34 +2385,59 @@ struct PDFTab: View {
                   header[3] == 0x46  // F
             else {
                 // Not a valid PDF - likely HTML error page
-                logger.warning("[PDFTab] Downloaded file is not a valid PDF (invalid header)")
+                logger.warning("[PDFTab] Downloaded file is NOT a valid PDF (expected %PDF header)")
+
+                // Log what we actually received (helpful for diagnosing HTML error pages)
+                if let headerString = String(data: header, encoding: .utf8) {
+                    logger.warning("[PDFTab] Received content preview: \(headerString)")
+                }
+
                 try? FileManager.default.removeItem(at: tempURL)
                 throw PDFDownloadError.downloadFailed("Downloaded file is not a valid PDF")
             }
 
+            logger.info("[PDFTab] PDF header validation PASSED")
+
             // Import into library using PDFManager
             guard let library = libraryManager.activeLibrary else {
+                logger.error("[PDFTab] No active library for PDF import")
                 throw PDFDownloadError.noActiveLibrary
             }
 
+            logger.info("[PDFTab] Importing PDF via PDFManager...")
             try PDFManager.shared.importPDF(from: tempURL, for: pub, in: library)
+            logger.info("[PDFTab] PDF import SUCCESS")
 
             // Clean up temp file
             try? FileManager.default.removeItem(at: tempURL)
 
             await MainActor.run {
-                logger.info("[PDFTab] PDF downloaded and imported successfully")
+                logger.info("[PDFTab] PDF downloaded and imported successfully - refreshing view")
                 resetAndCheckPDF()
             }
         } catch {
+            logger.error("[PDFTab] Download/import FAILED: \(error.localizedDescription)")
+            logger.error("[PDFTab]   Error type: \(type(of: error))")
+            if let urlError = error as? URLError {
+                logger.error("[PDFTab]   URLError code: \(urlError.code.rawValue)")
+            }
             await MainActor.run {
                 downloadError = error
-                logger.error("[PDFTab] PDF download failed: \(error.localizedDescription)")
+                // Store the failed URL as browser fallback so user can try in browser
+                browserFallbackURL = resolvedURL
+
+                // Auto-open the built-in browser when download fails
+                #if os(macOS)
+                Task {
+                    await openPDFBrowserWithURL(resolvedURL)
+                }
+                #endif
             }
         }
 
         await MainActor.run {
             isDownloading = false
+            logger.info("[PDFTab] downloadPDF() complete - isDownloading=false, error=\(downloadError?.localizedDescription ?? "nil")")
         }
     }
 
@@ -2349,6 +2484,34 @@ struct PDFTab: View {
 
         await PDFBrowserWindowController.shared.openBrowser(
             for: pub,
+            libraryID: library.id
+        ) { [weak libraryManager] data in
+            // This is called when user saves the detected PDF
+            guard let library = libraryManager?.activeLibrary else { return }
+            do {
+                try PDFManager.shared.importPDF(data: data, for: pub, in: library)
+                logger.info("[PDFTab] PDF imported from browser successfully")
+
+                // Post notification to refresh PDF view
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .pdfImportedFromBrowser, object: pub.objectID)
+                }
+            } catch {
+                logger.error("[PDFTab] Failed to import PDF from browser: \(error)")
+            }
+        }
+    }
+
+    /// Open the built-in PDF browser with a specific URL (used for fallback URLs)
+    private func openPDFBrowserWithURL(_ url: URL) async {
+        guard let pub = publication else { return }
+        guard let library = libraryManager.activeLibrary else { return }
+
+        logger.info("[PDFTab] Opening built-in browser with fallback URL: \(url.absoluteString)")
+
+        await PDFBrowserWindowController.shared.openBrowser(
+            for: pub,
+            startURL: url,
             libraryID: library.id
         ) { [weak libraryManager] data in
             // This is called when user saves the detected PDF
@@ -2493,6 +2656,8 @@ struct NotesTab: View {
     // MARK: - PDF Auto-Load
 
     private func checkAndLoadPDF() {
+        Logger.files.infoCapture("[NotesTab] checkAndLoadPDF() started for: \(publication.citeKey)", category: "pdf")
+
         checkPDFTask?.cancel()
 
         linkedFile = nil
@@ -2502,13 +2667,18 @@ struct NotesTab: View {
         checkPDFTask = Task {
             // Check for linked PDF files
             let linkedFiles = publication.linkedFiles ?? []
+            Logger.files.infoCapture("[NotesTab] linkedFiles count = \(linkedFiles.count)", category: "pdf")
+
             if let firstPDF = linkedFiles.first(where: { $0.isPDF }) ?? linkedFiles.first {
+                Logger.files.infoCapture("[NotesTab] Found local PDF: \(firstPDF.filename)", category: "pdf")
                 await MainActor.run {
                     linkedFile = firstPDF
                     isCheckingPDF = false
                 }
                 return
             }
+
+            Logger.files.infoCapture("[NotesTab] No local PDF found, checking remote...", category: "pdf")
 
             // No local PDF - check if remote PDF is available
             let resolverHasPDF = PDFURLResolver.hasPDF(publication: publication)
@@ -2517,33 +2687,62 @@ struct NotesTab: View {
             let hasEprint = publication.fields["eprint"] != nil
             let hasRemote = resolverHasPDF || hasPdfLinks || hasArxivID || hasEprint
 
+            Logger.files.infoCapture("[NotesTab] PDF check: resolver=\(resolverHasPDF), pdfLinks=\(hasPdfLinks) (\(publication.pdfLinks.count)), arxivID=\(hasArxivID), eprint=\(hasEprint), result=\(hasRemote)", category: "pdf")
+
             await MainActor.run { isCheckingPDF = false }
 
             // Auto-download if setting enabled AND remote PDF available
             let settings = await PDFSettingsStore.shared.settings
             if settings.autoDownloadEnabled && hasRemote {
+                Logger.files.infoCapture("[NotesTab] auto-downloading PDF...", category: "pdf")
                 await downloadPDF()
+            } else {
+                Logger.files.infoCapture("[NotesTab] autoDownload=\(settings.autoDownloadEnabled), hasRemote=\(hasRemote) - not downloading", category: "pdf")
             }
         }
     }
 
     private func downloadPDF() async {
+        Logger.files.infoCapture("[NotesTab] downloadPDF() called - starting download attempt", category: "pdf")
+
         await MainActor.run { isDownloading = true }
 
         let settings = await PDFSettingsStore.shared.settings
         guard let resolvedURL = PDFURLResolver.resolveForAutoDownload(for: publication, settings: settings) else {
+            Logger.files.warningCapture("[NotesTab] downloadPDF() FAILED: No URL resolved", category: "pdf")
+            Logger.files.infoCapture("[NotesTab]   pdfLinks: \(publication.pdfLinks.map { $0.url.absoluteString })", category: "pdf")
+            Logger.files.infoCapture("[NotesTab]   arxivID: \(publication.arxivID ?? "nil")", category: "pdf")
+            Logger.files.infoCapture("[NotesTab]   eprint: \(publication.fields["eprint"] ?? "nil")", category: "pdf")
+            Logger.files.infoCapture("[NotesTab]   bibcode: \(publication.bibcodeNormalized ?? "nil")", category: "pdf")
+            Logger.files.infoCapture("[NotesTab]   doi: \(publication.doi ?? "nil")", category: "pdf")
             await MainActor.run { isDownloading = false }
             return
         }
 
+        Logger.files.infoCapture("[NotesTab] Downloading PDF from: \(resolvedURL.absoluteString)", category: "pdf")
+
         do {
             // Download to temp location
-            let (tempURL, _) = try await URLSession.shared.download(from: resolvedURL)
+            Logger.files.infoCapture("[NotesTab] Starting URLSession download...", category: "pdf")
+            let (tempURL, response) = try await URLSession.shared.download(from: resolvedURL)
+
+            // Log HTTP response details
+            if let httpResponse = response as? HTTPURLResponse {
+                let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? "unknown"
+                Logger.files.infoCapture("[NotesTab] Download response: HTTP \(httpResponse.statusCode), Content-Type: \(contentType)", category: "pdf")
+                if httpResponse.statusCode != 200 {
+                    Logger.files.warningCapture("[NotesTab] Non-200 HTTP status!", category: "pdf")
+                }
+            }
 
             // Validate it's actually a PDF (check for %PDF header)
             let fileHandle = try FileHandle(forReadingFrom: tempURL)
-            let header = fileHandle.readData(ofLength: 4)
+            let header = fileHandle.readData(ofLength: 100)
             try fileHandle.close()
+
+            // Log header bytes for debugging
+            let headerHex = header.prefix(16).map { String(format: "%02x", $0) }.joined(separator: " ")
+            Logger.files.infoCapture("[NotesTab] PDF validation - first 16 bytes: \(headerHex)", category: "pdf")
 
             guard header.count >= 4,
                   header[0] == 0x25, // %
@@ -2551,25 +2750,39 @@ struct NotesTab: View {
                   header[2] == 0x44, // D
                   header[3] == 0x46  // F
             else {
+                Logger.files.warningCapture("[NotesTab] Downloaded file is NOT a valid PDF", category: "pdf")
+                if let headerString = String(data: header, encoding: .utf8) {
+                    Logger.files.warningCapture("[NotesTab] Received content preview: \(headerString)", category: "pdf")
+                }
                 try? FileManager.default.removeItem(at: tempURL)
                 await MainActor.run { isDownloading = false }
                 return
             }
 
+            Logger.files.infoCapture("[NotesTab] PDF header validation PASSED", category: "pdf")
+
             // Import into library using PDFManager
             guard let library = libraryManager.activeLibrary else {
+                Logger.files.errorCapture("[NotesTab] No active library for PDF import", category: "pdf")
                 await MainActor.run { isDownloading = false }
                 return
             }
 
+            Logger.files.infoCapture("[NotesTab] Importing PDF via PDFManager...", category: "pdf")
             try PDFManager.shared.importPDF(from: tempURL, for: publication, in: library)
+            Logger.files.infoCapture("[NotesTab] PDF import SUCCESS", category: "pdf")
 
             // Refresh linkedFile
             await MainActor.run {
                 isDownloading = false
                 linkedFile = publication.linkedFiles?.first(where: { $0.isPDF }) ?? publication.linkedFiles?.first
+                Logger.files.infoCapture("[NotesTab] downloadPDF() complete - PDF loaded", category: "pdf")
             }
         } catch {
+            Logger.files.errorCapture("[NotesTab] Download/import FAILED: \(error.localizedDescription)", category: "pdf")
+            if let urlError = error as? URLError {
+                Logger.files.errorCapture("[NotesTab]   URLError code: \(urlError.code.rawValue)", category: "pdf")
+            }
             await MainActor.run { isDownloading = false }
         }
     }
@@ -3022,6 +3235,8 @@ struct NotesPanel: View {
 enum PDFDownloadError: LocalizedError {
     case noActiveLibrary
     case downloadFailed(String)
+    case publisherNotAvailable
+    case noPDFAvailable
 
     var errorDescription: String? {
         switch self {
@@ -3029,6 +3244,10 @@ enum PDFDownloadError: LocalizedError {
             return "No active library for PDF import"
         case .downloadFailed(let reason):
             return "Download failed: \(reason)"
+        case .publisherNotAvailable:
+            return "Publisher PDF not available for direct download. Use the browser to access the publisher page."
+        case .noPDFAvailable:
+            return "No PDF source available for this paper."
         }
     }
 }

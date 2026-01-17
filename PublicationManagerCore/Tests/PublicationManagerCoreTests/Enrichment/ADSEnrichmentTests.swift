@@ -354,7 +354,7 @@ final class ADSEnrichmentTests: XCTestCase {
         let existingData = EnrichmentData(
             citationCount: 999,
             abstract: "Existing abstract",
-            source: .semanticScholar
+            source: .ads
         )
 
         let identifiers: [IdentifierType: String] = [.bibcode: "2023arXiv230112345A"]
@@ -373,7 +373,10 @@ final class ADSEnrichmentTests: XCTestCase {
     // MARK: - Helper
 
     private func loadFixture(_ name: String) -> Data {
-        let path = "/Users/tabel/Projects/imbib/PublicationManagerCore/Tests/PublicationManagerCoreTests/Enrichment/Fixtures/\(name).json"
-        return try! Data(contentsOf: URL(fileURLWithPath: path))
+        // Use #file to get the current file's directory and construct relative path to Fixtures
+        let currentFile = URL(fileURLWithPath: #file)
+        let fixturesDir = currentFile.deletingLastPathComponent().appendingPathComponent("Fixtures")
+        let fixtureURL = fixturesDir.appendingPathComponent("\(name).json")
+        return try! Data(contentsOf: fixtureURL)
     }
 }

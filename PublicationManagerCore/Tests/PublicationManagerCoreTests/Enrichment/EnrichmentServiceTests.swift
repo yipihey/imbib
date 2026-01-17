@@ -11,8 +11,8 @@ import XCTest
 // MARK: - Mock Settings Provider
 
 actor MockSettingsProvider: EnrichmentSettingsProvider {
-    var preferredSource: EnrichmentSource = .semanticScholar
-    var sourcePriority: [EnrichmentSource] = [.semanticScholar, .openAlex, .ads]
+    var preferredSource: EnrichmentSource = .ads
+    var sourcePriority: [EnrichmentSource] = [.ads]
     var autoSyncEnabled: Bool = true
     var refreshIntervalDays: Int = 7
 
@@ -25,28 +25,21 @@ actor MockSettingsProvider: EnrichmentSettingsProvider {
 
 final class EnrichmentServiceTests: XCTestCase {
 
-    var mockPlugin1: MockEnrichmentPlugin!
-    var mockPlugin2: MockEnrichmentPlugin!
+    var mockPlugin: MockEnrichmentPlugin!
     var settingsProvider: MockSettingsProvider!
     var service: EnrichmentService!
 
     override func setUp() async throws {
-        mockPlugin1 = MockEnrichmentPlugin(
-            id: "semanticscholar",
-            name: "Semantic Scholar",
-            capabilities: [.citationCount, .references]
-        )
-
-        mockPlugin2 = MockEnrichmentPlugin(
-            id: "openalex",
-            name: "OpenAlex",
-            capabilities: [.citationCount, .openAccess]
+        mockPlugin = MockEnrichmentPlugin(
+            id: "ads",
+            name: "NASA ADS",
+            capabilities: [.citationCount, .references, .pdfURL]
         )
 
         settingsProvider = MockSettingsProvider()
 
         service = EnrichmentService(
-            plugins: [mockPlugin1, mockPlugin2],
+            plugins: [mockPlugin],
             settingsProvider: settingsProvider
         )
     }
@@ -57,17 +50,17 @@ final class EnrichmentServiceTests: XCTestCase {
         let expectedResult = EnrichmentResult(
             data: EnrichmentData(
                 citationCount: 100,
-                source: .semanticScholar
+                source: .ads
             ),
             resolvedIdentifiers: [.doi: "10.1234/test"]
         )
-        await mockPlugin1.setEnrichResult(expectedResult)
+        await mockPlugin.setEnrichResult(expectedResult)
 
         let identifiers: [IdentifierType: String] = [.doi: "10.1234/test"]
         let result = try await service.enrichNow(identifiers: identifiers)
 
         XCTAssertEqual(result.data.citationCount, 100)
-        XCTAssertEqual(result.data.source, .semanticScholar)
+        XCTAssertEqual(result.data.source, .ads)
     }
 
     func testEnrichNowWithNoIdentifiers() async {
@@ -83,54 +76,25 @@ final class EnrichmentServiceTests: XCTestCase {
         }
     }
 
-    func testEnrichNowTriesPluginsInPriorityOrder() async throws {
-        // Set up settings to prefer openAlex first
-        await settingsProvider.setSourcePriority([.openAlex, .semanticScholar])
-
-        let oaResult = EnrichmentResult(
-            data: EnrichmentData(citationCount: 50, source: .openAlex),
-            resolvedIdentifiers: [:]
+    func testEnrichNowWithBibcode() async throws {
+        let expectedResult = EnrichmentResult(
+            data: EnrichmentData(citationCount: 150, source: .ads),
+            resolvedIdentifiers: [.bibcode: "2020ApJ...123...45A"]
         )
-        await mockPlugin2.setEnrichResult(oaResult)
+        await mockPlugin.setEnrichResult(expectedResult)
 
-        let identifiers: [IdentifierType: String] = [.doi: "10.1234/test"]
+        let identifiers: [IdentifierType: String] = [.bibcode: "2020ApJ...123...45A"]
         let result = try await service.enrichNow(identifiers: identifiers)
 
-        // Should use OpenAlex since it's first in priority
-        XCTAssertEqual(result.data.source, .openAlex)
-        XCTAssertEqual(result.data.citationCount, 50)
+        XCTAssertEqual(result.data.source, .ads)
+        XCTAssertEqual(result.data.citationCount, 150)
 
-        // OpenAlex should have been called
-        let oaCallCount = await mockPlugin2.enrichCallCount
-        XCTAssertEqual(oaCallCount, 1)
-    }
-
-    func testEnrichNowFallsBackOnFailure() async throws {
-        // First plugin fails
-        await mockPlugin1.setFailure(.networkError("Connection failed"))
-
-        // Second plugin succeeds
-        let oaResult = EnrichmentResult(
-            data: EnrichmentData(citationCount: 75, source: .openAlex),
-            resolvedIdentifiers: [:]
-        )
-        await mockPlugin2.setEnrichResult(oaResult)
-
-        let identifiers: [IdentifierType: String] = [.doi: "10.1234/test"]
-        let result = try await service.enrichNow(identifiers: identifiers)
-
-        // Should fall back to OpenAlex
-        XCTAssertEqual(result.data.source, .openAlex)
-
-        // Both plugins should have been tried
-        let s2CallCount = await mockPlugin1.enrichCallCount
-        let oaCallCount = await mockPlugin2.enrichCallCount
-        XCTAssertEqual(s2CallCount, 1)
-        XCTAssertEqual(oaCallCount, 1)
+        let callCount = await mockPlugin.enrichCallCount
+        XCTAssertEqual(callCount, 1)
     }
 
     func testEnrichNowDoesNotFallbackOnRateLimited() async {
-        await mockPlugin1.setFailure(.rateLimited(retryAfter: 60))
+        await mockPlugin.setFailure(.rateLimited(retryAfter: 60))
 
         let identifiers: [IdentifierType: String] = [.doi: "10.1234/test"]
 
@@ -146,15 +110,10 @@ final class EnrichmentServiceTests: XCTestCase {
         } catch {
             XCTFail("Unexpected error: \(error)")
         }
-
-        // Second plugin should NOT have been tried
-        let oaCallCount = await mockPlugin2.enrichCallCount
-        XCTAssertEqual(oaCallCount, 0)
     }
 
-    func testEnrichNowAllPluginsFail() async {
-        await mockPlugin1.setFailure(.notFound)
-        await mockPlugin2.setFailure(.notFound)
+    func testEnrichNowPluginFails() async {
+        await mockPlugin.setFailure(.notFound)
 
         let identifiers: [IdentifierType: String] = [.doi: "10.1234/test"]
 
@@ -162,7 +121,6 @@ final class EnrichmentServiceTests: XCTestCase {
             _ = try await service.enrichNow(identifiers: identifiers)
             XCTFail("Expected error")
         } catch let error as EnrichmentError {
-            // Should throw the last error
             if case .notFound = error {
                 // Expected
             } else {
@@ -177,10 +135,10 @@ final class EnrichmentServiceTests: XCTestCase {
 
     func testEnrichSearchResult() async throws {
         let expectedResult = EnrichmentResult(
-            data: EnrichmentData(citationCount: 200, source: .semanticScholar),
+            data: EnrichmentData(citationCount: 200, source: .ads),
             resolvedIdentifiers: [:]
         )
-        await mockPlugin1.setEnrichResult(expectedResult)
+        await mockPlugin.setEnrichResult(expectedResult)
 
         let searchResult = SearchResult(
             id: "test",
@@ -195,7 +153,7 @@ final class EnrichmentServiceTests: XCTestCase {
         XCTAssertEqual(result.data.citationCount, 200)
 
         // Should have used identifiers from search result
-        let lastIds = await mockPlugin1.lastIdentifiers
+        let lastIds = await mockPlugin.lastIdentifiers
         XCTAssertEqual(lastIds?[.doi], "10.1234/test")
         XCTAssertEqual(lastIds?[.arxiv], "2301.12345")
     }
@@ -218,10 +176,10 @@ final class EnrichmentServiceTests: XCTestCase {
 
     func testProcessNextQueued() async throws {
         let expectedResult = EnrichmentResult(
-            data: EnrichmentData(citationCount: 50, source: .semanticScholar),
+            data: EnrichmentData(citationCount: 50, source: .ads),
             resolvedIdentifiers: [:]
         )
-        await mockPlugin1.setEnrichResult(expectedResult)
+        await mockPlugin.setEnrichResult(expectedResult)
 
         let publicationID = UUID()
         await service.queueForEnrichment(
@@ -255,8 +213,7 @@ final class EnrichmentServiceTests: XCTestCase {
     }
 
     func testProcessNextQueuedWithFailure() async {
-        await mockPlugin1.setFailure(.notFound)
-        await mockPlugin2.setFailure(.notFound)
+        await mockPlugin.setFailure(.notFound)
 
         let publicationID = UUID()
         await service.queueForEnrichment(
@@ -320,15 +277,15 @@ final class EnrichmentServiceTests: XCTestCase {
 
     func testRegisteredPlugins() async {
         let plugins = await service.registeredPlugins
-        XCTAssertEqual(plugins.count, 2)
+        XCTAssertEqual(plugins.count, 1)
     }
 
     func testPluginForSourceID() async {
-        let plugin = await service.plugin(for: "semanticscholar")
+        let plugin = await service.plugin(for: "ads")
         XCTAssertNotNil(plugin)
 
         let metadata = await plugin?.metadata
-        XCTAssertEqual(metadata?.name, "Semantic Scholar")
+        XCTAssertEqual(metadata?.name, "NASA ADS")
     }
 
     func testPluginForUnknownSourceID() async {
@@ -338,13 +295,13 @@ final class EnrichmentServiceTests: XCTestCase {
 
     func testPluginsSupportingCapability() async {
         let citationPlugins = await service.plugins(supporting: .citationCount)
-        XCTAssertEqual(citationPlugins.count, 2)  // Both support citation count
+        XCTAssertEqual(citationPlugins.count, 1)
 
         let refsPlugins = await service.plugins(supporting: .references)
-        XCTAssertEqual(refsPlugins.count, 1)  // Only S2 supports references
+        XCTAssertEqual(refsPlugins.count, 1)
 
-        let oaPlugins = await service.plugins(supporting: .openAccess)
-        XCTAssertEqual(oaPlugins.count, 1)  // Only OpenAlex supports open access
+        let pdfPlugins = await service.plugins(supporting: .pdfURL)
+        XCTAssertEqual(pdfPlugins.count, 1)
     }
 
     // MARK: - Existing Data Merge Tests
@@ -355,11 +312,11 @@ final class EnrichmentServiceTests: XCTestCase {
             data: EnrichmentData(
                 citationCount: 150,
                 abstract: nil,
-                source: .semanticScholar
+                source: .ads
             ),
             resolvedIdentifiers: [:]
         )
-        await mockPlugin1.setEnrichResult(newResult)
+        await mockPlugin.setEnrichResult(newResult)
 
         let existingData = EnrichmentData(
             citationCount: 100,
@@ -372,7 +329,7 @@ final class EnrichmentServiceTests: XCTestCase {
 
         // Plugin should have received existing data
         // (the actual merge behavior is tested in plugin tests)
-        let callCount = await mockPlugin1.enrichCallCount
+        let callCount = await mockPlugin.enrichCallCount
         XCTAssertEqual(callCount, 1)
     }
 }
@@ -389,16 +346,16 @@ final class DefaultEnrichmentSettingsProviderTests: XCTestCase {
         let autoSync = await provider.autoSyncEnabled
         let interval = await provider.refreshIntervalDays
 
-        XCTAssertEqual(preferred, .semanticScholar)
-        XCTAssertEqual(priority, [.semanticScholar, .openAlex, .ads])
+        XCTAssertEqual(preferred, .ads)
+        XCTAssertEqual(priority, [.ads])
         XCTAssertTrue(autoSync)
         XCTAssertEqual(interval, 7)
     }
 
     func testCustomSettings() async {
         let settings = EnrichmentSettings(
-            preferredSource: .openAlex,
-            sourcePriority: [.ads, .openAlex],
+            preferredSource: .ads,
+            sourcePriority: [.ads],
             autoSyncEnabled: false,
             refreshIntervalDays: 14
         )
@@ -409,8 +366,8 @@ final class DefaultEnrichmentSettingsProviderTests: XCTestCase {
         let autoSync = await provider.autoSyncEnabled
         let interval = await provider.refreshIntervalDays
 
-        XCTAssertEqual(preferred, .openAlex)
-        XCTAssertEqual(priority, [.ads, .openAlex])
+        XCTAssertEqual(preferred, .ads)
+        XCTAssertEqual(priority, [.ads])
         XCTAssertFalse(autoSync)
         XCTAssertEqual(interval, 14)
     }

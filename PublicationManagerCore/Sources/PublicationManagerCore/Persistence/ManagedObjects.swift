@@ -495,6 +495,7 @@ public class CDLinkedFile: NSManagedObject {
     // Relationships
     @NSManaged public var publication: CDPublication?
     @NSManaged public var attachmentTags: Set<CDAttachmentTag>?  // Tags for file grouping
+    @NSManaged public var annotations: Set<CDAnnotation>?        // PDF annotations (Phase 3)
 }
 
 // MARK: - Linked File Helpers
@@ -1120,5 +1121,188 @@ public extension CDSciXPendingChange {
             }
             return "Update metadata"
         }
+    }
+}
+
+// MARK: - Annotation (Phase 3: PDF Annotation Persistence)
+
+/// Core Data entity for PDF annotation metadata.
+/// Stores annotation data for CloudKit sync and searchable annotation index.
+@objc(CDAnnotation)
+public class CDAnnotation: NSManagedObject, Identifiable {
+    @NSManaged public var id: UUID
+    @NSManaged public var annotationType: String       // highlight, underline, strikethrough, note, freeText
+    @NSManaged public var pageNumber: Int32            // 0-indexed page number
+    @NSManaged public var boundsJSON: String           // JSON-encoded CGRect
+    @NSManaged public var color: String?               // Hex color like "#FFFF00"
+    @NSManaged public var contents: String?            // Text content for notes
+    @NSManaged public var selectedText: String?        // Highlighted/underlined text
+    @NSManaged public var author: String?              // Device name or user identifier
+    @NSManaged public var dateCreated: Date
+    @NSManaged public var dateModified: Date
+    @NSManaged public var syncState: String?           // For CloudKit sync tracking
+
+    // Relationships
+    @NSManaged public var linkedFile: CDLinkedFile?    // The PDF file containing this annotation
+}
+
+// MARK: - Annotation Types
+
+public extension CDAnnotation {
+
+    /// Types of PDF annotations
+    enum AnnotationType: String, CaseIterable, Sendable {
+        case highlight = "highlight"
+        case underline = "underline"
+        case strikethrough = "strikethrough"
+        case note = "note"              // Sticky note (text annotation)
+        case freeText = "freeText"      // Free text annotation
+        case ink = "ink"                // Drawing/signature
+
+        /// SF Symbol for this annotation type
+        public var icon: String {
+            switch self {
+            case .highlight: return "highlighter"
+            case .underline: return "underline"
+            case .strikethrough: return "strikethrough"
+            case .note: return "note.text"
+            case .freeText: return "textformat"
+            case .ink: return "pencil.tip"
+            }
+        }
+
+        /// Display name for UI
+        public var displayName: String {
+            switch self {
+            case .highlight: return "Highlight"
+            case .underline: return "Underline"
+            case .strikethrough: return "Strikethrough"
+            case .note: return "Note"
+            case .freeText: return "Free Text"
+            case .ink: return "Ink"
+            }
+        }
+    }
+
+    /// Get annotation type as enum
+    var typeEnum: AnnotationType? {
+        AnnotationType(rawValue: annotationType)
+    }
+}
+
+// MARK: - Annotation Bounds
+
+public extension CDAnnotation {
+
+    /// Encodable bounds struct for JSON storage
+    struct Bounds: Codable, Sendable {
+        public var x: CGFloat
+        public var y: CGFloat
+        public var width: CGFloat
+        public var height: CGFloat
+
+        public init(rect: CGRect) {
+            self.x = rect.origin.x
+            self.y = rect.origin.y
+            self.width = rect.size.width
+            self.height = rect.size.height
+        }
+
+        public var cgRect: CGRect {
+            CGRect(x: x, y: y, width: width, height: height)
+        }
+    }
+
+    /// Get bounds as CGRect
+    var bounds: CGRect {
+        get {
+            guard let data = boundsJSON.data(using: .utf8),
+                  let decoded = try? JSONDecoder().decode(Bounds.self, from: data) else {
+                return .zero
+            }
+            return decoded.cgRect
+        }
+        set {
+            let bounds = Bounds(rect: newValue)
+            if let data = try? JSONEncoder().encode(bounds),
+               let json = String(data: data, encoding: .utf8) {
+                boundsJSON = json
+            }
+        }
+    }
+}
+
+// MARK: - Annotation Helpers
+
+public extension CDAnnotation {
+
+    /// Create an annotation from PDFAnnotation data
+    static func create(
+        from pdfAnnotation: Any,  // PDFAnnotation - using Any to avoid PDFKit import in this file
+        pageNumber: Int,
+        selectedText: String? = nil,
+        in context: NSManagedObjectContext
+    ) -> CDAnnotation {
+        let annotation = CDAnnotation(context: context)
+        annotation.id = UUID()
+        annotation.pageNumber = Int32(pageNumber)
+        annotation.selectedText = selectedText
+        annotation.dateCreated = Date()
+        annotation.dateModified = Date()
+
+        #if os(macOS)
+        annotation.author = Host.current().localizedName ?? "Unknown"
+        #else
+        annotation.author = UIDevice.current.name
+        #endif
+
+        return annotation
+    }
+
+    /// Preview text for display (contents or selected text truncated)
+    var previewText: String {
+        if let contents = contents, !contents.isEmpty {
+            return String(contents.prefix(100))
+        }
+        if let selected = selectedText, !selected.isEmpty {
+            return String(selected.prefix(100))
+        }
+        return typeEnum?.displayName ?? "Annotation"
+    }
+
+    /// Whether this annotation has text content
+    var hasContent: Bool {
+        (contents != nil && !contents!.isEmpty) || (selectedText != nil && !selectedText!.isEmpty)
+    }
+}
+
+// MARK: - CDLinkedFile Annotation Helpers
+
+public extension CDLinkedFile {
+
+    /// Sorted annotations by page number, then position
+    var sortedAnnotations: [CDAnnotation] {
+        (annotations ?? []).sorted { a, b in
+            if a.pageNumber != b.pageNumber {
+                return a.pageNumber < b.pageNumber
+            }
+            // Same page: sort by y position (top to bottom)
+            return a.bounds.origin.y > b.bounds.origin.y
+        }
+    }
+
+    /// Annotations on a specific page
+    func annotations(onPage page: Int) -> [CDAnnotation] {
+        sortedAnnotations.filter { $0.pageNumber == Int32(page) }
+    }
+
+    /// Count of annotations
+    var annotationCount: Int {
+        annotations?.count ?? 0
+    }
+
+    /// Whether this file has any annotations
+    var hasAnnotations: Bool {
+        annotationCount > 0
     }
 }

@@ -34,12 +34,27 @@
 
             <!-- Search Page State -->
             <div id="search-page" class="state hidden">
-                <div class="empty-state">
+                <div class="search-page-content">
                     <svg class="icon-large" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                         <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                     </svg>
                     <p id="search-page-message">This is a search results page.</p>
-                    <p class="hint">Click on a paper to import it.</p>
+
+                    <!-- Smart Search Creation (shown when query is extractable) -->
+                    <div id="smart-search-section" class="smart-search-section hidden">
+                        <div class="search-query-preview">
+                            <span class="label">Query:</span>
+                            <code id="search-query-text"></code>
+                        </div>
+                        <button id="create-smart-search-btn" class="button primary">
+                            <span class="button-text">Create Smart Search</span>
+                            <div class="button-spinner hidden"></div>
+                        </button>
+                        <p class="hint">Will appear in Exploration section</p>
+                    </div>
+
+                    <!-- Fallback hint (shown when no query extractable) -->
+                    <p id="search-page-hint" class="hint">Click on a paper to import it.</p>
                 </div>
             </div>
 

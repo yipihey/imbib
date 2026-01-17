@@ -173,23 +173,15 @@ public struct ShareExtensionView: View {
                     .truncationMode(.tail)
             }
 
-            // Library picker
-            if !availableLibraries.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Library")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Picker("Library", selection: $selectedLibraryID) {
-                        ForEach(availableLibraries) { library in
-                            Text(library.name).tag(library.id as UUID?)
-                        }
-                    }
-                    .labelsHidden()
-                    #if os(macOS)
-                    .pickerStyle(.menu)
-                    #endif
-                }
+            // Info text - searches from share extension go to Exploration
+            HStack(spacing: 6) {
+                Image(systemName: "info.circle")
+                    .foregroundStyle(.secondary)
+                Text("Search will appear in Exploration section")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+            .padding(.top, 4)
 
             Spacer()
 
@@ -210,7 +202,7 @@ public struct ShareExtensionView: View {
             }
         }
         .padding()
-        .frame(minWidth: 300, minHeight: 250)
+        .frame(minWidth: 300, minHeight: 220)
     }
 
     // MARK: - Paper Import Form
@@ -300,23 +292,15 @@ public struct ShareExtensionView: View {
                     .textFieldStyle(.roundedBorder)
             }
 
-            // Library picker
-            if !availableLibraries.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Library")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Picker("Library", selection: $selectedLibraryID) {
-                        ForEach(availableLibraries) { library in
-                            Text(library.name).tag(library.id as UUID?)
-                        }
-                    }
-                    .labelsHidden()
-                    #if os(macOS)
-                    .pickerStyle(.menu)
-                    #endif
-                }
+            // Info text - category feeds from share extension go to Exploration
+            HStack(spacing: 6) {
+                Image(systemName: "info.circle")
+                    .foregroundStyle(.secondary)
+                Text("Feed will appear in Exploration section")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
+            .padding(.top, 4)
 
             Spacer()
 
@@ -337,7 +321,7 @@ public struct ShareExtensionView: View {
             }
         }
         .padding()
-        .frame(minWidth: 300, minHeight: 280)
+        .frame(minWidth: 300, minHeight: 250)
     }
 
     // MARK: - Docs Selection Form

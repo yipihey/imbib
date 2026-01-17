@@ -94,6 +94,14 @@ public final class PDFBrowserViewModel {
     /// Whether we're currently viewing a proxied URL
     public var isProxied: Bool = false
 
+    // MARK: - Direct PDF Detection
+
+    /// Suggested direct PDF URL based on current page
+    public var suggestedPDFURL: URL?
+
+    /// Whether we've already tried the suggested PDF URL
+    private var triedPDFURLs: Set<URL> = []
+
     // MARK: - WebView Reference
 
     #if canImport(WebKit)
@@ -279,7 +287,146 @@ public final class PDFBrowserViewModel {
 
         if let url = url {
             Logger.pdfBrowser.browserNavigation("Loaded", url: url)
+
+            // Check if we can detect a direct PDF URL and auto-navigate
+            autoNavigateToDirectPDF(from: url)
         }
+    }
+
+    // MARK: - Direct PDF URL Detection
+
+    /// Try to navigate directly to the suggested PDF URL (manual trigger)
+    public func tryDirectPDFURL() {
+        #if canImport(WebKit)
+        guard let pdfURL = suggestedPDFURL else {
+            Logger.pdfBrowser.warning("No suggested PDF URL available")
+            return
+        }
+
+        triedPDFURLs.insert(pdfURL)
+        suggestedPDFURL = nil
+        webView?.load(URLRequest(url: pdfURL))
+        Logger.pdfBrowser.info("Trying direct PDF URL (manual): \(pdfURL.absoluteString)")
+        #endif
+    }
+
+    /// Auto-navigate to direct PDF URL when pattern is detected
+    private func autoNavigateToDirectPDF(from url: URL) {
+        #if canImport(WebKit)
+        // Don't auto-navigate if we've already tried this pattern
+        guard let pdfURL = Self.directPDFURL(for: url),
+              !triedPDFURLs.contains(pdfURL) else {
+            suggestedPDFURL = nil
+            return
+        }
+
+        // Mark as tried and navigate automatically
+        triedPDFURLs.insert(pdfURL)
+        suggestedPDFURL = nil  // No need to show button since we're auto-navigating
+
+        Logger.pdfBrowser.info("Auto-navigating to direct PDF URL: \(pdfURL.absoluteString)")
+        webView?.load(URLRequest(url: pdfURL))
+        #endif
+    }
+
+    /// Publisher-specific PDF URL patterns
+    ///
+    /// Many publishers use predictable URL patterns for PDFs:
+    /// - IOP Science: /article/DOI → /article/DOI/pdf
+    /// - APS (Physical Review): /abstract/DOI → /pdf/DOI
+    /// - Nature: /articles/ID → /articles/ID.pdf
+    /// - MNRAS/Oxford: /article/DOI → /article-pdf/DOI
+    /// - A&A/EDP Sciences: /articles/DOI → /articles/DOI/pdf
+    ///
+    /// Note: Patterns also handle proxied URLs (e.g., nature-com.proxy.edu)
+    public static func directPDFURL(for articleURL: URL) -> URL? {
+        let urlString = articleURL.absoluteString
+        let host = articleURL.host?.lowercased() ?? ""
+        let path = articleURL.path
+
+        // Helper to check if host matches a publisher (direct or proxied)
+        // Proxies often use hyphenated hostnames: nature.com → nature-com.proxy.edu
+        func hostMatches(_ publisher: String) -> Bool {
+            let hyphenated = publisher.replacingOccurrences(of: ".", with: "-")
+            return host.contains(publisher) || host.contains(hyphenated)
+        }
+
+        // IOP Science: iopscience.iop.org/article/DOI → iopscience.iop.org/article/DOI/pdf
+        if hostMatches("iopscience.iop.org") && path.hasPrefix("/article/") && !path.hasSuffix("/pdf") {
+            return URL(string: urlString + "/pdf")
+        }
+
+        // APS (Physical Review): journals.aps.org/*/abstract/DOI → journals.aps.org/*/pdf/DOI
+        if hostMatches("journals.aps.org") && path.contains("/abstract/") {
+            let pdfPath = path.replacingOccurrences(of: "/abstract/", with: "/pdf/")
+            var components = URLComponents(url: articleURL, resolvingAgainstBaseURL: false)
+            components?.path = pdfPath
+            return components?.url
+        }
+
+        // Nature: nature.com/articles/ID → nature.com/articles/ID.pdf
+        if hostMatches("nature.com") && path.hasPrefix("/articles/") && !path.hasSuffix(".pdf") {
+            return URL(string: urlString + ".pdf")
+        }
+
+        // Oxford Academic (MNRAS, etc.): Try appending /pdf to article URL
+        // Oxford's PDF URLs have extra path components we can't derive,
+        // but appending /pdf to the article URL often redirects correctly
+        if hostMatches("academic.oup.com") && path.contains("/article/") && !path.contains("/article-pdf/") && !path.hasSuffix("/pdf") {
+            return URL(string: urlString + "/pdf")
+        }
+
+        // A&A / EDP Sciences: aanda.org/articles/DOI → aanda.org/articles/DOI/pdf
+        if hostMatches("aanda.org") && path.hasPrefix("/articles/") && !path.hasSuffix("/pdf") {
+            return URL(string: urlString + "/pdf")
+        }
+
+        // Science (AAAS): science.org/doi/... → science.org/doi/pdf/...
+        if hostMatches("science.org") && path.hasPrefix("/doi/") && !path.contains("/doi/pdf/") {
+            let pdfPath = path.replacingOccurrences(of: "/doi/", with: "/doi/pdf/")
+            var components = URLComponents(url: articleURL, resolvingAgainstBaseURL: false)
+            components?.path = pdfPath
+            return components?.url
+        }
+
+        // Wiley: onlinelibrary.wiley.com/doi/... → onlinelibrary.wiley.com/doi/pdfdirect/...
+        if hostMatches("onlinelibrary.wiley.com") && path.hasPrefix("/doi/") && !path.contains("/doi/pdfdirect/") && !path.contains("/doi/pdf/") {
+            let pdfPath = path.replacingOccurrences(of: "/doi/", with: "/doi/pdfdirect/")
+            var components = URLComponents(url: articleURL, resolvingAgainstBaseURL: false)
+            components?.path = pdfPath
+            return components?.url
+        }
+
+        // AIP (Journal of Chemical Physics, etc.): pubs.aip.org/*/article/... → append /pdf
+        if hostMatches("pubs.aip.org") && path.contains("/article/") && !path.hasSuffix("/pdf") {
+            return URL(string: urlString + "/pdf")
+        }
+
+        // Annual Reviews: annualreviews.org/doi/... → annualreviews.org/doi/pdf/...
+        if hostMatches("annualreviews.org") && path.hasPrefix("/doi/") && !path.contains("/doi/pdf/") {
+            let pdfPath = path.replacingOccurrences(of: "/doi/", with: "/doi/pdf/")
+            var components = URLComponents(url: articleURL, resolvingAgainstBaseURL: false)
+            components?.path = pdfPath
+            return components?.url
+        }
+
+        // PNAS: pnas.org/doi/... → pnas.org/doi/pdf/...
+        if hostMatches("pnas.org") && path.hasPrefix("/doi/") && !path.contains("/doi/pdf/") {
+            let pdfPath = path.replacingOccurrences(of: "/doi/", with: "/doi/pdf/")
+            var components = URLComponents(url: articleURL, resolvingAgainstBaseURL: false)
+            components?.path = pdfPath
+            return components?.url
+        }
+
+        // Royal Society: royalsocietypublishing.org/doi/... → royalsocietypublishing.org/doi/pdf/...
+        if hostMatches("royalsocietypublishing.org") && path.hasPrefix("/doi/") && !path.contains("/doi/pdf/") {
+            let pdfPath = path.replacingOccurrences(of: "/doi/", with: "/doi/pdf/")
+            var components = URLComponents(url: articleURL, resolvingAgainstBaseURL: false)
+            components?.path = pdfPath
+            return components?.url
+        }
+
+        return nil
     }
 
     /// Update state when navigation starts

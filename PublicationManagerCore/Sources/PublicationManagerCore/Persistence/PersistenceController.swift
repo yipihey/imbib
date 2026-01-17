@@ -198,6 +198,7 @@ public final class PersistenceController: @unchecked Sendable {
         let dismissedPaperEntity = createDismissedPaperEntity()
         let scixLibraryEntity = createSciXLibraryEntity()
         let scixPendingChangeEntity = createSciXPendingChangeEntity()
+        let annotationEntity = createAnnotationEntity()
 
         // Set up relationships
         setupRelationships(
@@ -261,6 +262,12 @@ public final class PersistenceController: @unchecked Sendable {
             pendingChange: scixPendingChangeEntity
         )
 
+        // Set up annotation relationships
+        setupAnnotationRelationships(
+            annotation: annotationEntity,
+            linkedFile: linkedFileEntity
+        )
+
         model.entities = [
             publicationEntity,
             authorEntity,
@@ -275,6 +282,7 @@ public final class PersistenceController: @unchecked Sendable {
             dismissedPaperEntity,
             scixLibraryEntity,
             scixPendingChangeEntity,
+            annotationEntity,
         ]
 
         return model
@@ -1160,6 +1168,129 @@ public final class PersistenceController: @unchecked Sendable {
 
         entity.properties = properties
         return entity
+    }
+
+    // MARK: - Annotation Entity (Phase 3: PDF Annotation Persistence)
+
+    private static func createAnnotationEntity() -> NSEntityDescription {
+        let entity = NSEntityDescription()
+        entity.name = "Annotation"
+        entity.managedObjectClassName = "PublicationManagerCore.CDAnnotation"
+
+        var properties: [NSPropertyDescription] = []
+
+        // Primary key
+        let id = NSAttributeDescription()
+        id.name = "id"
+        id.attributeType = .UUIDAttributeType
+        id.isOptional = false
+        properties.append(id)
+
+        // Annotation type (highlight, underline, strikethrough, note, freeText)
+        let annotationType = NSAttributeDescription()
+        annotationType.name = "annotationType"
+        annotationType.attributeType = .stringAttributeType
+        annotationType.isOptional = false
+        annotationType.defaultValue = "highlight"
+        properties.append(annotationType)
+
+        // Page number (0-indexed)
+        let pageNumber = NSAttributeDescription()
+        pageNumber.name = "pageNumber"
+        pageNumber.attributeType = .integer32AttributeType
+        pageNumber.isOptional = false
+        pageNumber.defaultValue = Int32(0)
+        properties.append(pageNumber)
+
+        // Bounds (stored as JSON: {"x": 0, "y": 0, "width": 100, "height": 20})
+        let boundsJSON = NSAttributeDescription()
+        boundsJSON.name = "boundsJSON"
+        boundsJSON.attributeType = .stringAttributeType
+        boundsJSON.isOptional = false
+        properties.append(boundsJSON)
+
+        // Color (hex string like "#FFFF00")
+        let color = NSAttributeDescription()
+        color.name = "color"
+        color.attributeType = .stringAttributeType
+        color.isOptional = true
+        properties.append(color)
+
+        // Text content (for notes and free text)
+        let contents = NSAttributeDescription()
+        contents.name = "contents"
+        contents.attributeType = .stringAttributeType
+        contents.isOptional = true
+        properties.append(contents)
+
+        // Selected text (the text that was highlighted/underlined)
+        let selectedText = NSAttributeDescription()
+        selectedText.name = "selectedText"
+        selectedText.attributeType = .stringAttributeType
+        selectedText.isOptional = true
+        properties.append(selectedText)
+
+        // Author (device name or user identifier)
+        let author = NSAttributeDescription()
+        author.name = "author"
+        author.attributeType = .stringAttributeType
+        author.isOptional = true
+        properties.append(author)
+
+        // Timestamps
+        let dateCreated = NSAttributeDescription()
+        dateCreated.name = "dateCreated"
+        dateCreated.attributeType = .dateAttributeType
+        dateCreated.isOptional = false
+        dateCreated.defaultValue = Date()
+        properties.append(dateCreated)
+
+        let dateModified = NSAttributeDescription()
+        dateModified.name = "dateModified"
+        dateModified.attributeType = .dateAttributeType
+        dateModified.isOptional = false
+        dateModified.defaultValue = Date()
+        properties.append(dateModified)
+
+        // Sync state for CloudKit
+        let syncState = NSAttributeDescription()
+        syncState.name = "syncState"
+        syncState.attributeType = .stringAttributeType
+        syncState.isOptional = true
+        properties.append(syncState)
+
+        entity.properties = properties
+        return entity
+    }
+
+    // MARK: - Annotation Relationships
+
+    private static func setupAnnotationRelationships(
+        annotation: NSEntityDescription,
+        linkedFile: NSEntityDescription
+    ) {
+        // LinkedFile -> Annotations (one-to-many)
+        let fileToAnnotations = NSRelationshipDescription()
+        fileToAnnotations.name = "annotations"
+        fileToAnnotations.destinationEntity = annotation
+        fileToAnnotations.isOptional = true
+        fileToAnnotations.deleteRule = .cascadeDeleteRule  // Delete annotations when file is deleted
+
+        // Annotation -> LinkedFile (many-to-one)
+        let annotationToFile = NSRelationshipDescription()
+        annotationToFile.name = "linkedFile"
+        annotationToFile.destinationEntity = linkedFile
+        annotationToFile.maxCount = 1
+        annotationToFile.isOptional = true
+        annotationToFile.deleteRule = .nullifyDeleteRule
+
+        // Set inverse relationships
+        fileToAnnotations.inverseRelationship = annotationToFile
+        annotationToFile.inverseRelationship = fileToAnnotations
+
+        // Add to entities
+        linkedFile.properties.append(fileToAnnotations)
+        annotation.properties.append(annotationToFile)
     }
 
     // MARK: - Relationship Setup

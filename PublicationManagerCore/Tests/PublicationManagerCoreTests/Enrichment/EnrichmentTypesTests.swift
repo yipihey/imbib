@@ -43,14 +43,10 @@ final class EnrichmentTypesTests: XCTestCase {
     }
 
     func testEnrichmentSourceDisplayNames() {
-        XCTAssertEqual(EnrichmentSource.semanticScholar.displayName, "Semantic Scholar")
-        XCTAssertEqual(EnrichmentSource.openAlex.displayName, "OpenAlex")
         XCTAssertEqual(EnrichmentSource.ads.displayName, "NASA ADS")
     }
 
     func testEnrichmentSourceIdentifiable() {
-        XCTAssertEqual(EnrichmentSource.semanticScholar.id, "semanticScholar")
-        XCTAssertEqual(EnrichmentSource.openAlex.id, "openAlex")
         XCTAssertEqual(EnrichmentSource.ads.id, "ads")
     }
 
@@ -270,7 +266,7 @@ final class EnrichmentTypesTests: XCTestCase {
             openAccessStatus: .green,
             venue: "Nature",
             authorStats: [AuthorStats(authorID: "A1", name: "Smith")],
-            source: .semanticScholar,
+            source: .ads,
             fetchedAt: Date()
         )
 
@@ -290,7 +286,7 @@ final class EnrichmentTypesTests: XCTestCase {
 
     func testEnrichmentDataAge() {
         let pastDate = Date().addingTimeInterval(-3600)  // 1 hour ago
-        let data = EnrichmentData(source: .semanticScholar, fetchedAt: pastDate)
+        let data = EnrichmentData(source: .ads, fetchedAt: pastDate)
 
         XCTAssertGreaterThanOrEqual(data.age, 3600)
         XCTAssertLessThan(data.age, 3700)  // Some tolerance
@@ -298,12 +294,12 @@ final class EnrichmentTypesTests: XCTestCase {
 
     func testEnrichmentDataIsStale() {
         // Fresh data (just now)
-        let freshData = EnrichmentData(source: .semanticScholar, fetchedAt: Date())
+        let freshData = EnrichmentData(source: .ads, fetchedAt: Date())
         XCTAssertFalse(freshData.isStale(thresholdDays: 7))
 
         // Stale data (8 days ago)
         let staleDate = Date().addingTimeInterval(-8 * 24 * 60 * 60)
-        let staleData = EnrichmentData(source: .semanticScholar, fetchedAt: staleDate)
+        let staleData = EnrichmentData(source: .ads, fetchedAt: staleDate)
         XCTAssertTrue(staleData.isStale(thresholdDays: 7))
     }
 
@@ -311,7 +307,7 @@ final class EnrichmentTypesTests: XCTestCase {
         let data1 = EnrichmentData(
             citationCount: 100,
             abstract: "First abstract",
-            source: .semanticScholar,
+            source: .ads,
             fetchedAt: Date()
         )
 
@@ -319,7 +315,7 @@ final class EnrichmentTypesTests: XCTestCase {
             referenceCount: 50,
             abstract: "Second abstract",  // Should be ignored
             venue: "Nature",
-            source: .openAlex,
+            source: .ads,
             fetchedAt: Date()
         )
 
@@ -329,20 +325,20 @@ final class EnrichmentTypesTests: XCTestCase {
         XCTAssertEqual(merged.referenceCount, 50)  // From data2
         XCTAssertEqual(merged.abstract, "First abstract")  // From data1 (preferred)
         XCTAssertEqual(merged.venue, "Nature")  // From data2
-        XCTAssertEqual(merged.source, .semanticScholar)  // Keeps original source
+        XCTAssertEqual(merged.source, .ads)  // Keeps original source
     }
 
     // MARK: - EnrichmentResult Tests
 
     func testEnrichmentResultInit() {
-        let data = EnrichmentData(citationCount: 100, source: .semanticScholar)
-        let identifiers: [IdentifierType: String] = [.doi: "10.1234/test", .semanticScholar: "S2123"]
+        let data = EnrichmentData(citationCount: 100, source: .ads)
+        let identifiers: [IdentifierType: String] = [.doi: "10.1234/test", .bibcode: "2020ApJ...123...45A"]
 
         let result = EnrichmentResult(data: data, resolvedIdentifiers: identifiers)
 
         XCTAssertEqual(result.data.citationCount, 100)
         XCTAssertEqual(result.resolvedIdentifiers[.doi], "10.1234/test")
-        XCTAssertEqual(result.resolvedIdentifiers[.semanticScholar], "S2123")
+        XCTAssertEqual(result.resolvedIdentifiers[.bibcode], "2020ApJ...123...45A")
     }
 
     // MARK: - EnrichmentPriority Tests
@@ -386,12 +382,12 @@ final class EnrichmentTypesTests: XCTestCase {
         XCTAssertFalse(EnrichmentState.idle.isLoading)
         XCTAssertTrue(EnrichmentState.pending.isLoading)
         XCTAssertTrue(EnrichmentState.enriching.isLoading)
-        XCTAssertFalse(EnrichmentState.complete(EnrichmentData(source: .semanticScholar)).isLoading)
+        XCTAssertFalse(EnrichmentState.complete(EnrichmentData(source: .ads)).isLoading)
         XCTAssertFalse(EnrichmentState.failed(.noIdentifier).isLoading)
     }
 
     func testEnrichmentStateData() {
-        let data = EnrichmentData(citationCount: 100, source: .semanticScholar)
+        let data = EnrichmentData(citationCount: 100, source: .ads)
 
         XCTAssertNil(EnrichmentState.idle.data)
         XCTAssertNil(EnrichmentState.pending.data)
@@ -404,7 +400,7 @@ final class EnrichmentTypesTests: XCTestCase {
         XCTAssertNil(EnrichmentState.idle.error)
         XCTAssertNil(EnrichmentState.pending.error)
         XCTAssertNil(EnrichmentState.enriching.error)
-        XCTAssertNil(EnrichmentState.complete(EnrichmentData(source: .semanticScholar)).error)
+        XCTAssertNil(EnrichmentState.complete(EnrichmentData(source: .ads)).error)
 
         let state = EnrichmentState.failed(.noIdentifier)
         if case .noIdentifier = state.error {
@@ -419,16 +415,16 @@ final class EnrichmentTypesTests: XCTestCase {
     func testEnrichmentSettingsDefault() {
         let settings = EnrichmentSettings.default
 
-        XCTAssertEqual(settings.preferredSource, .semanticScholar)
-        XCTAssertEqual(settings.sourcePriority, [.semanticScholar, .openAlex, .ads])
+        XCTAssertEqual(settings.preferredSource, .ads)
+        XCTAssertEqual(settings.sourcePriority, [.ads])
         XCTAssertTrue(settings.autoSyncEnabled)
         XCTAssertEqual(settings.refreshIntervalDays, 7)
     }
 
     func testEnrichmentSettingsCodableRoundTrip() throws {
         let settings = EnrichmentSettings(
-            preferredSource: .openAlex,
-            sourcePriority: [.openAlex, .semanticScholar],
+            preferredSource: .ads,
+            sourcePriority: [.ads],
             autoSyncEnabled: false,
             refreshIntervalDays: 14
         )
@@ -445,7 +441,7 @@ final class EnrichmentTypesTests: XCTestCase {
     func testEnrichmentSettingsEquatable() {
         let settings1 = EnrichmentSettings.default
         let settings2 = EnrichmentSettings.default
-        let settings3 = EnrichmentSettings(preferredSource: .openAlex)
+        let settings3 = EnrichmentSettings(preferredSource: .ads, autoSyncEnabled: false)
 
         XCTAssertEqual(settings1, settings2)
         XCTAssertNotEqual(settings1, settings3)

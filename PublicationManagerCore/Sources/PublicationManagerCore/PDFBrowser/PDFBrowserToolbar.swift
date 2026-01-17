@@ -129,17 +129,34 @@ public struct PDFBrowserToolbar: View {
 
     @ViewBuilder
     private var actionButtons: some View {
-        // Copy URL button
-        Button {
-            viewModel.copyURLToClipboard()
-        } label: {
-            Image(systemName: "doc.on.doc")
-                .font(.body)
+        HStack(spacing: 8) {
+            // Try Direct PDF button (shown when a pattern is detected)
+            if viewModel.suggestedPDFURL != nil {
+                Button {
+                    viewModel.tryDirectPDFURL()
+                } label: {
+                    Label("Try Direct PDF", systemImage: "arrow.right.doc.on.clipboard")
+                        .font(.body)
+                }
+                .help("Try direct PDF URL for this publisher")
+                #if os(macOS)
+                .buttonStyle(.bordered)
+                .tint(.accentColor)
+                #endif
+            }
+
+            // Copy URL button
+            Button {
+                viewModel.copyURLToClipboard()
+            } label: {
+                Image(systemName: "doc.on.doc")
+                    .font(.body)
+            }
+            .help("Copy URL to clipboard")
+            #if os(macOS)
+            .buttonStyle(.borderless)
+            #endif
         }
-        .help("Copy URL to clipboard")
-        #if os(macOS)
-        .buttonStyle(.borderless)
-        #endif
     }
 }
 

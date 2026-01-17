@@ -66,7 +66,7 @@ actor MockEnrichmentPlugin: EnrichmentPlugin {
         return EnrichmentResult(
             data: EnrichmentData(
                 citationCount: 100,
-                source: .semanticScholar,
+                source: .ads,
                 fetchedAt: Date()
             ),
             resolvedIdentifiers: identifiers
@@ -141,9 +141,9 @@ final class EnrichmentPluginTests: XCTestCase {
             data: EnrichmentData(
                 citationCount: 500,
                 abstract: "Test abstract",
-                source: .semanticScholar
+                source: .ads
             ),
-            resolvedIdentifiers: [.semanticScholar: "S2123"]
+            resolvedIdentifiers: [.bibcode: "2020ApJ...123...45A"]
         )
         await plugin.setEnrichResult(expectedResult)
 
@@ -152,7 +152,7 @@ final class EnrichmentPluginTests: XCTestCase {
 
         XCTAssertEqual(result.data.citationCount, 500)
         XCTAssertEqual(result.data.abstract, "Test abstract")
-        XCTAssertEqual(result.resolvedIdentifiers[.semanticScholar], "S2123")
+        XCTAssertEqual(result.resolvedIdentifiers[.bibcode], "2020ApJ...123...45A")
 
         let callCount = await plugin.enrichCallCount
         XCTAssertEqual(callCount, 1)
@@ -183,13 +183,13 @@ final class EnrichmentPluginTests: XCTestCase {
 
     func testMockPluginResolveIdentifiers() async throws {
         let plugin = MockEnrichmentPlugin()
-        await plugin.setResolvedIdentifiers([.semanticScholar: "S2456"])
+        await plugin.setResolvedIdentifiers([.bibcode: "2020ApJ...123...45A"])
 
         let identifiers: [IdentifierType: String] = [.doi: "10.1234/test"]
         let resolved = try await plugin.resolveIdentifier(from: identifiers)
 
         XCTAssertEqual(resolved[.doi], "10.1234/test")
-        XCTAssertEqual(resolved[.semanticScholar], "S2456")
+        XCTAssertEqual(resolved[.bibcode], "2020ApJ...123...45A")
 
         let resolveCount = await plugin.resolveCallCount
         XCTAssertEqual(resolveCount, 1)
@@ -280,14 +280,14 @@ final class EnrichmentPluginTests: XCTestCase {
 
     func testIdentifierMapMerging() {
         let ids1: [IdentifierType: String] = [.doi: "10.1234/test"]
-        let ids2: [IdentifierType: String] = [.arxiv: "2301.12345", .semanticScholar: "S2123"]
+        let ids2: [IdentifierType: String] = [.arxiv: "2301.12345", .bibcode: "2020ApJ...123...45A"]
 
         let merged = ids1.merging(with: ids2)
 
         XCTAssertEqual(merged.count, 3)
         XCTAssertEqual(merged.doi, "10.1234/test")
         XCTAssertEqual(merged.arxivID, "2301.12345")
-        XCTAssertEqual(merged.semanticScholarID, "S2123")
+        XCTAssertEqual(merged.bibcode, "2020ApJ...123...45A")
     }
 
     func testIdentifierMapMergingOverwrites() {
@@ -326,35 +326,35 @@ final class EnrichmentPluginTests: XCTestCase {
     // MARK: - Multiple Plugins Tests
 
     func testMultiplePluginsWithDifferentCapabilities() async throws {
-        let s2Plugin = MockEnrichmentPlugin(
-            id: "s2",
-            name: "Semantic Scholar",
+        let plugin1 = MockEnrichmentPlugin(
+            id: "plugin1",
+            name: "Plugin 1",
             capabilities: [.citationCount, .references, .citations]
         )
 
-        let oaPlugin = MockEnrichmentPlugin(
-            id: "oa",
-            name: "OpenAlex",
+        let plugin2 = MockEnrichmentPlugin(
+            id: "plugin2",
+            name: "Plugin 2",
             capabilities: [.citationCount, .openAccess, .venue]
         )
 
-        // S2 has refs/cites, OA doesn't
-        let s2HasRefs = await s2Plugin.supports(.references)
-        let oaHasRefs = await oaPlugin.supports(.references)
-        XCTAssertTrue(s2HasRefs)
-        XCTAssertFalse(oaHasRefs)
+        // Plugin1 has refs/cites, plugin2 doesn't
+        let p1HasRefs = await plugin1.supports(.references)
+        let p2HasRefs = await plugin2.supports(.references)
+        XCTAssertTrue(p1HasRefs)
+        XCTAssertFalse(p2HasRefs)
 
-        // OA has openAccess, S2 doesn't
-        let s2HasOA = await s2Plugin.supports(.openAccess)
-        let oaHasOA = await oaPlugin.supports(.openAccess)
-        XCTAssertFalse(s2HasOA)
-        XCTAssertTrue(oaHasOA)
+        // Plugin2 has openAccess, plugin1 doesn't
+        let p1HasOA = await plugin1.supports(.openAccess)
+        let p2HasOA = await plugin2.supports(.openAccess)
+        XCTAssertFalse(p1HasOA)
+        XCTAssertTrue(p2HasOA)
 
         // Both have citation count
-        let s2HasCites = await s2Plugin.supports(.citationCount)
-        let oaHasCites = await oaPlugin.supports(.citationCount)
-        XCTAssertTrue(s2HasCites)
-        XCTAssertTrue(oaHasCites)
+        let p1HasCites = await plugin1.supports(.citationCount)
+        let p2HasCites = await plugin2.supports(.citationCount)
+        XCTAssertTrue(p1HasCites)
+        XCTAssertTrue(p2HasCites)
     }
 
     func testPluginCallTracking() async throws {

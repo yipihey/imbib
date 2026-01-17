@@ -171,10 +171,29 @@ class PDFBrowserWebView: WKWebView {
                 viewModel.detectedPDFData = data
                 Logger.pdfBrowser.info("Context menu: PDF saved - \(filename), \(data.count) bytes")
             } else {
-                // Log what we got instead
-                let preview = String(data: data.prefix(100), encoding: .utf8) ?? "binary"
-                Logger.pdfBrowser.warning("Context menu: Not a PDF. Preview: \(preview.prefix(50))")
-                viewModel.errorMessage = "Current page is not a PDF"
+                // URLSession got HTML instead of PDF - try WebKit download
+                Logger.pdfBrowser.info("Context menu: URLSession returned non-PDF, trying WebKit download...")
+                print("🔶 [ContextMenu] URLSession returned non-PDF, trying WebKit download...")
+
+                // Use coordinator's WebKit download method
+                if let coordinator = self.coordinator {
+                    await coordinator.triggerWebKitDownload(url: url)
+                    // Wait for download to complete
+                    try? await Task.sleep(nanoseconds: 3_000_000_000)  // 3 seconds
+
+                    if viewModel.detectedPDFData != nil {
+                        Logger.pdfBrowser.info("Context menu: WebKit download succeeded!")
+                        print("🔶 [ContextMenu] WebKit download succeeded!")
+                    } else {
+                        let preview = String(data: data.prefix(100), encoding: .utf8) ?? "binary"
+                        Logger.pdfBrowser.warning("Context menu: Not a PDF. Preview: \(preview.prefix(50))")
+                        viewModel.errorMessage = "Current page is not a PDF (server returned HTML)"
+                    }
+                } else {
+                    let preview = String(data: data.prefix(100), encoding: .utf8) ?? "binary"
+                    Logger.pdfBrowser.warning("Context menu: Not a PDF. Preview: \(preview.prefix(50))")
+                    viewModel.errorMessage = "Current page is not a PDF"
+                }
             }
         } catch {
             Logger.pdfBrowser.error("Context menu: Fetch failed - \(error.localizedDescription)")
@@ -340,6 +359,19 @@ struct MacWebViewRepresentable: NSViewRepresentable {
             }
         }
 
+        // MARK: - Public Download Trigger
+
+        /// Trigger a download using WKWebView's session.
+        /// Called from PDFBrowserWebView context menu when URLSession fails.
+        @MainActor
+        func triggerWebKitDownload(url: URL) async {
+            guard let webView = viewModel.webView else {
+                Logger.pdfBrowser.error("[triggerWebKitDownload] No webView available")
+                return
+            }
+            await startWebKitDownload(webView: webView, url: url)
+        }
+
         // MARK: - WKNavigationDelegate
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -369,31 +401,158 @@ struct MacWebViewRepresentable: NSViewRepresentable {
             redirectChain = []
 
             Task { @MainActor in
-                viewModel.isLoading = false
+                print("🔵 [Coordinator] didFinish Task started for URL: \(webView.url?.absoluteString ?? "nil")")
                 viewModel.updateFromWebView(webView)
+                // Call navigationDidFinish which triggers auto-navigation to PDF URLs
+                viewModel.navigationDidFinish(url: webView.url, title: webView.title)
+
+                // Fast path: If URL looks like a PDF, immediately try to fetch it
+                if let url = webView.url {
+                    let isPDFURL = self.looksLikePDFURL(url)
+                    print("🔵 [Coordinator] looksLikePDFURL(\(url.path.suffix(30))...) = \(isPDFURL)")
+                    if isPDFURL {
+                        print("🔵 [Coordinator] URL looks like PDF, trying immediate fetch")
+                        await self.immediatePDFFetch(webView: webView, url: url)
+                        // If we got the PDF, we're done
+                        if self.viewModel.detectedPDFData != nil {
+                            print("🔵 [Coordinator] Immediate fetch succeeded! Data size: \(self.viewModel.detectedPDFData?.count ?? 0)")
+                            return
+                        }
+                        print("🔵 [Coordinator] Immediate fetch did not get PDF")
+                    }
+                }
+
+                print("🔵 [Coordinator] Calling checkForPDFContent")
                 checkForPDFContent(webView)
 
                 // Proactive PDF check - fetch URL and check magic bytes
-                await proactivePDFCheck(webView, redirectChain: chainCopy)
+                // Run immediately, then schedule retries to catch slow-loading PDFs
+                print("🔵 [Coordinator] Calling proactivePDFCheck")
+                await proactivePDFCheck(webView, redirectChain: chainCopy, attempt: 1)
+                print("🔵 [Coordinator] proactivePDFCheck returned, detectedPDFData: \(self.viewModel.detectedPDFData != nil)")
+            }
+        }
+
+        /// Immediately fetch a URL that looks like a PDF (fast path for /pdf URLs)
+        @MainActor
+        private func immediatePDFFetch(webView: WKWebView, url: URL) async {
+            print("🟢 [ImmediateFetch] Starting for: \(url.absoluteString)")
+
+            do {
+                let data = try await fetchPDFWithWebViewCookies(url: url, webView: webView)
+                print("🟢 [ImmediateFetch] Fetched \(data.count) bytes")
+
+                if isPDF(data: data) {
+                    print("🟢 [ImmediateFetch] ✓ Valid PDF detected!")
+                    let filename = generateFilename(from: url)
+                    viewModel.detectedPDFFilename = filename
+                    viewModel.detectedPDFData = data
+                } else {
+                    let magicBytes = data.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
+                    print("🟢 [ImmediateFetch] ✗ Not a PDF. Magic bytes: \(magicBytes)")
+
+                    // If it's HTML, try with explicit Accept header
+                    if data.prefix(1) == Data([0x3C]) {
+                        print("🟢 [ImmediateFetch] Got HTML, trying with Accept: application/pdf")
+                        let pdfData = try await fetchPDFWithExplicitAccept(url: url, webView: webView)
+                        if isPDF(data: pdfData) {
+                            print("🟢 [ImmediateFetch] ✓ Got PDF with explicit Accept header!")
+                            let filename = generateFilename(from: url)
+                            viewModel.detectedPDFFilename = filename
+                            viewModel.detectedPDFData = pdfData
+                        }
+                    }
+                }
+            } catch {
+                print("🟢 [ImmediateFetch] ✗ Fetch failed: \(error.localizedDescription)")
             }
         }
 
         /// Proactively check if the loaded content is a PDF by fetching and checking magic bytes.
         /// This catches cases where WebKit detected a PDF but our response handler didn't.
+        ///
+        /// - Parameters:
+        ///   - webView: The WKWebView displaying content
+        ///   - redirectChain: URLs from the redirect chain
+        ///   - attempt: Current attempt number (1-based). Will retry up to 4 times with increasing delays.
         @MainActor
-        private func proactivePDFCheck(_ webView: WKWebView, redirectChain: [URL]) async {
+        private func proactivePDFCheck(_ webView: WKWebView, redirectChain: [URL], attempt: Int = 1) async {
+            Logger.pdfBrowser.info("[ProactiveCheck] ENTERED - attempt \(attempt)")
+
+            let maxAttempts = 4
+            let delaysMs = [0, 1000, 2000, 3000]  // Delays before each attempt
+
             // Skip if we already detected a PDF
             guard viewModel.detectedPDFData == nil else {
-                Logger.pdfBrowser.debug("Proactive check skipped - PDF already detected")
+                Logger.pdfBrowser.info("[ProactiveCheck] Skipped - PDF already detected")
                 return
             }
 
-            guard let url = webView.url else { return }
+            guard let url = webView.url else {
+                Logger.pdfBrowser.info("[ProactiveCheck] Skipped - no URL")
+                return
+            }
 
-            Logger.pdfBrowser.info("=== PROACTIVE PDF CHECK ===")
+            // Wait before this attempt (except for first attempt)
+            if attempt > 1 && attempt <= delaysMs.count {
+                let delay = delaysMs[attempt - 1]
+                Logger.pdfBrowser.debug("Waiting \(delay)ms before attempt \(attempt)...")
+                try? await Task.sleep(nanoseconds: UInt64(delay) * 1_000_000)
+
+                // Check again if PDF was detected during the wait
+                guard viewModel.detectedPDFData == nil else {
+                    Logger.pdfBrowser.debug("PDF detected during wait, skipping attempt \(attempt)")
+                    return
+                }
+            }
+
+            Logger.pdfBrowser.info("=== PROACTIVE PDF CHECK (attempt \(attempt) of \(maxAttempts)) ===")
             Logger.pdfBrowser.info("Checking URL: \(url.absoluteString)")
 
-            // Try fetching the current URL with cookies
+            // Check 1: Detect if WebKit is displaying a native PDF using plugin detection
+            let isNativeDisplay = await detectWebKitNativePDFDisplay(webView)
+            if isNativeDisplay {
+                Logger.pdfBrowser.info("✓ WebKit native PDF display detected!")
+                print("🔷 [ProactiveCheck] WebKit IS showing a PDF natively!")
+
+                // First try: fetch with explicit PDF Accept header (works for some servers)
+                do {
+                    let data = try await fetchPDFWithExplicitAccept(url: url, webView: webView)
+                    if isPDF(data: data) {
+                        Logger.pdfBrowser.info("✓ PROACTIVE CHECK FOUND PDF (native display)!")
+                        let filename = generateFilename(from: url)
+                        viewModel.detectedPDFFilename = filename
+                        viewModel.detectedPDFData = data
+                        Logger.pdfBrowser.info("=== END PROACTIVE PDF CHECK (SUCCESS) ===")
+                        return
+                    } else {
+                        print("🔷 [ProactiveCheck] URLSession returned non-PDF data, trying WKWebView download...")
+                        // URLSession can't access authenticated session - use WebKit's download instead
+                        // This uses the same session that displayed the PDF
+                        await startWebKitDownload(webView: webView, url: url)
+                        // Give download time to complete
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)  // 2 seconds
+                        if viewModel.detectedPDFData != nil {
+                            print("🔷 [ProactiveCheck] WKWebView download succeeded!")
+                            Logger.pdfBrowser.info("=== END PROACTIVE PDF CHECK (SUCCESS via WebKit download) ===")
+                            return
+                        }
+                    }
+                } catch {
+                    Logger.pdfBrowser.debug("Native PDF fetch failed: \(error.localizedDescription)")
+                    print("🔷 [ProactiveCheck] URLSession fetch failed, trying WKWebView download...")
+                    // Fallback: try WebKit download
+                    await startWebKitDownload(webView: webView, url: url)
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    if viewModel.detectedPDFData != nil {
+                        print("🔷 [ProactiveCheck] WKWebView download succeeded!")
+                        Logger.pdfBrowser.info("=== END PROACTIVE PDF CHECK (SUCCESS via WebKit download) ===")
+                        return
+                    }
+                }
+            }
+
+            // Check 2: Try fetching the current URL with cookies
             do {
                 let data = try await fetchPDFWithWebViewCookies(url: url, webView: webView)
 
@@ -423,7 +582,25 @@ struct MacWebViewRepresentable: NSViewRepresentable {
                 Logger.pdfBrowser.info("✗ Fetch failed: \(error.localizedDescription)")
             }
 
-            // Try other URLs in the redirect chain
+            // Check 3: Try with explicit PDF Accept header (content negotiation)
+            if looksLikePDFURL(url) {
+                Logger.pdfBrowser.info("URL looks like PDF, trying explicit Accept: application/pdf")
+                do {
+                    let data = try await fetchPDFWithExplicitAccept(url: url, webView: webView)
+                    if isPDF(data: data) {
+                        Logger.pdfBrowser.info("✓ FOUND PDF with explicit Accept header!")
+                        let filename = generateFilename(from: url)
+                        viewModel.detectedPDFFilename = filename
+                        viewModel.detectedPDFData = data
+                        Logger.pdfBrowser.info("=== END PROACTIVE PDF CHECK (SUCCESS) ===")
+                        return
+                    }
+                } catch {
+                    Logger.pdfBrowser.debug("Explicit Accept fetch failed: \(error.localizedDescription)")
+                }
+            }
+
+            // Check 4: Try other URLs in the redirect chain
             for chainURL in redirectChain where chainURL != url {
                 Logger.pdfBrowser.info("Trying redirect chain URL: \(chainURL.absoluteString)")
                 do {
@@ -441,7 +618,130 @@ struct MacWebViewRepresentable: NSViewRepresentable {
                 }
             }
 
-            Logger.pdfBrowser.info("=== END PROACTIVE PDF CHECK (no PDF found) ===")
+            Logger.pdfBrowser.info("=== END PROACTIVE PDF CHECK (attempt \(attempt) - no PDF found) ===")
+
+            // Schedule retry if we haven't exceeded max attempts
+            if attempt < maxAttempts {
+                Logger.pdfBrowser.info("Scheduling retry attempt \(attempt + 1) of \(maxAttempts)...")
+                await proactivePDFCheck(webView, redirectChain: redirectChain, attempt: attempt + 1)
+            } else {
+                Logger.pdfBrowser.info("All \(maxAttempts) attempts completed - PDF not detected automatically")
+                Logger.pdfBrowser.info("User can still right-click and choose 'Save PDF to Library' if a PDF is visible")
+            }
+        }
+
+        /// Detect if WebKit is displaying a PDF using its native PDF plugin.
+        /// Safari/WebKit uses a specific DOM structure for native PDF display.
+        private func detectWebKitNativePDFDisplay(_ webView: WKWebView) async -> Bool {
+            let script = """
+            (function() {
+                // Check 1: Safari's PDF plugin creates a minimal DOM with embed element
+                var embed = document.querySelector('embed[type="application/pdf"]');
+                if (embed) return true;
+
+                // Check 2: Safari's PDF plugin element might not have type set
+                // but takes up the full viewport
+                var embeds = document.getElementsByTagName('embed');
+                if (embeds.length === 1) {
+                    var embed = embeds[0];
+                    var rect = embed.getBoundingClientRect();
+                    // If embed covers most of the viewport, it's likely a PDF
+                    if (rect.width > window.innerWidth * 0.9 &&
+                        rect.height > window.innerHeight * 0.9) {
+                        return true;
+                    }
+                }
+
+                // Check 3: Chrome/Edge PDF plugin uses shadow DOM with pdf-viewer
+                if (document.querySelector('pdf-viewer') ||
+                    document.querySelector('embed#plugin')) {
+                    return true;
+                }
+
+                // Check 4: Very minimal body (Safari PDF display)
+                if (document.body && document.body.children.length <= 2) {
+                    var text = document.body.innerText || '';
+                    // Native PDF viewers have almost no text content
+                    if (text.trim().length < 50) {
+                        return true;
+                    }
+                }
+
+                // Check 5: Check if the page has no significant HTML structure
+                // (common for native PDF display)
+                var html = document.documentElement.outerHTML;
+                if (html.length < 1000) {
+                    return true;
+                }
+
+                return false;
+            })()
+            """
+
+            do {
+                let result = try await webView.evaluateJavaScript(script)
+                let isNative = result as? Bool ?? false
+                Logger.pdfBrowser.debug("Native PDF display detection: \(isNative)")
+                print("🔷 Native PDF display detection: \(isNative)")
+                return isNative
+            } catch {
+                Logger.pdfBrowser.debug("Native PDF detection script failed: \(error.localizedDescription)")
+                return false
+            }
+        }
+
+        /// Start a download using WKWebView's internal download mechanism.
+        /// This uses WebKit's existing session state (cookies, auth) which URLSession can't access.
+        ///
+        /// When proxy authentication is session-bound (not just cookie-based), only WebKit
+        /// can access the authenticated content. This method triggers a download through
+        /// WebKit, capturing the PDF data via WKDownloadDelegate.
+        @MainActor
+        private func startWebKitDownload(webView: WKWebView, url: URL) async {
+            print("🔷 [WebKitDownload] Starting download for: \(url.absoluteString)")
+            Logger.pdfBrowser.info("[WebKitDownload] Starting download via WKWebView.startDownload")
+
+            var request = URLRequest(url: url)
+            // Set Accept header to prefer PDF
+            request.setValue("application/pdf,*/*", forHTTPHeaderField: "Accept")
+
+            // Use WKWebView's startDownload API (macOS 11.3+, iOS 14.5+)
+            // This downloads through WebKit's session, preserving auth state
+            let download = await webView.startDownload(using: request)
+            download.delegate = self
+            print("🔷 [WebKitDownload] Download started successfully")
+            Logger.pdfBrowser.info("[WebKitDownload] Download initiated")
+        }
+
+        /// Fetch URL with explicit Accept: application/pdf header.
+        /// This handles content negotiation where servers return different formats based on Accept header.
+        private func fetchPDFWithExplicitAccept(url: URL, webView: WKWebView) async throws -> Data {
+            let dataStore = webView.configuration.websiteDataStore
+            let cookies = await dataStore.httpCookieStore.allCookies()
+
+            let config = URLSessionConfiguration.default
+            config.httpCookieStorage = HTTPCookieStorage()
+            for cookie in cookies {
+                config.httpCookieStorage?.setCookie(cookie)
+            }
+
+            // Explicitly request PDF format
+            config.httpAdditionalHeaders = [
+                "Accept": "application/pdf",
+                "User-Agent": webView.value(forKey: "userAgent") as? String ?? "Mozilla/5.0"
+            ]
+
+            let session = URLSession(configuration: config)
+
+            Logger.pdfBrowser.debug("Fetching with explicit Accept: application/pdf and \(cookies.count) cookies")
+
+            let (data, response) = try await session.data(from: url)
+
+            if let httpResponse = response as? HTTPURLResponse {
+                Logger.pdfBrowser.debug("Response status: \(httpResponse.statusCode), content-type: \(httpResponse.mimeType ?? "unknown")")
+            }
+
+            return data
         }
 
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -501,6 +801,11 @@ struct MacWebViewRepresentable: NSViewRepresentable {
                 return true
             }
 
+            // Path ending in /pdf (IOP Science, many publishers)
+            if path.hasSuffix("/pdf") {
+                return true
+            }
+
             // Common PDF path patterns used by publishers
             // e.g., /pdf/10.1103/..., /pdfft/..., /doi/pdf/...
             let pdfPathPatterns = [
@@ -551,11 +856,12 @@ struct MacWebViewRepresentable: NSViewRepresentable {
             let expectedLength = navigationResponse.response.expectedContentLength
 
             // === DIAGNOSTIC LOGGING ===
-            Logger.pdfBrowser.info("=== RESPONSE ANALYSIS ===")
-            Logger.pdfBrowser.info("URL: \(url?.absoluteString ?? "nil")")
-            Logger.pdfBrowser.info("MIME type: \(mimeType.isEmpty ? "EMPTY" : mimeType)")
-            Logger.pdfBrowser.info("Expected length: \(expectedLength)")
-            Logger.pdfBrowser.info("isForMainFrame: \(navigationResponse.isForMainFrame)")
+            print("🟡 === RESPONSE ANALYSIS ===")
+            print("🟡 URL: \(url?.absoluteString ?? "nil")")
+            print("🟡 MIME type: \(mimeType.isEmpty ? "EMPTY" : mimeType)")
+            print("🟡 Expected length: \(expectedLength)")
+            print("🟡 isForMainFrame: \(navigationResponse.isForMainFrame)")
+            print("🟡 looksLikePDFURL: \(url.map { looksLikePDFURL($0) } ?? false)")
 
             if let httpResponse = navigationResponse.response as? HTTPURLResponse {
                 Logger.pdfBrowser.info("HTTP Status: \(httpResponse.statusCode)")

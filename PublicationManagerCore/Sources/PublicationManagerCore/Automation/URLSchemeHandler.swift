@@ -148,6 +148,60 @@ public actor URLSchemeHandler {
             await postNotification(.searchCategory, userInfo: ["category": category])
             return .success(command: "searchCategory", result: ["category": AnyCodable(category)])
 
+        case .createSmartSearch(let query, let name, let sourceID):
+            // Create smart search in exploration library (same as Safari extension)
+            let truncatedQuery = String(query.prefix(40)) + (query.count > 40 ? "..." : "")
+            let searchName = name ?? "Search: \(truncatedQuery)"
+            let source = sourceID ?? "ads"
+
+            let explorationLibrary = await MainActor.run {
+                let manager = LibraryManager()
+                return manager.getOrCreateExplorationLibrary()
+            }
+
+            let smartSearch = await MainActor.run {
+                SmartSearchRepository.shared.create(
+                    name: searchName,
+                    query: query,
+                    sourceIDs: [source],
+                    library: explorationLibrary,
+                    maxResults: 100
+                )
+            }
+
+            // Create source manager for search execution
+            let sourceManager = SourceManager()
+            await sourceManager.registerBuiltInSources()
+
+            // Auto-execute the search
+            let provider = SmartSearchProvider(
+                from: smartSearch,
+                sourceManager: sourceManager,
+                repository: PublicationRepository()
+            )
+
+            do {
+                try await provider.refresh()
+                await MainActor.run {
+                    SmartSearchRepository.shared.markExecuted(smartSearch)
+                }
+            } catch {
+                // Log but don't fail - search was created
+                automationLogger.warning("Smart search auto-execute failed: \(error.localizedDescription)")
+            }
+
+            // Notify sidebar to refresh and navigate
+            await MainActor.run {
+                NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+                NotificationCenter.default.post(name: .navigateToSmartSearch, object: smartSearch.id)
+            }
+
+            return .success(command: "createSmartSearch", result: [
+                "id": AnyCodable(smartSearch.id.uuidString),
+                "name": AnyCodable(searchName),
+                "query": AnyCodable(query)
+            ])
+
         // MARK: - Navigation
 
         case .navigate(let target):

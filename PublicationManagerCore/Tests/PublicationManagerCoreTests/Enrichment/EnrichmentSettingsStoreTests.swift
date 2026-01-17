@@ -42,13 +42,13 @@ final class EnrichmentSettingsStoreTests: XCTestCase {
     func testPreferredSourceDefault() async {
         let source = await store.preferredSource
 
-        XCTAssertEqual(source, .semanticScholar)
+        XCTAssertEqual(source, .ads)
     }
 
     func testSourcePriorityDefault() async {
         let priority = await store.sourcePriority
 
-        XCTAssertEqual(priority, [.semanticScholar, .openAlex, .ads])
+        XCTAssertEqual(priority, [.ads])
     }
 
     func testAutoSyncEnabledDefault() async {
@@ -66,14 +66,14 @@ final class EnrichmentSettingsStoreTests: XCTestCase {
     // MARK: - Update Tests
 
     func testUpdatePreferredSource() async {
-        await store.updatePreferredSource(.openAlex)
+        await store.updatePreferredSource(.ads)
 
         let source = await store.preferredSource
-        XCTAssertEqual(source, .openAlex)
+        XCTAssertEqual(source, .ads)
     }
 
     func testUpdateSourcePriority() async {
-        let newPriority: [EnrichmentSource] = [.ads, .openAlex, .semanticScholar]
+        let newPriority: [EnrichmentSource] = [.ads]
         await store.updateSourcePriority(newPriority)
 
         let priority = await store.sourcePriority
@@ -109,7 +109,7 @@ final class EnrichmentSettingsStoreTests: XCTestCase {
     func testUpdateSettings() async {
         let newSettings = EnrichmentSettings(
             preferredSource: .ads,
-            sourcePriority: [.ads, .semanticScholar],
+            sourcePriority: [.ads],
             autoSyncEnabled: false,
             refreshIntervalDays: 30
         )
@@ -124,22 +124,18 @@ final class EnrichmentSettingsStoreTests: XCTestCase {
 
     func testSettingsArePersisted() async {
         // Update some settings
-        await store.updatePreferredSource(.openAlex)
         await store.updateAutoSyncEnabled(false)
 
         // Create a new store with the same UserDefaults
         let newStore = EnrichmentSettingsStore(userDefaults: userDefaults)
 
-        let source = await newStore.preferredSource
         let enabled = await newStore.autoSyncEnabled
 
-        XCTAssertEqual(source, .openAlex)
         XCTAssertFalse(enabled)
     }
 
     func testResetToDefaults() async {
         // Change some settings
-        await store.updatePreferredSource(.ads)
         await store.updateAutoSyncEnabled(false)
         await store.updateRefreshIntervalDays(30)
 
@@ -151,7 +147,7 @@ final class EnrichmentSettingsStoreTests: XCTestCase {
     }
 
     func testResetToDefaultsIsPersisted() async {
-        await store.updatePreferredSource(.ads)
+        await store.updateAutoSyncEnabled(false)
         await store.resetToDefaults()
 
         // Create a new store
@@ -164,77 +160,27 @@ final class EnrichmentSettingsStoreTests: XCTestCase {
     // MARK: - Move Source Tests
 
     func testMoveSourceToBeginning() async {
+        // With only one source, move is a no-op
         await store.moveSource(.ads, to: 0)
 
         let priority = await store.sourcePriority
         XCTAssertEqual(priority.first, .ads)
     }
 
-    func testMoveSourceToEnd() async {
-        await store.moveSource(.semanticScholar, to: 100)  // Clamped to end
-
-        let priority = await store.sourcePriority
-        XCTAssertEqual(priority.last, .semanticScholar)
-    }
-
-    func testMoveSourceToMiddle() async {
-        // Initial: [semanticScholar, openAlex, ads]
-        await store.moveSource(.ads, to: 1)
-
-        let priority = await store.sourcePriority
-        XCTAssertEqual(priority, [.semanticScholar, .ads, .openAlex])
-    }
-
-    func testMoveNonExistentSourceIsNoOp() async {
-        // Remove a source first
-        await store.updateSourcePriority([.semanticScholar, .openAlex])
-
-        // Try to move the removed source
-        await store.moveSource(.ads, to: 0)
-
-        let priority = await store.sourcePriority
-        XCTAssertEqual(priority, [.semanticScholar, .openAlex])
-    }
-
     // MARK: - Convenience Methods Tests
 
     func testIsSourceEnabled() async {
-        let isS2Enabled = await store.isSourceEnabled(.semanticScholar)
-        XCTAssertTrue(isS2Enabled)
-
-        // Remove a source
-        await store.updateSourcePriority([.openAlex, .ads])
-
-        let isS2StillEnabled = await store.isSourceEnabled(.semanticScholar)
-        XCTAssertFalse(isS2StillEnabled)
+        let isADSEnabled = await store.isSourceEnabled(.ads)
+        XCTAssertTrue(isADSEnabled)
     }
 
     func testPriorityRank() async {
-        let s2Rank = await store.priorityRank(of: .semanticScholar)
-        let oaRank = await store.priorityRank(of: .openAlex)
         let adsRank = await store.priorityRank(of: .ads)
 
-        XCTAssertEqual(s2Rank, 0)
-        XCTAssertEqual(oaRank, 1)
-        XCTAssertEqual(adsRank, 2)
-    }
-
-    func testPriorityRankWhenNotInList() async {
-        await store.updateSourcePriority([.openAlex])
-
-        let rank = await store.priorityRank(of: .semanticScholar)
-        XCTAssertNil(rank)
+        XCTAssertEqual(adsRank, 0)
     }
 
     func testTopPrioritySource() async {
-        let top = await store.topPrioritySource
-
-        XCTAssertEqual(top, .semanticScholar)
-    }
-
-    func testTopPrioritySourceAfterReorder() async {
-        await store.updateSourcePriority([.ads, .openAlex, .semanticScholar])
-
         let top = await store.topPrioritySource
 
         XCTAssertEqual(top, .ads)
@@ -252,8 +198,8 @@ final class EnrichmentSettingsStoreTests: XCTestCase {
 
     func testEnrichmentSettingsCodable() throws {
         let settings = EnrichmentSettings(
-            preferredSource: .openAlex,
-            sourcePriority: [.ads, .semanticScholar],
+            preferredSource: .ads,
+            sourcePriority: [.ads],
             autoSyncEnabled: false,
             refreshIntervalDays: 14
         )
@@ -266,21 +212,21 @@ final class EnrichmentSettingsStoreTests: XCTestCase {
 
     func testEnrichmentSettingsEquatable() {
         let settings1 = EnrichmentSettings(
-            preferredSource: .semanticScholar,
-            sourcePriority: [.semanticScholar, .openAlex],
+            preferredSource: .ads,
+            sourcePriority: [.ads],
             autoSyncEnabled: true,
             refreshIntervalDays: 7
         )
         let settings2 = EnrichmentSettings(
-            preferredSource: .semanticScholar,
-            sourcePriority: [.semanticScholar, .openAlex],
+            preferredSource: .ads,
+            sourcePriority: [.ads],
             autoSyncEnabled: true,
             refreshIntervalDays: 7
         )
         let settings3 = EnrichmentSettings(
-            preferredSource: .openAlex,
-            sourcePriority: [.semanticScholar, .openAlex],
-            autoSyncEnabled: true,
+            preferredSource: .ads,
+            sourcePriority: [.ads],
+            autoSyncEnabled: false,
             refreshIntervalDays: 7
         )
 

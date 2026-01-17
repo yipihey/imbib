@@ -26,6 +26,8 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
             handleImportItem(message: message, context: context)
         case "checkDuplicate":
             handleCheckDuplicate(message: message, context: context)
+        case "createSmartSearch":
+            handleCreateSmartSearch(message: message, context: context)
         case "ping":
             // Simple connectivity test
             respond(with: ["success": true, "message": "pong"], context: context)
@@ -71,6 +73,23 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
         respond(with: ["exists": exists], context: context)
     }
 
+    private func handleCreateSmartSearch(message: [String: Any]?, context: NSExtensionContext) {
+        guard let query = message?["query"] as? String, !query.isEmpty else {
+            logger.error("No query in createSmartSearch message")
+            respond(with: ["error": "No query provided"], context: context)
+            return
+        }
+
+        let name = message?["name"] as? String ?? "Search: \(query.prefix(40))"
+        let sourceID = message?["sourceID"] as? String ?? "ads"
+
+        // Queue smart search creation via App Group
+        queueSmartSearchCreation(query: query, name: name, sourceID: sourceID)
+
+        logger.info("Queued smart search creation: \(name)")
+        respond(with: ["success": true], context: context)
+    }
+
     // MARK: - Import Queue
 
     private func queueImportItem(_ item: [String: Any]) {
@@ -88,6 +107,27 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
         postDarwinNotification(name: "com.imbib.safariImportReceived")
 
         logger.info("Import queue now has \(queue.count) items")
+    }
+
+    private func queueSmartSearchCreation(query: String, name: String, sourceID: String) {
+        var queue = defaults?.array(forKey: "safariSmartSearchQueue") as? [[String: Any]] ?? []
+
+        let item: [String: Any] = [
+            "id": UUID().uuidString,
+            "query": query,
+            "name": name,
+            "sourceID": sourceID,
+            "timestamp": Date().timeIntervalSince1970
+        ]
+        queue.append(item)
+
+        defaults?.set(queue, forKey: "safariSmartSearchQueue")
+        defaults?.synchronize()
+
+        // Post Darwin notification to wake main app and process smart search
+        postDarwinNotification(name: "com.imbib.safariSmartSearchReceived")
+
+        logger.info("Smart search queue now has \(queue.count) items")
     }
 
     // MARK: - Duplicate Detection

@@ -423,6 +423,7 @@ struct InboxSettingsTab: View {
     @Environment(SettingsViewModel.self) private var viewModel
 
     @State private var mutedItems: [CDMutedItem] = []
+    @State private var dismissedPaperCount: Int = 0
     @State private var selectedMuteType: CDMutedItem.MuteType = .author
     @State private var newMuteValue: String = ""
 
@@ -500,6 +501,16 @@ struct InboxSettingsTab: View {
                 }
                 .disabled(mutedItems.isEmpty)
                 .help("Remove all mute rules")
+
+                Button("Clear Dismissed Papers (\(dismissedPaperCount))", role: .destructive) {
+                    clearDismissedPapers()
+                }
+                .disabled(dismissedPaperCount == 0)
+                .help("Allow previously dismissed papers to reappear in feeds")
+
+                Text("Dismissed papers are hidden from future feed results. Clear this to allow them to reappear.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -507,6 +518,7 @@ struct InboxSettingsTab: View {
         .task {
             await viewModel.loadInboxSettings()
             loadMutedItems()
+            loadDismissedPaperCount()
         }
     }
 
@@ -571,6 +583,15 @@ struct InboxSettingsTab: View {
     private func clearAllMutedItems() {
         InboxManager.shared.clearAllMutedItems()
         loadMutedItems()
+    }
+
+    private func loadDismissedPaperCount() {
+        dismissedPaperCount = InboxManager.shared.dismissedPaperCount
+    }
+
+    private func clearDismissedPapers() {
+        InboxManager.shared.clearAllDismissedPapers()
+        loadDismissedPaperCount()
     }
 }
 

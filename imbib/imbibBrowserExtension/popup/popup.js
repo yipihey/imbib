@@ -22,10 +22,16 @@ class PopupController {
             importBtn: document.getElementById('import-btn'),
             errorMessage: document.getElementById('error-message'),
             retryBtn: document.getElementById('retry-btn'),
-            searchPageMessage: document.getElementById('search-page-message')
+            searchPageMessage: document.getElementById('search-page-message'),
+            // Smart search elements
+            smartSearchSection: document.getElementById('smart-search-section'),
+            searchQueryText: document.getElementById('search-query-text'),
+            createSmartSearchBtn: document.getElementById('create-smart-search-btn'),
+            searchPageHint: document.getElementById('search-page-hint')
         };
 
         this.currentMetadata = null;
+        this.currentSearchQuery = null;
 
         this.init();
     }
@@ -36,6 +42,7 @@ class PopupController {
         // Set up event listeners
         this.elements.importBtn.addEventListener('click', () => this.handleImport());
         this.elements.retryBtn.addEventListener('click', () => this.init());
+        this.elements.createSmartSearchBtn?.addEventListener('click', () => this.handleCreateSmartSearch());
 
         try {
             // Get current tab - use chrome API for compatibility
@@ -70,7 +77,7 @@ class PopupController {
 
             // Handle search/listing pages
             if (metadata.isSearchPage) {
-                this.showSearchPageMessage(metadata.message || 'Click on a paper to import it.');
+                this.showSearchPageMessage(metadata.message || 'Click on a paper to import it.', metadata.searchQuery);
                 return;
             }
 
@@ -205,11 +212,70 @@ class PopupController {
         this.showState('error');
     }
 
-    showSearchPageMessage(message) {
+    showSearchPageMessage(message, searchQuery = null) {
         if (this.elements.searchPageMessage) {
             this.elements.searchPageMessage.textContent = message;
         }
+
+        // Show smart search section if we have a query
+        if (searchQuery && this.elements.smartSearchSection) {
+            this.currentSearchQuery = searchQuery;
+            this.elements.searchQueryText.textContent = searchQuery.length > 60
+                ? searchQuery.substring(0, 60) + '...'
+                : searchQuery;
+            this.elements.smartSearchSection.classList.remove('hidden');
+            this.elements.searchPageHint?.classList.add('hidden');
+        } else {
+            this.currentSearchQuery = null;
+            this.elements.smartSearchSection?.classList.add('hidden');
+            this.elements.searchPageHint?.classList.remove('hidden');
+        }
+
         this.showState('searchPage');
+    }
+
+    async handleCreateSmartSearch() {
+        if (!this.currentSearchQuery) return;
+
+        // Update UI
+        const btn = this.elements.createSmartSearchBtn;
+        btn.disabled = true;
+        btn.querySelector('.button-text').textContent = 'Creating...';
+        btn.querySelector('.button-spinner').classList.remove('hidden');
+
+        try {
+            // Generate a name from the query
+            const truncatedQuery = this.currentSearchQuery.length > 40
+                ? this.currentSearchQuery.substring(0, 40) + '...'
+                : this.currentSearchQuery;
+            const name = `Search: ${truncatedQuery}`;
+
+            // Build URL scheme to create smart search
+            const params = new URLSearchParams();
+            params.set('query', this.currentSearchQuery);
+            params.set('name', name);
+            params.set('sourceID', 'ads');
+
+            const url = `imbib://search/create-smart-search?${params.toString()}`;
+
+            // Open URL scheme to trigger imbib app
+            window.location.href = url;
+
+            // Show success (we can't verify the app received it)
+            this.showState('success');
+
+            // Auto-close after success
+            setTimeout(() => window.close(), 1500);
+
+        } catch (error) {
+            console.error('Smart search creation error:', error);
+            this.showError('Failed to open imbib. Is the app installed?');
+
+            // Reset button
+            btn.disabled = false;
+            btn.querySelector('.button-text').textContent = 'Create Smart Search';
+            btn.querySelector('.button-spinner').classList.add('hidden');
+        }
     }
 }
 
