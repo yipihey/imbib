@@ -197,7 +197,6 @@ struct UnifiedPublicationListWrapper: View {
             .focusEffectDisabled()
             .onKeyPress(.init("a")) { handleArchiveKey() }
             .onKeyPress(.init("d")) { handleDismissKey() }
-            .onKeyPress(.init("s")) { handleStarKey() }
             .task(id: source.id) {
                 filterMode = initialFilterMode
                 filterScope = .current  // Reset scope on navigation
@@ -251,8 +250,7 @@ struct UnifiedPublicationListWrapper: View {
                 isInboxView: isInboxView,
                 hasSelection: !selectedPublicationIDs.isEmpty,
                 onArchive: archiveSelectedToDefaultLibrary,
-                onDismiss: dismissSelectedFromInbox,
-                onToggleStar: toggleStarForSelected
+                onDismiss: dismissSelectedFromInbox
             ))
             .alert("Duplicate File", isPresented: $showDuplicateAlert) {
                 Button("Skip") {
@@ -370,9 +368,7 @@ struct UnifiedPublicationListWrapper: View {
             onDismiss: isInboxView ? { ids in
                 await dismissFromInbox(ids: ids)
             } : nil,
-            onToggleStar: isInboxView ? { ids in
-                await toggleStar(ids: ids)
-            } : nil,
+            onToggleStar: nil,
             onMuteAuthor: isInboxView ? { authorName in
                 muteAuthor(authorName)
             } : nil,
@@ -665,13 +661,6 @@ struct UnifiedPublicationListWrapper: View {
         return .handled
     }
 
-    /// Handle 'S' key - toggle star on selected (works everywhere, not just inbox)
-    private func handleStarKey() -> KeyPress.Result {
-        guard !isTextFieldFocused(), !selectedPublicationIDs.isEmpty else { return .ignored }
-        toggleStarForSelected()
-        return .handled
-    }
-
     /// Archive selected publications to the Archive library (created on first use if needed)
     private func archiveSelectedToDefaultLibrary() {
         // Use the Archive library (created automatically on first use)
@@ -731,21 +720,6 @@ struct UnifiedPublicationListWrapper: View {
 
         refreshPublicationsList()
         logger.info("Dismissed \(count) papers from Inbox to Dismissed library")
-    }
-
-    /// Toggle star status for selected publications
-    private func toggleStarForSelected() {
-        let context = PersistenceController.shared.viewContext
-
-        for uuid in selectedPublicationIDs {
-            if let publication = publications.first(where: { $0.id == uuid }) {
-                publication.isStarred.toggle()
-            }
-        }
-
-        try? context.save()
-        refreshPublicationsList()
-        logger.info("Toggled star for \(selectedPublicationIDs.count) papers")
     }
 
     // MARK: - Archive Implementation
@@ -875,21 +849,6 @@ struct UnifiedPublicationListWrapper: View {
         logger.info("Dismissed \(ids.count) papers from Inbox to Dismissed library")
     }
 
-    /// Toggle star for publications (for context menu)
-    private func toggleStar(ids: Set<UUID>) async {
-        let context = PersistenceController.shared.viewContext
-
-        for uuid in ids {
-            if let publication = publications.first(where: { $0.id == uuid }) {
-                publication.isStarred.toggle()
-            }
-        }
-
-        try? context.save()
-        refreshPublicationsList()
-        logger.info("Toggled star for \(ids.count) papers")
-    }
-
     /// Mute an author
     private func muteAuthor(_ authorName: String) {
         let inboxManager = InboxManager.shared
@@ -998,7 +957,6 @@ private struct InboxTriageModifier: ViewModifier {
     let hasSelection: Bool
     let onArchive: () -> Void
     let onDismiss: () -> Void
-    let onToggleStar: () -> Void
 
     func body(content: Content) -> some View {
         content
@@ -1010,11 +968,6 @@ private struct InboxTriageModifier: ViewModifier {
             .onReceive(NotificationCenter.default.publisher(for: .inboxDismiss)) { _ in
                 if isInboxView && hasSelection {
                     onDismiss()
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for: .inboxToggleStar)) { _ in
-                if isInboxView && hasSelection {
-                    onToggleStar()
                 }
             }
     }

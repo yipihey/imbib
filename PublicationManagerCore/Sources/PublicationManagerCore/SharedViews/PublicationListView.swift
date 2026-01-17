@@ -1167,13 +1167,6 @@ public struct PublicationListView: View {
             }
         }
 
-        // Toggle Star (Inbox triage)
-        if let onToggleStar = onToggleStar {
-            Button("Toggle Star") {
-                Task { await onToggleStar(ids) }
-            }
-        }
-
         // Dismiss from Inbox
         if let onDismiss = onDismiss {
             Button("Dismiss from Inbox") {

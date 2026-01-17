@@ -613,14 +613,6 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             notificationName: "inboxDismiss"
         ),
         KeyboardShortcutBinding(
-            id: "inboxToggleStar",
-            displayName: "Star/Flag",
-            category: .inboxTriage,
-            key: .character("s"),
-            modifiers: .none,
-            notificationName: "inboxToggleStar"
-        ),
-        KeyboardShortcutBinding(
             id: "inboxMarkRead",
             displayName: "Mark as Read",
             category: .inboxTriage,

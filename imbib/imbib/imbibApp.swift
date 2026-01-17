@@ -211,6 +211,7 @@ struct imbibApp: App {
         Settings {
             SettingsView()
                 .environment(settingsViewModel)
+                .environment(libraryManager)
         }
 
         Window("Console", id: "console") {
