@@ -684,9 +684,13 @@ struct UnifiedPublicationListWrapper: View {
     }
 
     /// Dismiss selected publications from inbox (moves to Dismissed library, not delete)
+    /// Selects the next paper in the list after dismissing.
     private func dismissSelectedFromInbox() {
         let inboxManager = InboxManager.shared
         let dismissedLibrary = libraryManager.getOrCreateDismissedLibrary()
+
+        // Find next paper to select before removing current selection
+        let nextPaperID = findNextPaperAfter(ids: selectedPublicationIDs)
 
         for uuid in selectedPublicationIDs {
             if let publication = publications.first(where: { $0.id == uuid }) {
@@ -714,7 +718,17 @@ struct UnifiedPublicationListWrapper: View {
         inboxManager.updateUnreadCount()
 
         let count = selectedPublicationIDs.count
-        selectedPublicationIDs.removeAll()
+
+        // Select next paper (or clear if none left)
+        if let nextID = nextPaperID,
+           let nextPub = publications.first(where: { $0.id == nextID }) {
+            selectedPublicationIDs = [nextID]
+            selectedPublication = nextPub
+        } else {
+            selectedPublicationIDs.removeAll()
+            selectedPublication = nil
+        }
+
         refreshPublicationsList()
         logger.info("Dismissed \(count) papers from Inbox to Dismissed library")
     }
