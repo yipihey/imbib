@@ -131,6 +131,175 @@ public enum IdentifierExtractor {
 
         return id.lowercased()
     }
+
+    // MARK: - Text Content Extraction
+
+    /// Extract DOI from free-form text (e.g., PDF content).
+    ///
+    /// Matches DOI patterns like:
+    /// - `10.1234/abc.def`
+    /// - `doi:10.1234/abc.def`
+    /// - `https://doi.org/10.1234/abc.def`
+    ///
+    /// - Parameter text: Text to search for DOI
+    /// - Returns: The first DOI found, or nil
+    public static func extractDOIFromText(_ text: String) -> String? {
+        // DOI pattern: 10.XXXX/... where XXXX is 4+ digits
+        // DOI can contain alphanumerics, dashes, dots, underscores, colons, parentheses, etc.
+        // Terminates at whitespace, comma, semicolon, or certain punctuation
+        let doiPattern = #"(?:doi[:\s]*)?(?:https?://(?:dx\.)?doi\.org/)?10\.\d{4,}/[^\s,;"\]>)]+[^\s,;"\]>).]"#
+
+        guard let regex = try? NSRegularExpression(pattern: doiPattern, options: .caseInsensitive) else {
+            return nil
+        }
+
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: range),
+              let matchRange = Range(match.range, in: text) else {
+            return nil
+        }
+
+        var doi = String(text[matchRange])
+
+        // Clean up: remove "doi:" or "doi " prefix if present
+        let lowercased = doi.lowercased()
+        if lowercased.hasPrefix("doi:") {
+            doi = String(doi.dropFirst(4)).trimmingCharacters(in: .whitespaces)
+        } else if lowercased.hasPrefix("doi ") {
+            doi = String(doi.dropFirst(4)).trimmingCharacters(in: .whitespaces)
+        } else if lowercased.hasPrefix("doi") && doi.count > 3 && doi[doi.index(doi.startIndex, offsetBy: 3)].isWhitespace {
+            // Handle any whitespace after "doi"
+            doi = String(doi.dropFirst(3)).trimmingCharacters(in: .whitespaces)
+        }
+
+        // Clean up: remove URL prefix if present
+        if let urlRange = doi.range(of: "doi.org/", options: .caseInsensitive) {
+            doi = String(doi[urlRange.upperBound...])
+        }
+
+        // Clean up: remove trailing punctuation
+        while doi.last == "." || doi.last == "," || doi.last == ";" {
+            doi.removeLast()
+        }
+
+        return doi.isEmpty ? nil : doi
+    }
+
+    /// Extract arXiv ID from free-form text (e.g., PDF content).
+    ///
+    /// Matches arXiv patterns like:
+    /// - New format: `2401.12345` or `2401.12345v2`
+    /// - Old format: `astro-ph/0612345` or `hep-th/0612345v1`
+    /// - With prefix: `arXiv:2401.12345`
+    ///
+    /// - Parameter text: Text to search for arXiv ID
+    /// - Returns: The first arXiv ID found (normalized), or nil
+    public static func extractArXivFromText(_ text: String) -> String? {
+        // New format: YYMM.NNNNN(vN)
+        let newFormatPattern = #"(?:arXiv:)?(\d{4}\.\d{4,5}(?:v\d+)?)"#
+
+        // Old format: category/NNNNNNN(vN)
+        let oldFormatPattern = #"(?:arXiv:)?([a-z-]+/\d{7}(?:v\d+)?)"#
+
+        // Try new format first (more common)
+        if let regex = try? NSRegularExpression(pattern: newFormatPattern, options: .caseInsensitive) {
+            let range = NSRange(text.startIndex..., in: text)
+            if let match = regex.firstMatch(in: text, options: [], range: range),
+               let captureRange = Range(match.range(at: 1), in: text) {
+                return normalizeArXivID(String(text[captureRange]))
+            }
+        }
+
+        // Try old format
+        if let regex = try? NSRegularExpression(pattern: oldFormatPattern, options: .caseInsensitive) {
+            let range = NSRange(text.startIndex..., in: text)
+            if let match = regex.firstMatch(in: text, options: [], range: range),
+               let captureRange = Range(match.range(at: 1), in: text) {
+                return normalizeArXivID(String(text[captureRange]))
+            }
+        }
+
+        return nil
+    }
+
+    /// Extract ADS bibcode from free-form text.
+    ///
+    /// Bibcodes are 19-character identifiers like: `2023ApJ...123..456A`
+    /// Format: YYYYJJJJJVVVVMPPPPA
+    /// - YYYY: Year
+    /// - JJJJJ: Journal abbreviation (5 chars, right-padded with dots)
+    /// - VVVV: Volume (4 chars, left-padded with dots)
+    /// - M: Page type indicator (., L, E, etc.)
+    /// - PPPP: Page (4 chars, left-padded with dots)
+    /// - A: Author initial
+    ///
+    /// - Parameter text: Text to search for bibcode
+    /// - Returns: The first bibcode found, or nil
+    public static func extractBibcodeFromText(_ text: String) -> String? {
+        // Bibcode pattern: 19 chars, starts with 4-digit year
+        // Format: YYYYJJJJJVVVVMPPPPA
+        // - YYYY: Year (4 digits)
+        // - JJJJJ: Journal (5 chars, letters/numbers/ampersand/dots)
+        // - VVVV: Volume (4 chars, digits/dots for padding)
+        // - M: Qualifier (1 char, letter or dot)
+        // - PPPP: Page (4 chars, digits/dots for padding)
+        // - A: Author initial (1 char)
+        let bibcodePattern = #"\b((?:19|20)\d{2}[A-Za-z&.]{5}[.\d]{4}[A-Za-z.][.\d]{4}[A-Za-z.])\b"#
+
+        guard let regex = try? NSRegularExpression(pattern: bibcodePattern, options: []) else {
+            return nil
+        }
+
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: range),
+              let matchRange = Range(match.range(at: 1), in: text) else {
+            return nil
+        }
+
+        let bibcode = String(text[matchRange])
+
+        // Validate length (should be exactly 19 chars)
+        guard bibcode.count == 19 else {
+            return nil
+        }
+
+        return bibcode
+    }
+
+    /// Extract PubMed ID (PMID) from free-form text.
+    ///
+    /// Matches patterns like:
+    /// - `PMID: 12345678`
+    /// - `PubMed ID: 12345678`
+    /// - `https://pubmed.ncbi.nlm.nih.gov/12345678`
+    ///
+    /// - Parameter text: Text to search for PMID
+    /// - Returns: The first PMID found, or nil
+    public static func extractPMIDFromText(_ text: String) -> String? {
+        // PMID with prefix
+        let pmidPattern = #"(?:PMID|PubMed(?:\s*ID)?)[:\s]+(\d{6,9})"#
+
+        if let regex = try? NSRegularExpression(pattern: pmidPattern, options: .caseInsensitive) {
+            let range = NSRange(text.startIndex..., in: text)
+            if let match = regex.firstMatch(in: text, options: [], range: range),
+               let captureRange = Range(match.range(at: 1), in: text) {
+                return String(text[captureRange])
+            }
+        }
+
+        // PubMed URL pattern
+        let urlPattern = #"pubmed\.ncbi\.nlm\.nih\.gov/(\d{6,9})"#
+
+        if let regex = try? NSRegularExpression(pattern: urlPattern, options: .caseInsensitive) {
+            let range = NSRange(text.startIndex..., in: text)
+            if let match = regex.firstMatch(in: text, options: [], range: range),
+               let captureRange = Range(match.range(at: 1), in: text) {
+                return String(text[captureRange])
+            }
+        }
+
+        return nil
+    }
 }
 
 // MARK: - String Extension for Bibcode Extraction

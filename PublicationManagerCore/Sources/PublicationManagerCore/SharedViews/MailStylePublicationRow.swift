@@ -77,6 +77,12 @@ public struct MailStylePublicationRow: View, Equatable {
     /// Action when a category chip is tapped
     public var onCategoryTap: ((String) -> Void)?
 
+    /// Action when files are dropped onto this row for attachment
+    public var onFileDrop: (([NSItemProvider]) -> Void)?
+
+    /// Whether the row is currently a drop target
+    @State private var isDropTargeted = false
+
     // MARK: - Computed Properties
 
     private var isUnread: Bool { !data.isRead }
@@ -106,13 +112,15 @@ public struct MailStylePublicationRow: View, Equatable {
         settings: ListViewSettings = .default,
         rowNumber: Int? = nil,
         onToggleRead: (() -> Void)? = nil,
-        onCategoryTap: ((String) -> Void)? = nil
+        onCategoryTap: ((String) -> Void)? = nil,
+        onFileDrop: (([NSItemProvider]) -> Void)? = nil
     ) {
         self.data = data
         self.settings = settings
         self.rowNumber = rowNumber
         self.onToggleRead = onToggleRead
         self.onCategoryTap = onCategoryTap
+        self.onFileDrop = onFileDrop
     }
 
     // MARK: - Body
@@ -244,6 +252,18 @@ public struct MailStylePublicationRow: View, Equatable {
             Label(data.title, systemImage: "doc.text")
                 .padding(8)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        }
+        .overlay {
+            // Drop target visual feedback
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(Color.accentColor, lineWidth: 2)
+            }
+        }
+        .onDrop(of: [.fileURL, .pdf], isTargeted: $isDropTargeted) { providers in
+            guard let onFileDrop = onFileDrop else { return false }
+            onFileDrop(providers)
+            return true
         }
         .contextMenu {
             contextMenuContent

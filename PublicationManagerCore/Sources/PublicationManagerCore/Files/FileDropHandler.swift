@@ -39,7 +39,9 @@ public final class FileDropHandler: ObservableObject {
 
     // MARK: - Properties
 
-    private let attachmentManager: AttachmentManager
+    /// The attachment manager used for importing files.
+    /// Internal access for use by DragDropCoordinator.
+    let attachmentManager: AttachmentManager
 
     /// Import progress (current, total)
     @Published public var importProgress: (current: Int, total: Int)?

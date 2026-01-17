@@ -17,6 +17,10 @@ struct SidebarView: View {
     @Binding var selection: SidebarSection?
     @Binding var expandedLibraries: Set<UUID>
 
+    // MARK: - Drag-Drop Coordinator
+
+    @StateObject private var dragDropCoordinator = DragDropCoordinator.shared
+
     // MARK: - Environment
 
     @Environment(LibraryManager.self) private var libraryManager
@@ -48,6 +52,10 @@ struct SidebarView: View {
     @State private var expandedExplorationCollections: Set<UUID> = []  // Expanded state for tree disclosure groups
     @State private var searchMultiSelection: Set<UUID> = []  // Multi-selection for smart searches
     @State private var lastSelectedSearchID: UUID?  // For Shift+click range selection on searches
+
+    // Drop preview sheet
+    @State private var showingDropPreview = false
+    @State private var dropPreviewTargetLibraryID: UUID?
 
     // Section ordering and collapsed state (persisted)
     @State private var sectionOrder: [SidebarSectionType] = SidebarSectionOrderStore.loadOrderSync()
@@ -106,6 +114,9 @@ struct SidebarView: View {
                 }
                 editingCollection = nil
             }
+        }
+        .sheet(isPresented: $showingDropPreview) {
+            dropPreviewSheetContent
         }
         .alert("Delete Library?", isPresented: $showDeleteConfirmation, presenting: libraryToDelete) { library in
             Button("Delete", role: .destructive) {
@@ -172,6 +183,26 @@ struct SidebarView: View {
             }
         }
         .id(refreshTrigger)  // Re-render when refreshTrigger changes
+    }
+
+    // MARK: - Sheet Content
+
+    /// Drop preview sheet content extracted to simplify type-checking
+    @ViewBuilder
+    private var dropPreviewSheetContent: some View {
+        if let libraryID = dropPreviewTargetLibraryID {
+            DropPreviewSheet(
+                preview: $dragDropCoordinator.pendingPreview,
+                libraryID: libraryID,
+                coordinator: dragDropCoordinator
+            )
+            .onDisappear {
+                dropPreviewTargetLibraryID = nil
+                refreshTrigger = UUID()
+            }
+        } else {
+            Text("No library selected")
+        }
     }
 
     // MARK: - Section Views
@@ -884,7 +915,7 @@ struct SidebarView: View {
         DisclosureGroup(
             isExpanded: expansionBinding(for: library.id)
         ) {
-            // All Publications - drop target for moving papers to library
+            // All Publications - drop target for moving papers to library or importing files
             SidebarDropTarget(
                 isTargeted: dropTargetedLibrary == library.id,
                 showPlusBadge: true
@@ -892,10 +923,12 @@ struct SidebarView: View {
                 Label("All Publications", systemImage: "books.vertical")
             }
             .tag(SidebarSection.library(library))
-            .onDrop(of: [.publicationID], isTargeted: makeLibraryTargetBinding(library.id)) { providers in
-                handleDrop(providers: providers) { uuids in
-                    Task {
-                        await addPublicationsToLibrary(uuids, library: library)
+            .onDrop(of: DragDropCoordinator.acceptedTypes + [.publicationID], isTargeted: makeLibraryTargetBinding(library.id)) { providers in
+                if hasFileDrops(providers) {
+                    handleFileDrop(providers, libraryID: library.id)
+                } else {
+                    handleDrop(providers: providers) { uuids in
+                        Task { await addPublicationsToLibrary(uuids, library: library) }
                     }
                 }
                 return true
@@ -1116,14 +1149,17 @@ struct SidebarView: View {
                 }
             }
         }
-        .onDrop(of: [.publicationID], isTargeted: makeLibraryHeaderTargetBinding(library.id)) { providers in
+        .onDrop(of: DragDropCoordinator.acceptedTypes + [.publicationID], isTargeted: makeLibraryHeaderTargetBinding(library.id)) { providers in
             // Auto-expand collapsed library when dropping on header
             if !expandedLibraries.contains(library.id) {
                 expandedLibraries.insert(library.id)
             }
-            handleDrop(providers: providers) { uuids in
-                Task {
-                    await addPublicationsToLibrary(uuids, library: library)
+
+            if hasFileDrops(providers) {
+                handleFileDrop(providers, libraryID: library.id)
+            } else {
+                handleDrop(providers: providers) { uuids in
+                    Task { await addPublicationsToLibrary(uuids, library: library) }
                 }
             }
             return true
@@ -1145,7 +1181,7 @@ struct SidebarView: View {
                 onRename: { newName in renameCollection(collection, to: newName) }
             )
         } else {
-            // Static collections accept drops
+            // Static collections accept drops (publications and files)
             SidebarDropTarget(
                 isTargeted: dropTargetedCollection == collection.id,
                 showPlusBadge: true
@@ -1157,10 +1193,13 @@ struct SidebarView: View {
                     onRename: { newName in renameCollection(collection, to: newName) }
                 )
             }
-            .onDrop(of: [.publicationID], isTargeted: makeCollectionTargetBinding(collection.id)) { providers in
-                handleDrop(providers: providers) { uuids in
-                    Task {
-                        await addPublications(uuids, to: collection)
+            .onDrop(of: DragDropCoordinator.acceptedTypes + [.publicationID], isTargeted: makeCollectionTargetBinding(collection.id)) { providers in
+                let libraryID = collection.effectiveLibrary?.id ?? collection.library?.id ?? UUID()
+                if hasFileDrops(providers) {
+                    handleFileDropOnCollection(providers, collectionID: collection.id, libraryID: libraryID)
+                } else {
+                    handleDrop(providers: providers) { uuids in
+                        Task { await addPublications(uuids, to: collection) }
                     }
                 }
                 return true
@@ -1230,6 +1269,44 @@ struct SidebarView: View {
         group.notify(queue: .main) {
             if !collectedUUIDs.isEmpty {
                 action(collectedUUIDs)
+            }
+        }
+    }
+
+    /// Check if providers contain file drops (PDF, .bib, .ris)
+    private func hasFileDrops(_ providers: [NSItemProvider]) -> Bool {
+        providers.contains { provider in
+            provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier) ||
+            provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+        }
+    }
+
+    /// Handle file drops on a library target
+    private func handleFileDrop(_ providers: [NSItemProvider], libraryID: UUID) {
+        let info = DragDropInfo(providers: providers)
+        let target = DropTarget.library(libraryID: libraryID)
+        Task {
+            let result = await dragDropCoordinator.performDrop(info, target: target)
+            if case .needsConfirmation = result {
+                await MainActor.run {
+                    dropPreviewTargetLibraryID = libraryID
+                    showingDropPreview = true
+                }
+            }
+        }
+    }
+
+    /// Handle file drops on a collection target
+    private func handleFileDropOnCollection(_ providers: [NSItemProvider], collectionID: UUID, libraryID: UUID) {
+        let info = DragDropInfo(providers: providers)
+        let target = DropTarget.collection(collectionID: collectionID, libraryID: libraryID)
+        Task {
+            let result = await dragDropCoordinator.performDrop(info, target: target)
+            if case .needsConfirmation = result {
+                await MainActor.run {
+                    dropPreviewTargetLibraryID = libraryID
+                    showingDropPreview = true
+                }
             }
         }
     }
