@@ -15,7 +15,7 @@ private let sidebarLogger = Logger(subsystem: "com.imbib.app", category: "sideba
 
 /// Log drag-drop info to both system console AND app's Console window
 private func dragDropLog(_ message: String) {
-    dragDropLog("\(message)")
+    sidebarLogger.info("\(message)")
     Task { @MainActor in
         LogStore.shared.log(level: .info, category: "dragdrop", message: message)
     }
@@ -23,7 +23,7 @@ private func dragDropLog(_ message: String) {
 
 /// Log drag-drop error to both system console AND app's Console window
 private func dragDropError(_ message: String) {
-    dragDropError("\(message)")
+    sidebarLogger.error("\(message)")
     Task { @MainActor in
         LogStore.shared.log(level: .error, category: "dragdrop", message: message)
     }
@@ -31,7 +31,7 @@ private func dragDropError(_ message: String) {
 
 /// Log drag-drop warning to both system console AND app's Console window
 private func dragDropWarning(_ message: String) {
-    dragDropWarning("\(message)")
+    sidebarLogger.warning("\(message)")
     Task { @MainActor in
         LogStore.shared.log(level: .warning, category: "dragdrop", message: message)
     }
