@@ -65,11 +65,24 @@ struct imbibApp: App {
     init() {
         let appStart = CFAbsoluteTimeGetCurrent()
 
-        // Check for development mode flag
+        // Check for development mode flags
         #if os(macOS)
         isEditingDefaultSet = CommandLine.arguments.contains("--edit-default-set")
         if isEditingDefaultSet {
             appLogger.info("Running in edit-default-set mode")
+        }
+
+        // Handle --reset-to-first-run flag (synchronous reset before app loads)
+        if FirstRunManager.shouldResetOnLaunch {
+            appLogger.warning("--reset-to-first-run flag detected, performing synchronous reset")
+            // Note: This is a blocking call intentionally - we need to reset before continuing
+            let semaphore = DispatchSemaphore(value: 0)
+            Task {
+                await FirstRunManager.shared.resetIfNeeded()
+                semaphore.signal()
+            }
+            semaphore.wait()
+            appLogger.info("Reset to first-run state complete")
         }
         #else
         isEditingDefaultSet = false

@@ -417,9 +417,17 @@ public final class InboxManager {
         // Track dismissal so paper won't reappear in Inbox
         trackDismissal(publication)
 
+        // Remove from Inbox
+        if let inbox = inboxLibrary {
+            publication.removeFromLibrary(inbox)
+        }
+
         // Add to target library
         publication.addToLibrary(library)
         persistenceController.save()
+
+        // Update unread count
+        updateUnreadCount()
 
         // Post notification for auto-remove
         NotificationCenter.default.post(name: .publicationArchivedToLibrary, object: publication)

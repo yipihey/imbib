@@ -297,6 +297,42 @@ schemes:
     archive:
       config: Release
 
+  # Development scheme: Reset to first-run state on launch
+  imbib-FirstRun:
+    build:
+      targets:
+        imbib: all
+    run:
+      config: Debug
+      commandLineArguments:
+        "--reset-to-first-run": true
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
+  # Development scheme: Edit default library set configuration
+  imbib-EditDefaultSet:
+    build:
+      targets:
+        imbib: all
+    run:
+      config: Debug
+      commandLineArguments:
+        "--edit-default-set": true
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+
   imbib-iOS:
     build:
       targets:

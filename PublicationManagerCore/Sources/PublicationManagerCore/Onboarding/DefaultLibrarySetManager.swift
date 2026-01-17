@@ -154,6 +154,37 @@ public final class DefaultLibrarySetManager {
         Logger.library.infoCapture("Successfully imported default library set", category: "onboarding")
     }
 
+    // MARK: - Load Custom Set
+
+    /// Load a custom default library set from a URL.
+    ///
+    /// This is used for testing and development to load custom configurations.
+    public func loadCustomSet(from url: URL) throws {
+        Logger.library.infoCapture("Loading custom library set from: \(url.lastPathComponent)", category: "onboarding")
+
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch {
+            Logger.library.errorCapture("Failed to read custom library set: \(error.localizedDescription)", category: "onboarding")
+            throw DefaultLibrarySetError.decodingFailed(error)
+        }
+
+        let customSet: DefaultLibrarySet
+        do {
+            let decoder = JSONDecoder()
+            customSet = try decoder.decode(DefaultLibrarySet.self, from: data)
+        } catch {
+            Logger.library.errorCapture("Failed to decode custom library set: \(error.localizedDescription)", category: "onboarding")
+            throw DefaultLibrarySetError.decodingFailed(error)
+        }
+
+        Logger.library.infoCapture("Loaded custom set v\(customSet.version) with \(customSet.libraries.count) libraries", category: "onboarding")
+
+        // Import the set
+        try importSet(customSet)
+    }
+
     // MARK: - Export Current State (Development Mode)
 
     /// Export the current libraries, smart searches, and collections to JSON.
@@ -246,5 +277,95 @@ public final class DefaultLibrarySetManager {
             Logger.library.errorCapture("Failed to write default set file: \(error.localizedDescription)", category: "onboarding")
             throw DefaultLibrarySetError.writeFailed(error)
         }
+    }
+
+    /// Get the current libraries as a DefaultLibrarySet object.
+    ///
+    /// Useful for editing the default set in the UI before exporting.
+    public func getCurrentAsDefaultSet() throws -> DefaultLibrarySet {
+        let context = persistenceController.viewContext
+
+        // Fetch all libraries
+        let libraryRequest = NSFetchRequest<CDLibrary>(entityName: "Library")
+        libraryRequest.sortDescriptors = [
+            NSSortDescriptor(key: "sortOrder", ascending: true),
+            NSSortDescriptor(key: "name", ascending: true)
+        ]
+
+        let libraries: [CDLibrary]
+        do {
+            libraries = try context.fetch(libraryRequest)
+        } catch {
+            Logger.library.errorCapture("Failed to fetch libraries: \(error.localizedDescription)", category: "onboarding")
+            throw DefaultLibrarySetError.encodingFailed(error)
+        }
+
+        guard !libraries.isEmpty else {
+            throw DefaultLibrarySetError.noLibrariesToExport
+        }
+
+        // Build the export structure
+        var defaultLibraries: [DefaultLibrary] = []
+
+        for library in libraries {
+            // Skip inbox and system libraries
+            if library.isInbox || library.isSystemLibrary {
+                continue
+            }
+
+            // Export smart searches
+            let smartSearches = (library.smartSearches ?? [])
+                .sorted { $0.order < $1.order }
+                .map { ss in
+                    DefaultSmartSearch(
+                        name: ss.name,
+                        query: ss.query,
+                        sourceIDs: ss.sources.isEmpty ? nil : ss.sources,
+                        feedsToInbox: ss.feedsToInbox ? true : nil,
+                        autoRefreshEnabled: ss.autoRefreshEnabled ? true : nil,
+                        refreshIntervalSeconds: ss.autoRefreshEnabled ? Int(ss.refreshIntervalSeconds) : nil
+                    )
+                }
+
+            // Export user-created collections (not smart search results, not system collections)
+            let collections = (library.collections ?? [])
+                .filter { !$0.isSmartSearchResults && !$0.isSystemCollection }
+                .map { DefaultCollection(name: $0.name) }
+
+            let defaultLibrary = DefaultLibrary(
+                name: library.displayName,
+                isDefault: library.isDefault,
+                smartSearches: smartSearches.isEmpty ? nil : smartSearches,
+                collections: collections.isEmpty ? nil : collections
+            )
+
+            defaultLibraries.append(defaultLibrary)
+        }
+
+        return DefaultLibrarySet(version: 1, libraries: defaultLibraries)
+    }
+
+    /// Export the current libraries as a JSON string.
+    ///
+    /// Useful for copying to clipboard or displaying in UI.
+    public func exportToJSONString() throws -> String {
+        let defaultSet = try getCurrentAsDefaultSet()
+
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+
+        let data: Data
+        do {
+            data = try encoder.encode(defaultSet)
+        } catch {
+            Logger.library.errorCapture("Failed to encode default set: \(error.localizedDescription)", category: "onboarding")
+            throw DefaultLibrarySetError.encodingFailed(error)
+        }
+
+        guard let jsonString = String(data: data, encoding: .utf8) else {
+            throw DefaultLibrarySetError.encodingFailed(NSError(domain: "imbib", code: 0, userInfo: [NSLocalizedDescriptionKey: "Failed to convert data to string"]))
+        }
+
+        return jsonString
     }
 }

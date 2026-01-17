@@ -50,6 +50,9 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     /// Whether the publication has been read
     public let isRead: Bool
 
+    /// Whether the publication is starred (for Inbox triage)
+    public let isStarred: Bool
+
     /// Whether a PDF is available (local or remote)
     public let hasPDF: Bool
 
@@ -104,6 +107,7 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         self.year = publication.year > 0 ? Int(publication.year) : Self.parseYearFromFields(fields)
         self.abstract = publication.abstract
         self.isRead = publication.isRead
+        self.isStarred = publication.isStarred
         self.hasPDF = Self.checkHasPDF(publication)
         self.citationCount = Int(publication.citationCount)
         self.referenceCount = Int(publication.referenceCount)

@@ -701,6 +701,8 @@ public class CDLibrary: NSManagedObject, Identifiable {
     @NSManaged public var sortOrder: Int16             // For sidebar ordering (drag-and-drop)
     @NSManaged public var isInbox: Bool                // Is this the special Inbox library?
     @NSManaged public var isSystemLibrary: Bool        // Is this a system library? (e.g., Exploration)
+    @NSManaged public var isArchiveLibrary: Bool       // Is this the Archive library for Inbox triage?
+    @NSManaged public var isDismissedLibrary: Bool     // Is this the Dismissed library for Inbox triage?
 
     // Relationships
     @NSManaged public var smartSearches: Set<CDSmartSearch>?

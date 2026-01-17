@@ -665,39 +665,58 @@ struct UnifiedPublicationListWrapper: View {
         return .handled
     }
 
-    /// Handle 'S' key - toggle star on selected
+    /// Handle 'S' key - toggle star on selected (works everywhere, not just inbox)
     private func handleStarKey() -> KeyPress.Result {
-        guard !isTextFieldFocused(), isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
+        guard !isTextFieldFocused(), !selectedPublicationIDs.isEmpty else { return .ignored }
         toggleStarForSelected()
         return .handled
     }
 
-    /// Archive selected publications to the default library
+    /// Archive selected publications to the Archive library (created on first use if needed)
     private func archiveSelectedToDefaultLibrary() {
-        guard let defaultLibrary = libraryManager.libraries.first(where: { $0.isDefault && !$0.isInbox }) else {
-            logger.warning("No default library available for archiving")
-            return
-        }
+        // Use the Archive library (created automatically on first use)
+        let archiveLibrary = libraryManager.getOrCreateArchiveLibrary()
 
         let ids = selectedPublicationIDs
         Task {
-            await archiveToLibrary(ids: ids, targetLibrary: defaultLibrary)
+            await archiveToLibrary(ids: ids, targetLibrary: archiveLibrary)
         }
     }
 
-    /// Dismiss selected publications from inbox
+    /// Dismiss selected publications from inbox (moves to Dismissed library, not delete)
     private func dismissSelectedFromInbox() {
         let inboxManager = InboxManager.shared
+        let dismissedLibrary = libraryManager.getOrCreateDismissedLibrary()
 
         for uuid in selectedPublicationIDs {
             if let publication = publications.first(where: { $0.id == uuid }) {
-                inboxManager.dismissFromInbox(publication)
+                // Track dismissal to prevent paper from reappearing in feeds
+                inboxManager.trackDismissal(publication)
+
+                // Remove from Inbox library
+                if let inbox = inboxManager.inboxLibrary {
+                    publication.removeFromLibrary(inbox)
+                }
+
+                // Also remove from smart search result collection if viewing a feed
+                if case .smartSearch(let smartSearch) = source,
+                   let resultCollection = smartSearch.resultCollection {
+                    publication.removeFromCollection(resultCollection)
+                }
+
+                // Add to Dismissed library (NOT delete)
+                publication.addToLibrary(dismissedLibrary)
             }
         }
 
+        // Save changes
+        PersistenceController.shared.save()
+        inboxManager.updateUnreadCount()
+
+        let count = selectedPublicationIDs.count
         selectedPublicationIDs.removeAll()
         refreshPublicationsList()
-        logger.info("Dismissed \(selectedPublicationIDs.count) papers from Inbox")
+        logger.info("Dismissed \(count) papers from Inbox to Dismissed library")
     }
 
     /// Toggle star status for selected publications
@@ -803,19 +822,39 @@ struct UnifiedPublicationListWrapper: View {
 
     // MARK: - Inbox Triage Callback Implementations
 
-    /// Dismiss publications from inbox (for context menu)
+    /// Dismiss publications from inbox (for context menu) - moves to Dismissed library, not delete
     private func dismissFromInbox(ids: Set<UUID>) async {
         let inboxManager = InboxManager.shared
+        let dismissedLibrary = libraryManager.getOrCreateDismissedLibrary()
 
         for uuid in ids {
             if let publication = publications.first(where: { $0.id == uuid }) {
-                inboxManager.dismissFromInbox(publication)
+                // Track dismissal to prevent paper from reappearing in feeds
+                inboxManager.trackDismissal(publication)
+
+                // Remove from Inbox library
+                if let inbox = inboxManager.inboxLibrary {
+                    publication.removeFromLibrary(inbox)
+                }
+
+                // Also remove from smart search result collection if viewing a feed
+                if case .smartSearch(let smartSearch) = source,
+                   let resultCollection = smartSearch.resultCollection {
+                    publication.removeFromCollection(resultCollection)
+                }
+
+                // Add to Dismissed library (NOT delete)
+                publication.addToLibrary(dismissedLibrary)
             }
         }
 
+        // Save changes
+        PersistenceController.shared.save()
+        inboxManager.updateUnreadCount()
+
         selectedPublicationIDs.removeAll()
         refreshPublicationsList()
-        logger.info("Dismissed \(ids.count) papers from Inbox")
+        logger.info("Dismissed \(ids.count) papers from Inbox to Dismissed library")
     }
 
     /// Toggle star for publications (for context menu)

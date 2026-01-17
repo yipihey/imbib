@@ -62,6 +62,11 @@ struct SettingsView: View {
                 .tabItem { Label("Shortcuts", systemImage: "keyboard") }
                 .tag(SettingsTab.keyboardShortcuts)
                 .help("Customize keyboard shortcuts")
+
+            AdvancedSettingsTab()
+                .tabItem { Label("Advanced", systemImage: "gearshape.2") }
+                .tag(SettingsTab.advanced)
+                .help("Developer tools and advanced settings")
         }
         .frame(width: 650, height: 550)
     }
@@ -79,6 +84,7 @@ enum SettingsTab: String, CaseIterable {
     case inbox
     case importExport
     case keyboardShortcuts
+    case advanced
 }
 
 // MARK: - General Settings
@@ -421,14 +427,32 @@ struct SourceCredentialRow: View {
 struct InboxSettingsTab: View {
 
     @Environment(SettingsViewModel.self) private var viewModel
+    @Environment(LibraryManager.self) private var libraryManager
 
     @State private var mutedItems: [CDMutedItem] = []
     @State private var dismissedPaperCount: Int = 0
     @State private var selectedMuteType: CDMutedItem.MuteType = .author
     @State private var newMuteValue: String = ""
+    @State private var selectedArchiveLibraryID: UUID?
 
     var body: some View {
         Form {
+            Section("Archive Destination") {
+                Picker("Archive to", selection: $selectedArchiveLibraryID) {
+                    Text("Auto (create Archive library)").tag(nil as UUID?)
+                    ForEach(availableArchiveLibraries, id: \.id) { library in
+                        Text(library.displayName).tag(library.id as UUID?)
+                    }
+                }
+                .onChange(of: selectedArchiveLibraryID) { _, newValue in
+                    saveArchiveLibrarySetting(newValue)
+                }
+
+                Text("When you press A on a paper in the Inbox, it will be moved to this library")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("Age Limit") {
                 Picker("Keep papers for", selection: Binding(
                     get: { viewModel.inboxSettings.ageLimit },
@@ -519,6 +543,31 @@ struct InboxSettingsTab: View {
             await viewModel.loadInboxSettings()
             loadMutedItems()
             loadDismissedPaperCount()
+            loadArchiveLibrarySetting()
+        }
+    }
+
+    // MARK: - Archive Library
+
+    /// Libraries available as archive destinations (excludes Inbox, Dismissed, system libraries)
+    private var availableArchiveLibraries: [CDLibrary] {
+        libraryManager.libraries.filter { library in
+            !library.isInbox &&
+            !library.isDismissedLibrary &&
+            !library.isSystemLibrary
+        }.sorted { $0.displayName < $1.displayName }
+    }
+
+    private func loadArchiveLibrarySetting() {
+        selectedArchiveLibraryID = UserDefaults.standard.string(forKey: "archiveLibraryID")
+            .flatMap { UUID(uuidString: $0) }
+    }
+
+    private func saveArchiveLibrarySetting(_ id: UUID?) {
+        if let id = id {
+            UserDefaults.standard.set(id.uuidString, forKey: "archiveLibraryID")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "archiveLibraryID")
         }
     }
 
@@ -636,6 +685,153 @@ extension CDMutedItem.MuteType {
         case .bibcode: return "Papers (Bibcode)"
         case .venue: return "Venues"
         case .arxivCategory: return "arXiv Categories"
+        }
+    }
+}
+
+// MARK: - Advanced Settings
+
+struct AdvancedSettingsTab: View {
+
+    @State private var isOptionKeyPressed = false
+    @State private var showingResetConfirmation = false
+    @State private var showingResetInProgress = false
+    @State private var resetError: String?
+    @State private var showingDefaultSetEditor = false
+
+    var body: some View {
+        Form {
+            // Developer section - visible when Option key is held
+            if isOptionKeyPressed {
+                Section("Developer") {
+                    Button("Reset to First Run...", role: .destructive) {
+                        showingResetConfirmation = true
+                    }
+                    .disabled(showingResetInProgress)
+                    .help("Delete all libraries, papers, and settings (preserves API keys)")
+
+                    Button("Edit Default Library Set...") {
+                        showingDefaultSetEditor = true
+                    }
+                    .help("Configure what new users see on first launch")
+
+                    Text("Hold Option key to show these options")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                Section("Developer") {
+                    Text("Hold the Option key to reveal developer tools")
+                        .foregroundStyle(.secondary)
+                        .italic()
+                }
+            }
+
+            Section("Diagnostics") {
+                HStack {
+                    Text("First Run Status:")
+                    Spacer()
+                    Text(FirstRunManager.shared.isFirstRun ? "Yes" : "No")
+                        .foregroundStyle(.secondary)
+                }
+
+                if let error = resetError {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                        Text(error)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .padding()
+        .onAppear {
+            startOptionKeyMonitoring()
+        }
+        .onDisappear {
+            stopOptionKeyMonitoring()
+        }
+        .confirmationDialog(
+            "Reset to First Run?",
+            isPresented: $showingResetConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Reset", role: .destructive) {
+                performReset()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This will delete all libraries, papers, collections, smart searches, and settings. API keys will be preserved.\n\nThe app will need to be restarted after the reset.")
+        }
+        .sheet(isPresented: $showingDefaultSetEditor) {
+            DefaultLibrarySetEditor()
+        }
+        .overlay {
+            if showingResetInProgress {
+                VStack(spacing: 12) {
+                    ProgressView()
+                    Text("Resetting...")
+                        .font(.headline)
+                }
+                .padding(40)
+                .background(.regularMaterial)
+                .cornerRadius(12)
+            }
+        }
+    }
+
+    // MARK: - Option Key Monitoring
+
+    private var eventMonitor: Any?
+
+    private func startOptionKeyMonitoring() {
+        #if os(macOS)
+        // Use a local event monitor to detect Option key state
+        NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+            isOptionKeyPressed = event.modifierFlags.contains(.option)
+            return event
+        }
+        #endif
+    }
+
+    private func stopOptionKeyMonitoring() {
+        // Local monitors are automatically removed when the view disappears
+    }
+
+    // MARK: - Reset Action
+
+    private func performReset() {
+        showingResetInProgress = true
+        resetError = nil
+
+        Task {
+            do {
+                try await FirstRunManager.shared.resetToFirstRun()
+                showingResetInProgress = false
+
+                // Show alert that restart is needed
+                #if os(macOS)
+                await MainActor.run {
+                    let alert = NSAlert()
+                    alert.messageText = "Reset Complete"
+                    alert.informativeText = "The app has been reset to first-run state. Please restart the app to complete the process."
+                    alert.alertStyle = .informational
+                    alert.addButton(withTitle: "Quit Now")
+                    alert.addButton(withTitle: "Later")
+
+                    if alert.runModal() == .alertFirstButtonReturn {
+                        NSApplication.shared.terminate(nil)
+                    }
+                }
+                #endif
+            } catch {
+                await MainActor.run {
+                    showingResetInProgress = false
+                    resetError = error.localizedDescription
+                }
+            }
         }
     }
 }

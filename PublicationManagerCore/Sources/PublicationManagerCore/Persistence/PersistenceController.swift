@@ -843,6 +843,22 @@ public final class PersistenceController: @unchecked Sendable {
         isSystemLibrary.defaultValue = false
         properties.append(isSystemLibrary)
 
+        // Archive library flag (for Inbox triage)
+        let isArchiveLibrary = NSAttributeDescription()
+        isArchiveLibrary.name = "isArchiveLibrary"
+        isArchiveLibrary.attributeType = .booleanAttributeType
+        isArchiveLibrary.isOptional = false
+        isArchiveLibrary.defaultValue = false
+        properties.append(isArchiveLibrary)
+
+        // Dismissed library flag (for Inbox triage)
+        let isDismissedLibrary = NSAttributeDescription()
+        isDismissedLibrary.name = "isDismissedLibrary"
+        isDismissedLibrary.attributeType = .booleanAttributeType
+        isDismissedLibrary.isOptional = false
+        isDismissedLibrary.defaultValue = false
+        properties.append(isDismissedLibrary)
+
         entity.properties = properties
         return entity
     }

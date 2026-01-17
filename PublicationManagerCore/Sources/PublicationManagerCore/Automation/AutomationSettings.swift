@@ -105,6 +105,13 @@ public actor AutomationSettingsStore {
         await update(current)
     }
 
+    /// Reset settings to defaults (for testing or first-run reset)
+    public func reset() {
+        defaults.removeObject(forKey: settingsKey)
+        cachedSettings = nil
+        automationLogger.info("Automation settings reset to defaults")
+    }
+
     // MARK: - Persistence
 
     private func loadFromDefaults() -> AutomationSettings {

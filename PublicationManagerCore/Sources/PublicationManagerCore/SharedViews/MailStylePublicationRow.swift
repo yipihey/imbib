@@ -179,6 +179,14 @@ public struct MailStylePublicationRow: View, Equatable {
                     .padding(.top, 6)
             }
 
+            // Star indicator for starred papers
+            if data.isStarred {
+                Image(systemName: "star.fill")
+                    .foregroundStyle(.yellow)
+                    .font(.system(size: 10))
+                    .padding(.top, 5)
+            }
+
             // Content
             VStack(alignment: .leading, spacing: contentSpacing) {
                 // Row 1: Authors [· Year] + [Date Added] [Citation Count]
@@ -373,6 +381,7 @@ extension PublicationRowData {
         year: Int?,
         abstract: String?,
         isRead: Bool,
+        isStarred: Bool = false,
         hasPDF: Bool,
         citationCount: Int,
         referenceCount: Int = 0,
@@ -390,6 +399,7 @@ extension PublicationRowData {
         self.year = year
         self.abstract = abstract
         self.isRead = isRead
+        self.isStarred = isStarred
         self.hasPDF = hasPDF
         self.citationCount = citationCount
         self.referenceCount = referenceCount

@@ -16,6 +16,7 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
     case scixLibraries
     case search
     case exploration
+    case dismissed
 
     public var id: String { rawValue }
 
@@ -26,6 +27,7 @@ public enum SidebarSectionType: String, CaseIterable, Codable, Identifiable, Equ
         case .scixLibraries: return "SciX Libraries"
         case .search: return "Search"
         case .exploration: return "Exploration"
+        case .dismissed: return "Dismissed"
         }
     }
 }
@@ -51,7 +53,8 @@ public actor SidebarSectionOrderStore {
         .libraries,
         .scixLibraries,
         .search,
-        .exploration
+        .exploration,
+        .dismissed
     ]
 
     // MARK: - Public API

@@ -515,6 +515,9 @@ public final class LibraryViewModel {
         // Publications stay in current library, just also added to target library
         // No need to remove from selection or reload
         Logger.viewModels.infoCapture("Added \(toAdd.count) publications to \(library.displayName)", category: "library")
+
+        // Notify sidebar to refresh counts
+        NotificationCenter.default.post(name: .libraryContentDidChange, object: library.id)
     }
 
     /// Add publications by IDs to a collection
@@ -524,6 +527,9 @@ public final class LibraryViewModel {
 
         await repository.addPublications(toAdd, to: collection)
         Logger.viewModels.infoCapture("Added \(toAdd.count) publications to \(collection.name)", category: "library")
+
+        // Notify sidebar to refresh counts
+        NotificationCenter.default.post(name: .libraryContentDidChange, object: collection.id)
     }
 
     /// Remove publications from all collections (return to "All Publications")

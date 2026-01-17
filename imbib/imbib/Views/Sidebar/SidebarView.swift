@@ -9,6 +9,9 @@ import SwiftUI
 import CoreData
 import PublicationManagerCore
 import UniformTypeIdentifiers
+import OSLog
+
+private let sidebarLogger = Logger(subsystem: "com.imbib.app", category: "sidebar-dragdrop")
 
 struct SidebarView: View {
 
@@ -56,6 +59,9 @@ struct SidebarView: View {
     // Drop preview sheet
     @State private var showingDropPreview = false
     @State private var dropPreviewTargetLibraryID: UUID?
+
+    // Empty dismissed confirmation
+    @State private var showEmptyDismissedConfirmation = false
 
     // Section ordering and collapsed state (persisted)
     @State private var sectionOrder: [SidebarSectionType] = SidebarSectionOrderStore.loadOrderSync()
@@ -126,6 +132,16 @@ struct SidebarView: View {
         } message: { library in
             Text("Are you sure you want to delete \"\(library.displayName)\"? This will remove all publications and cannot be undone.")
         }
+        .alert("Empty Dismissed?", isPresented: $showEmptyDismissedConfirmation) {
+            Button("Empty", role: .destructive) {
+                libraryManager.emptyDismissedLibrary()
+                refreshTrigger = UUID()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            let count = libraryManager.dismissedLibrary?.publications?.count ?? 0
+            Text("Are you sure you want to permanently delete \(count) dismissed paper\(count == 1 ? "" : "s")? This cannot be undone.")
+        }
         .task {
             // Auto-expand the first library if none expanded
             if expandedLibraries.isEmpty, let firstLibrary = libraryManager.libraries.first {
@@ -147,6 +163,10 @@ struct SidebarView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .readStatusDidChange)) { _ in
             // Force re-render to update unread counts
+            refreshTrigger = UUID()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .libraryContentDidChange)) { _ in
+            // Force re-render to update publication counts after add/move operations
             refreshTrigger = UUID()
         }
         .onReceive(NotificationCenter.default.publisher(for: .explorationLibraryDidChange)) { _ in
@@ -235,6 +255,14 @@ struct SidebarView: View {
                !collections.isEmpty {
                 collapsibleSection(for: .exploration) {
                     explorationSectionContent
+                }
+            }
+        case .dismissed:
+            if let dismissedLibrary = libraryManager.dismissedLibrary,
+               let publications = dismissedLibrary.publications,
+               !publications.isEmpty {
+                collapsibleSection(for: .dismissed) {
+                    dismissedSectionContent
                 }
             }
         }
@@ -331,6 +359,16 @@ struct SidebarView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        case .dismissed:
+            // Empty dismissed button
+            Button {
+                emptyDismissed()
+            } label: {
+                Image(systemName: "trash")
+                    .font(.caption)
+            }
+            .buttonStyle(.plain)
+            .help("Empty Dismissed")
         default:
             EmptyView()
         }
@@ -339,7 +377,8 @@ struct SidebarView: View {
     /// Libraries section content (without Section wrapper)
     @ViewBuilder
     private var librariesSectionContent: some View {
-        ForEach(libraryManager.libraries.filter { !$0.isInbox }, id: \.id) { library in
+        // Filter out special libraries: Inbox, Dismissed, Archive (which has its own place or is shown in regular flow)
+        ForEach(libraryManager.libraries.filter { !$0.isInbox && !$0.isDismissedLibrary }, id: \.id) { library in
             libraryDisclosureGroup(for: library)
         }
         .onMove { indices, destination in
@@ -515,6 +554,33 @@ struct SidebarView: View {
                 )
             }
         }
+    }
+
+    /// Dismissed section content (without Section wrapper)
+    @ViewBuilder
+    private var dismissedSectionContent: some View {
+        if let dismissedLibrary = libraryManager.dismissedLibrary {
+            let count = dismissedLibrary.publications?.count ?? 0
+
+            HStack {
+                Label("All Dismissed", systemImage: "trash")
+                Spacer()
+                if count > 0 {
+                    CountBadge(count: count)
+                }
+            }
+            .tag(SidebarSection.library(dismissedLibrary))
+            .contextMenu {
+                Button("Empty Dismissed", role: .destructive) {
+                    showEmptyDismissedConfirmation = true
+                }
+            }
+        }
+    }
+
+    /// Empty dismissed library
+    private func emptyDismissed() {
+        showEmptyDismissedConfirmation = true
     }
 
     /// Row for a search smart search in the exploration section
@@ -924,10 +990,23 @@ struct SidebarView: View {
             }
             .tag(SidebarSection.library(library))
             .onDrop(of: DragDropCoordinator.acceptedTypes + [.publicationID], isTargeted: makeLibraryTargetBinding(library.id)) { providers in
+                sidebarLogger.info("📦 DROP on library '\(library.displayName)' (id: \(library.id.uuidString))")
+                sidebarLogger.info("  - Provider count: \(providers.count)")
+                for (i, provider) in providers.enumerated() {
+                    let types = provider.registeredTypeIdentifiers
+                    sidebarLogger.info("  - Provider[\(i)] types: \(types.joined(separator: ", "))")
+                    sidebarLogger.info("  - Provider[\(i)] hasPublicationID: \(provider.hasItemConformingToTypeIdentifier(UTType.publicationID.identifier))")
+                    sidebarLogger.info("  - Provider[\(i)] hasPDF: \(provider.hasItemConformingToTypeIdentifier(UTType.pdf.identifier))")
+                    sidebarLogger.info("  - Provider[\(i)] hasFileURL: \(provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier))")
+                }
+
                 if hasFileDrops(providers) {
+                    sidebarLogger.info("  → Routing to file drop handler")
                     handleFileDrop(providers, libraryID: library.id)
                 } else {
+                    sidebarLogger.info("  → Routing to publication drop handler")
                     handleDrop(providers: providers) { uuids in
+                        sidebarLogger.info("  → handleDrop completed with \(uuids.count) UUIDs: \(uuids.map { $0.uuidString })")
                         Task { await addPublicationsToLibrary(uuids, library: library) }
                     }
                 }
@@ -1150,15 +1229,26 @@ struct SidebarView: View {
             }
         }
         .onDrop(of: DragDropCoordinator.acceptedTypes + [.publicationID], isTargeted: makeLibraryHeaderTargetBinding(library.id)) { providers in
+            sidebarLogger.info("📦 DROP on library HEADER '\(library.displayName)' (id: \(library.id.uuidString))")
+            sidebarLogger.info("  - Provider count: \(providers.count)")
+            for (i, provider) in providers.enumerated() {
+                let types = provider.registeredTypeIdentifiers
+                sidebarLogger.info("  - Provider[\(i)] types: \(types.joined(separator: ", "))")
+            }
+
             // Auto-expand collapsed library when dropping on header
             if !expandedLibraries.contains(library.id) {
+                sidebarLogger.info("  - Auto-expanding library")
                 expandedLibraries.insert(library.id)
             }
 
             if hasFileDrops(providers) {
+                sidebarLogger.info("  → Routing to file drop handler")
                 handleFileDrop(providers, libraryID: library.id)
             } else {
+                sidebarLogger.info("  → Routing to publication drop handler")
                 handleDrop(providers: providers) { uuids in
+                    sidebarLogger.info("  → handleDrop completed with \(uuids.count) UUIDs")
                     Task { await addPublicationsToLibrary(uuids, library: library) }
                 }
             }
@@ -1194,11 +1284,23 @@ struct SidebarView: View {
                 )
             }
             .onDrop(of: DragDropCoordinator.acceptedTypes + [.publicationID], isTargeted: makeCollectionTargetBinding(collection.id)) { providers in
+                sidebarLogger.info("📦 DROP on collection '\(collection.name)' (id: \(collection.id.uuidString))")
+                sidebarLogger.info("  - Provider count: \(providers.count)")
+                for (i, provider) in providers.enumerated() {
+                    let types = provider.registeredTypeIdentifiers
+                    sidebarLogger.info("  - Provider[\(i)] types: \(types.joined(separator: ", "))")
+                }
+
                 let libraryID = collection.effectiveLibrary?.id ?? collection.library?.id ?? UUID()
+                sidebarLogger.info("  - Effective library ID: \(libraryID.uuidString)")
+
                 if hasFileDrops(providers) {
+                    sidebarLogger.info("  → Routing to file drop handler")
                     handleFileDropOnCollection(providers, collectionID: collection.id, libraryID: libraryID)
                 } else {
+                    sidebarLogger.info("  → Routing to publication drop handler")
                     handleDrop(providers: providers) { uuids in
+                        sidebarLogger.info("  → handleDrop completed with \(uuids.count) UUIDs")
                         Task { await addPublications(uuids, to: collection) }
                     }
                 }
@@ -1247,28 +1349,55 @@ struct SidebarView: View {
     // MARK: - Drop Handler
 
     private func handleDrop(providers: [NSItemProvider], action: @escaping ([UUID]) -> Void) {
+        sidebarLogger.info("🔄 handleDrop started with \(providers.count) providers")
         var collectedUUIDs: [UUID] = []
         let group = DispatchGroup()
+        var loadAttempts = 0
 
-        for provider in providers {
+        for (index, provider) in providers.enumerated() {
             // Try to load as our custom publication ID type
-            if provider.hasItemConformingToTypeIdentifier(UTType.publicationID.identifier) {
+            let hasPublicationID = provider.hasItemConformingToTypeIdentifier(UTType.publicationID.identifier)
+            sidebarLogger.info("  Provider[\(index)] hasPublicationID: \(hasPublicationID)")
+
+            if hasPublicationID {
+                loadAttempts += 1
                 group.enter()
+                sidebarLogger.info("  Provider[\(index)] loading data representation...")
                 provider.loadDataRepresentation(forTypeIdentifier: UTType.publicationID.identifier) { data, error in
                     defer { group.leave() }
+                    if let error = error {
+                        sidebarLogger.error("  ❌ Provider[\(index)] load error: \(error.localizedDescription)")
+                        return
+                    }
                     if let data = data {
+                        sidebarLogger.info("  Provider[\(index)] received \(data.count) bytes")
+                        // Log raw data for debugging
+                        if let dataString = String(data: data, encoding: .utf8) {
+                            sidebarLogger.info("  Provider[\(index)] raw data: \(dataString)")
+                        }
                         // UUID is encoded as JSON via CodableRepresentation
                         if let uuid = try? JSONDecoder().decode(UUID.self, from: data) {
+                            sidebarLogger.info("  ✅ Provider[\(index)] decoded UUID: \(uuid.uuidString)")
                             collectedUUIDs.append(uuid)
+                        } else {
+                            sidebarLogger.error("  ❌ Provider[\(index)] failed to decode UUID from data")
                         }
+                    } else {
+                        sidebarLogger.error("  ❌ Provider[\(index)] received nil data")
                     }
                 }
             }
         }
 
+        sidebarLogger.info("  Initiated \(loadAttempts) load attempts, waiting for completion...")
+
         group.notify(queue: .main) {
+            sidebarLogger.info("  DispatchGroup completed - collected \(collectedUUIDs.count) UUIDs")
             if !collectedUUIDs.isEmpty {
+                sidebarLogger.info("  Calling action with UUIDs: \(collectedUUIDs.map { $0.uuidString })")
                 action(collectedUUIDs)
+            } else {
+                sidebarLogger.warning("  ⚠️ No UUIDs collected, action will NOT be called")
             }
         }
     }
@@ -1736,7 +1865,13 @@ struct SidebarView: View {
 
     /// Add publications to a library (publications can belong to multiple libraries)
     private func addPublicationsToLibrary(_ uuids: [UUID], library: CDLibrary) async {
+        sidebarLogger.info("📚 addPublicationsToLibrary called")
+        sidebarLogger.info("  - Target library: '\(library.displayName)' (id: \(library.id.uuidString))")
+        sidebarLogger.info("  - UUIDs to add: \(uuids.count)")
+
         let context = PersistenceController.shared.viewContext
+        var addedCount = 0
+        var notFoundCount = 0
 
         await context.perform {
             for uuid in uuids {
@@ -1745,14 +1880,31 @@ struct SidebarView: View {
                 request.fetchLimit = 1
 
                 if let publication = try? context.fetch(request).first {
+                    sidebarLogger.info("  ✅ Found publication '\(publication.citeKey)' for UUID \(uuid.uuidString)")
+                    let beforeCount = publication.libraries?.count ?? 0
                     publication.addToLibrary(library)
+                    let afterCount = publication.libraries?.count ?? 0
+                    sidebarLogger.info("    Libraries before: \(beforeCount), after: \(afterCount)")
+                    addedCount += 1
+                } else {
+                    sidebarLogger.error("  ❌ No publication found for UUID \(uuid.uuidString)")
+                    notFoundCount += 1
                 }
             }
-            try? context.save()
+
+            do {
+                try context.save()
+                sidebarLogger.info("  ✅ Context saved successfully")
+            } catch {
+                sidebarLogger.error("  ❌ Context save failed: \(error.localizedDescription)")
+            }
         }
+
+        sidebarLogger.info("  Summary: added \(addedCount), not found \(notFoundCount)")
 
         // Trigger sidebar refresh to update counts
         await MainActor.run {
+            sidebarLogger.info("  🔄 Triggering sidebar refresh")
             refreshTrigger = UUID()
         }
     }

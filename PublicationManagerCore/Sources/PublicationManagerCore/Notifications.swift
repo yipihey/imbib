@@ -39,6 +39,10 @@ public extension Notification.Name {
     /// Read status changed (for UI updates)
     static let readStatusDidChange = Notification.Name("readStatusDidChange")
 
+    /// Library content changed (papers added/removed from library or collection)
+    /// Used to refresh sidebar publication counts
+    static let libraryContentDidChange = Notification.Name("libraryContentDidChange")
+
     // MARK: - Clipboard Operations
 
     /// Copy selected publications to clipboard

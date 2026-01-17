@@ -290,6 +290,116 @@ public final class LibraryManager {
         return createLibrary(name: "My Library")
     }
 
+    // MARK: - Archive Library (Inbox Triage)
+
+    /// Get or create the Archive library for Inbox triage.
+    ///
+    /// The Archive library is used by the "A" keyboard shortcut in the Inbox.
+    /// If a user-configured archive library is set in preferences, that library is used.
+    /// Otherwise, if no archive library exists, one is created automatically on first use.
+    @discardableResult
+    public func getOrCreateArchiveLibrary() -> CDLibrary {
+        // Check if user has configured a specific archive library
+        if let configuredID = UserDefaults.standard.string(forKey: "archiveLibraryID"),
+           let uuid = UUID(uuidString: configuredID),
+           let configuredLibrary = libraries.first(where: { $0.id == uuid }) {
+            Logger.library.debugCapture("Using user-configured archive library: \(configuredLibrary.displayName)", category: "library")
+            return configuredLibrary
+        }
+
+        // Return existing archive library if available
+        if let archiveLib = libraries.first(where: { $0.isArchiveLibrary }) {
+            return archiveLib
+        }
+
+        // Create new Archive library
+        Logger.library.infoCapture("Creating Archive library for Inbox triage", category: "library")
+
+        let context = persistenceController.viewContext
+        let library = CDLibrary(context: context)
+        library.id = UUID()
+        library.name = "Archive"
+        library.isArchiveLibrary = true
+        library.isDefault = false
+        library.dateCreated = Date()
+        library.sortOrder = Int16(libraries.count)  // After existing libraries
+
+        persistenceController.save()
+        loadLibraries()
+
+        Logger.library.infoCapture("Created Archive library with ID: \(library.id)", category: "library")
+        return library
+    }
+
+    /// Get the Archive library (for UI display purposes)
+    public var archiveLibrary: CDLibrary? {
+        libraries.first { $0.isArchiveLibrary }
+    }
+
+    // MARK: - Dismissed Library (Inbox Triage)
+
+    /// Get or create the Dismissed library for Inbox triage.
+    ///
+    /// The Dismissed library is used by the "D" keyboard shortcut in the Inbox.
+    /// Papers moved here are considered "dismissed" but not deleted.
+    /// If no dismissed library exists, one is created automatically on first use.
+    @discardableResult
+    public func getOrCreateDismissedLibrary() -> CDLibrary {
+        // Return existing dismissed library if available
+        if let dismissedLib = dismissedLibrary {
+            return dismissedLib
+        }
+
+        // Create new Dismissed library
+        Logger.library.infoCapture("Creating Dismissed library for Inbox triage", category: "library")
+
+        let context = persistenceController.viewContext
+        let library = CDLibrary(context: context)
+        library.id = UUID()
+        library.name = "Dismissed"
+        library.isDismissedLibrary = true
+        library.isDefault = false
+        library.dateCreated = Date()
+        library.sortOrder = Int16.max - 1  // Near the bottom (before Exploration)
+
+        persistenceController.save()
+        loadLibraries()
+
+        Logger.library.infoCapture("Created Dismissed library with ID: \(library.id)", category: "library")
+        return library
+    }
+
+    /// Get the Dismissed library (for UI display purposes)
+    public var dismissedLibrary: CDLibrary? {
+        libraries.first { $0.isDismissedLibrary }
+    }
+
+    /// Empty the Dismissed library (permanently delete all papers)
+    public func emptyDismissedLibrary() {
+        guard let dismissed = dismissedLibrary else { return }
+
+        Logger.library.warningCapture("Emptying Dismissed library", category: "library")
+
+        let context = persistenceController.viewContext
+
+        // Delete all publications that are ONLY in the Dismissed library
+        if let publications = dismissed.publications {
+            for pub in publications {
+                let otherLibraries = (pub.libraries ?? []).filter { !$0.isDismissedLibrary }
+                if otherLibraries.isEmpty {
+                    // Paper is only in Dismissed - delete it
+                    context.delete(pub)
+                } else {
+                    // Paper is in other libraries - just remove from Dismissed
+                    pub.removeFromLibrary(dismissed)
+                }
+            }
+        }
+
+        persistenceController.save()
+        loadLibraries()
+    }
+
     // MARK: - Last Search Collection (ADR-016)
 
     /// Get or create the "Last Search" collection for the active library.
