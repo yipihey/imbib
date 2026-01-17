@@ -82,13 +82,20 @@ Full documentation is available at [yipihey.github.io/imbib](https://yipihey.git
 
 ## Building from Source
 
+**Requires:** Xcode 15+, macOS 14+, and [XcodeGen](https://github.com/yonaskolb/XcodeGen)
+
 ```bash
+# Install XcodeGen (if not already installed)
+brew install xcodegen
+
 # Clone the repository
 git clone https://github.com/yipihey/imbib.git
 cd imbib
 
-# Open the Xcode project (note: it's in the imbib subdirectory)
-open imbib/imbib.xcodeproj
+# Generate the Xcode project and open it
+cd imbib
+xcodegen generate
+open imbib.xcodeproj
 ```
 
 In Xcode:
@@ -96,7 +103,7 @@ In Xcode:
 2. Select **My Mac** as destination
 3. Press **⌘R** to build and run
 
-> **Tip**: If you get signing errors, go to the target's Signing & Capabilities and change Team to your Apple ID.
+> **Note**: The `.xcodeproj` is generated from `project.yml` and not stored in git—you must run `xcodegen generate` first.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed instructions and troubleshooting.
 
