@@ -123,6 +123,14 @@ struct ExplorationTreeRow: View {
                     lastSelectedID = collection.id
                 }
         )
+        // Shift+click: Range selection
+        .simultaneousGesture(
+            TapGesture()
+                .modifiers(.shift)
+                .onEnded { _ in
+                    handleShiftClick()
+                }
+        )
         // Normal click: Navigate
         .onTapGesture {
             multiSelection.removeAll()
@@ -164,6 +172,26 @@ struct ExplorationTreeRow: View {
             } else {
                 Spacer().frame(width: 12)
             }
+        }
+    }
+
+    // MARK: - Selection Handling
+
+    /// Handle Shift+click for range selection
+    private func handleShiftClick() {
+        guard let lastID = lastSelectedID,
+              let lastIndex = allCollections.firstIndex(where: { $0.id == lastID }),
+              let currentIndex = allCollections.firstIndex(where: { $0.id == collection.id }) else {
+            // No previous selection, just select this one
+            multiSelection.insert(collection.id)
+            lastSelectedID = collection.id
+            return
+        }
+
+        // Select range from last to current
+        let range = min(lastIndex, currentIndex)...max(lastIndex, currentIndex)
+        for i in range {
+            multiSelection.insert(allCollections[i].id)
         }
     }
 
