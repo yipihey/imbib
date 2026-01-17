@@ -80,11 +80,31 @@ Full documentation is available at [yipihey.github.io/imbib](https://yipihey.git
 - [Browser Extensions](https://yipihey.github.io/imbib/share-extension)
 - [Automation API](https://yipihey.github.io/imbib/automation)
 
+## Building from Source
+
+```bash
+# Clone the repository
+git clone https://github.com/yipihey/imbib.git
+cd imbib
+
+# Open the Xcode project (note: it's in the imbib subdirectory)
+open imbib/imbib.xcodeproj
+```
+
+In Xcode:
+1. Select the **imbib** scheme
+2. Select **My Mac** as destination
+3. Press **⌘R** to build and run
+
+> **Tip**: If you get signing errors, go to the target's Signing & Capabilities and change Team to your Apple ID.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed instructions and troubleshooting.
+
 ## Contributing
 
 Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for:
 
-- Building from source
+- Detailed build instructions
 - Architecture overview
 - Coding conventions
 - How to add new features

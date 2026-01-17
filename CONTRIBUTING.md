@@ -18,25 +18,70 @@ Thanks for your interest in contributing to imbib! This document will help you g
    cd imbib
    ```
 
-2. Build the Swift Package (core library):
+2. Open the Xcode project:
    ```bash
-   cd PublicationManagerCore
-   swift build
-   ```
-
-3. Run tests:
-   ```bash
-   swift test
-   ```
-
-4. Open in Xcode:
-   ```bash
+   # The Xcode project is in the imbib subdirectory
    open imbib/imbib.xcodeproj
    ```
 
-5. Build the macOS app:
-   - Select the `imbib` scheme
-   - Press Cmd+B to build
+   > **Note**: The repository has a nested structure: `imbib/imbib/imbib.xcodeproj`. After cloning, you'll be in the first `imbib` folder (the repository root). The Xcode project is one level down.
+
+3. Build and run in Xcode:
+   - Select the **imbib** scheme (not imbib-iOS)
+   - Select **My Mac** as the destination
+   - Press **⌘R** to build and run
+
+### Alternative: Build from Command Line
+
+```bash
+# Clone and enter the repository
+git clone https://github.com/yipihey/imbib.git
+cd imbib
+
+# Build the Swift Package first (optional, Xcode does this automatically)
+cd PublicationManagerCore
+swift build
+swift test  # Run tests
+cd ..
+
+# Build the macOS app from command line
+cd imbib
+xcodebuild -scheme imbib -configuration Debug build
+
+# The built app will be in:
+# ~/Library/Developer/Xcode/DerivedData/imbib-*/Build/Products/Debug/imbib.app
+```
+
+### Troubleshooting
+
+**"imbib.xcodeproj does not exist"**
+
+Make sure you're in the right directory. The structure is:
+```
+imbib/                    ← Repository root (you are here after git clone)
+├── README.md
+├── CONTRIBUTING.md
+├── PublicationManagerCore/
+└── imbib/                ← App directory
+    ├── imbib.xcodeproj   ← Xcode project is HERE
+    ├── imbib/            ← macOS app source
+    └── imbib-iOS/        ← iOS app source
+```
+
+From the repository root, run: `open imbib/imbib.xcodeproj`
+
+**"No such module 'PublicationManagerCore'"**
+
+The Swift Package should resolve automatically. If not:
+1. In Xcode, go to **File → Packages → Reset Package Caches**
+2. Then **File → Packages → Resolve Package Versions**
+
+**Build fails with signing errors**
+
+1. In Xcode, select the **imbib** target
+2. Go to **Signing & Capabilities**
+3. Change **Team** to your Apple Developer account (or "None" for local builds)
+4. You may need to change the **Bundle Identifier** if it conflicts
 
 ### Project Structure
 
