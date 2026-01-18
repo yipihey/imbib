@@ -110,6 +110,9 @@ public struct PublicationListView: View {
     /// Used for Inbox view where papers should remain visible after being marked as read.
     public var disableUnreadFilter: Bool = false
 
+    /// Whether this list is showing Inbox items (enables Inbox-specific swipe actions)
+    public var isInInbox: Bool = false
+
     /// Binding to the filter scope (controls which publications are searched)
     @Binding public var filterScope: FilterScope
 
@@ -174,6 +177,32 @@ public struct PublicationListView: View {
     /// Called when refresh is requested (for smart searches and feeds)
     public var onRefresh: (() async -> Void)?
 
+    // MARK: - Enhanced Context Menu Callbacks
+
+    /// Called when Open in Browser is requested (arXiv, ADS, DOI)
+    public var onOpenInBrowser: ((CDPublication, BrowserDestination) -> Void)?
+
+    /// Called when Download PDF is requested (for papers without PDF)
+    public var onDownloadPDF: ((CDPublication) -> Void)?
+
+    /// Called when View/Edit BibTeX is requested
+    public var onViewEditBibTeX: ((CDPublication) -> Void)?
+
+    /// Called when Share (system share sheet) is requested
+    public var onShare: ((CDPublication) -> Void)?
+
+    /// Called when Share by Email is requested (with PDF + BibTeX attachments)
+    public var onShareByEmail: ((CDPublication) -> Void)?
+
+    /// Called when Explore References is requested
+    public var onExploreReferences: ((CDPublication) -> Void)?
+
+    /// Called when Explore Citations is requested
+    public var onExploreCitations: ((CDPublication) -> Void)?
+
+    /// Called when Explore Similar Papers is requested
+    public var onExploreSimilar: ((CDPublication) -> Void)?
+
     /// Whether a refresh is in progress (shows loading indicator)
     public var isRefreshing: Bool = false
 
@@ -223,6 +252,13 @@ public struct PublicationListView: View {
     @Environment(\.themeColors) private var theme
 
     // MARK: - Computed Properties
+
+    /// Static collections (non-smart) from the current library, for "Add to Collection" menus
+    private var staticCollections: [CDCollection] {
+        guard let collections = library?.collections as? Set<CDCollection> else { return [] }
+        return collections.filter { !$0.isSmartCollection && !$0.isSmartSearchResults }
+            .sorted { $0.name < $1.name }
+    }
 
     /// Filtered and sorted row data - memoized to avoid repeated computation
     private var filteredRowData: [PublicationRowData] {
@@ -312,6 +348,7 @@ public struct PublicationListView: View {
         emptyStateDescription: String = "Import a BibTeX file or search online sources to add publications.",
         listID: ListViewID? = nil,
         disableUnreadFilter: Bool = false,
+        isInInbox: Bool = false,
         filterScope: Binding<FilterScope>,
         onDelete: ((Set<UUID>) async -> Void)? = nil,
         onToggleRead: ((CDPublication) async -> Void)? = nil,
@@ -335,7 +372,16 @@ public struct PublicationListView: View {
         onCategoryTap: ((String) -> Void)? = nil,
         // Refresh callback and state
         onRefresh: (() async -> Void)? = nil,
-        isRefreshing: Bool = false
+        isRefreshing: Bool = false,
+        // Enhanced context menu callbacks
+        onOpenInBrowser: ((CDPublication, BrowserDestination) -> Void)? = nil,
+        onDownloadPDF: ((CDPublication) -> Void)? = nil,
+        onViewEditBibTeX: ((CDPublication) -> Void)? = nil,
+        onShare: ((CDPublication) -> Void)? = nil,
+        onShareByEmail: ((CDPublication) -> Void)? = nil,
+        onExploreReferences: ((CDPublication) -> Void)? = nil,
+        onExploreCitations: ((CDPublication) -> Void)? = nil,
+        onExploreSimilar: ((CDPublication) -> Void)? = nil
     ) {
         self.publications = publications
         self._selection = selection
@@ -348,6 +394,7 @@ public struct PublicationListView: View {
         self.emptyStateDescription = emptyStateDescription
         self.listID = listID
         self.disableUnreadFilter = disableUnreadFilter
+        self.isInInbox = isInInbox
         self._filterScope = filterScope
         self.onDelete = onDelete
         self.onToggleRead = onToggleRead
@@ -372,6 +419,15 @@ public struct PublicationListView: View {
         // Refresh
         self.onRefresh = onRefresh
         self.isRefreshing = isRefreshing
+        // Enhanced context menu
+        self.onOpenInBrowser = onOpenInBrowser
+        self.onDownloadPDF = onDownloadPDF
+        self.onViewEditBibTeX = onViewEditBibTeX
+        self.onShare = onShare
+        self.onShareByEmail = onShareByEmail
+        self.onExploreReferences = onExploreReferences
+        self.onExploreCitations = onExploreCitations
+        self.onExploreSimilar = onExploreSimilar
     }
 
     // MARK: - Body
@@ -769,19 +825,9 @@ public struct PublicationListView: View {
         ScrollViewReader { proxy in
             List(selection: $selection) {
                 ForEach(Array(filteredRowData.enumerated()), id: \.element.id) { index, rowData in
-                    MailStylePublicationRow(
-                        data: rowData,
-                        settings: listViewSettings,
-                        rowNumber: index + 1,
-                        onToggleRead: onToggleRead != nil ? {
-                            if let pub = publicationsByID[rowData.id] {
-                                Task { await onToggleRead?(pub) }
-                            }
-                        } : nil,
-                        onCategoryTap: onCategoryTap
-                    )
-                    .tag(rowData.id)
-                    .id(rowData.id)  // For ScrollViewReader
+                    makePublicationRow(data: rowData, index: index)
+                        .tag(rowData.id)
+                        .id(rowData.id)  // For ScrollViewReader
                 }
             }
             // OPTIMIZATION: Disable selection animations for instant visual feedback
@@ -1111,12 +1157,6 @@ public struct PublicationListView: View {
 
         // Add to Collection submenu (with "All Publications" option to remove from all collections)
         if onAddToCollection != nil || onRemoveFromAllCollections != nil {
-            let staticCollections: [CDCollection] = {
-                guard let collections = library?.collections as? Set<CDCollection> else { return [] }
-                return collections.filter { !$0.isSmartCollection && !$0.isSmartSearchResults }
-                    .sorted { $0.name < $1.name }
-            }()
-
             // Show menu if we have collections OR have the remove callback
             if !staticCollections.isEmpty || onRemoveFromAllCollections != nil {
                 Menu("Add to Collection") {
@@ -1230,6 +1270,147 @@ public struct PublicationListView: View {
                 .buttonStyle(.borderedProminent)
             }
         }
+    }
+
+    // MARK: - Row Builder
+
+    /// Build a publication row with all callbacks wired up.
+    /// This is extracted to a helper method to avoid "expression too complex" compiler errors.
+    @ViewBuilder
+    private func makePublicationRow(data rowData: PublicationRowData, index: Int) -> some View {
+        let deleteHandler: (() -> Void)? = onDelete != nil ? {
+            Task { await onDelete?([rowData.id]) }
+        } : nil
+
+        let archiveHandler: (() -> Void)? = {
+            guard onArchiveToLibrary != nil else { return nil }
+            let nonInboxLibraries = allLibraries.filter { !$0.isInbox }
+            guard !nonInboxLibraries.isEmpty else { return nil }
+            return {
+                if let targetLibrary = nonInboxLibraries.first {
+                    Task { await onArchiveToLibrary?([rowData.id], targetLibrary) }
+                }
+            }
+        }()
+
+        let dismissHandler: (() -> Void)? = onDismiss != nil ? {
+            Task { await onDismiss?([rowData.id]) }
+        } : nil
+
+        let toggleReadHandler: (() -> Void)? = onToggleRead != nil ? {
+            if let pub = publicationsByID[rowData.id] {
+                Task { await onToggleRead?(pub) }
+            }
+        } : nil
+
+        let openPDFHandler: (() -> Void)? = (onOpenPDF != nil && rowData.hasPDF) ? {
+            if let pub = publicationsByID[rowData.id] {
+                onOpenPDF?(pub)
+            }
+        } : nil
+
+        let copyBibTeXHandler: (() -> Void)? = onCopy != nil ? {
+            Task { await onCopy?([rowData.id]) }
+        } : nil
+
+        let addToCollectionHandler: ((CDCollection) -> Void)? = onAddToCollection != nil ? { collection in
+            Task { await onAddToCollection?([rowData.id], collection) }
+        } : nil
+
+        let muteAuthorHandler: (() -> Void)? = onMuteAuthor != nil ? {
+            let firstName = rowData.authorString.split(separator: ",").first.map(String.init) ?? rowData.authorString
+            onMuteAuthor?(firstName)
+        } : nil
+
+        let mutePaperHandler: (() -> Void)? = onMutePaper != nil ? {
+            if let pub = publicationsByID[rowData.id] {
+                onMutePaper?(pub)
+            }
+        } : nil
+
+        // New context menu handlers
+        let openInBrowserHandler: ((BrowserDestination) -> Void)? = onOpenInBrowser != nil ? { destination in
+            if let pub = publicationsByID[rowData.id] {
+                onOpenInBrowser?(pub, destination)
+            }
+        } : nil
+
+        let downloadPDFHandler: (() -> Void)? = (onDownloadPDF != nil && !rowData.hasPDF) ? {
+            if let pub = publicationsByID[rowData.id] {
+                onDownloadPDF?(pub)
+            }
+        } : nil
+
+        let viewEditBibTeXHandler: (() -> Void)? = onViewEditBibTeX != nil ? {
+            if let pub = publicationsByID[rowData.id] {
+                onViewEditBibTeX?(pub)
+            }
+        } : nil
+
+        let shareHandler: (() -> Void)? = onShare != nil ? {
+            if let pub = publicationsByID[rowData.id] {
+                onShare?(pub)
+            }
+        } : nil
+
+        let shareByEmailHandler: (() -> Void)? = onShareByEmail != nil ? {
+            if let pub = publicationsByID[rowData.id] {
+                onShareByEmail?(pub)
+            }
+        } : nil
+
+        let exploreReferencesHandler: (() -> Void)? = onExploreReferences != nil ? {
+            if let pub = publicationsByID[rowData.id] {
+                onExploreReferences?(pub)
+            }
+        } : nil
+
+        let exploreCitationsHandler: (() -> Void)? = onExploreCitations != nil ? {
+            if let pub = publicationsByID[rowData.id] {
+                onExploreCitations?(pub)
+            }
+        } : nil
+
+        let exploreSimilarHandler: (() -> Void)? = onExploreSimilar != nil ? {
+            if let pub = publicationsByID[rowData.id] {
+                onExploreSimilar?(pub)
+            }
+        } : nil
+
+        let addToLibraryHandler: ((CDLibrary) -> Void)? = onAddToLibrary != nil ? { library in
+            Task { await onAddToLibrary?([rowData.id], library) }
+        } : nil
+
+        MailStylePublicationRow(
+            data: rowData,
+            settings: listViewSettings,
+            rowNumber: index + 1,
+            onToggleRead: toggleReadHandler,
+            onCategoryTap: onCategoryTap,
+            onDelete: deleteHandler,
+            onArchive: archiveHandler,
+            onDismiss: dismissHandler,
+            isInInbox: isInInbox,
+            onOpenPDF: openPDFHandler,
+            onCopyCiteKey: { copyToClipboard(rowData.citeKey) },
+            onCopyBibTeX: copyBibTeXHandler,
+            onAddToCollection: addToCollectionHandler,
+            onMuteAuthor: muteAuthorHandler,
+            onMutePaper: mutePaperHandler,
+            collections: staticCollections,
+            hasPDF: rowData.hasPDF,
+            // New context menu callbacks
+            onOpenInBrowser: openInBrowserHandler,
+            onDownloadPDF: downloadPDFHandler,
+            onViewEditBibTeX: viewEditBibTeXHandler,
+            onShare: shareHandler,
+            onShareByEmail: shareByEmailHandler,
+            onExploreReferences: exploreReferencesHandler,
+            onExploreCitations: exploreCitationsHandler,
+            onExploreSimilar: exploreSimilarHandler,
+            onAddToLibrary: addToLibraryHandler,
+            libraries: allLibraries.filter { !$0.isInbox }  // Exclude Inbox from library list
+        )
     }
 
     // MARK: - Helpers

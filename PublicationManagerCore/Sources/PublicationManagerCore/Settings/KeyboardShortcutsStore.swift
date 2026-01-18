@@ -173,9 +173,3 @@ public final class KeyboardShortcutsStore: ObservableObject {
         )
     }
 }
-
-// MARK: - Logger Extension
-
-extension Logger {
-    static let settings = Logger(subsystem: "com.imbib", category: "settings")
-}

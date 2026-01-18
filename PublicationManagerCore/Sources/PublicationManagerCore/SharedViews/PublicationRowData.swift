@@ -62,6 +62,12 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
     /// DOI for context menu "Copy DOI" action
     public let doi: String?
 
+    /// arXiv ID for "Open in Browser" context menu
+    public let arxivID: String?
+
+    /// ADS bibcode for "Open in Browser" context menu
+    public let bibcode: String?
+
     /// Venue (journal, booktitle, or publisher) for display
     public let venue: String?
 
@@ -108,6 +114,8 @@ public struct PublicationRowData: Identifiable, Hashable, Sendable {
         self.citationCount = Int(publication.citationCount)
         self.referenceCount = Int(publication.referenceCount)
         self.doi = publication.doi
+        self.arxivID = publication.arxivID
+        self.bibcode = publication.bibcode
         self.venue = Self.extractVenue(from: fields)
         self.dateAdded = publication.dateAdded
         self.dateModified = publication.dateModified

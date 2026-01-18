@@ -451,4 +451,156 @@ public struct ADSPaperSearchFormView: View {
     }
 }
 
-#endif  // os(macOS)
+#elseif os(iOS)
+
+// MARK: - iOS ADS Paper Search Form View
+
+/// Form-only view for iOS - Find papers by bibcode, DOI, or arXiv ID
+public struct ADSPaperSearchFormView: View {
+
+    // MARK: - Environment
+
+    @Environment(SearchViewModel.self) private var searchViewModel
+    @Environment(LibraryManager.self) private var libraryManager
+
+    // MARK: - Local State
+
+    @State private var isAddingToInbox: Bool = false
+
+    // MARK: - Initialization
+
+    public init() {}
+
+    // MARK: - Body
+
+    public var body: some View {
+        @Bindable var viewModel = searchViewModel
+
+        Form {
+            // Bibcode Section
+            Section {
+                TextField("e.g., 2019ApJ...886L...1V", text: $viewModel.paperFormState.bibcode)
+                    .font(.system(.body, design: .monospaced))
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+            } header: {
+                Text("Bibcode")
+            } footer: {
+                Text("ADS bibliographic code")
+            }
+
+            // DOI Section
+            Section {
+                TextField("e.g., 10.1086/345794", text: $viewModel.paperFormState.doi)
+                    .font(.system(.body, design: .monospaced))
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+            } header: {
+                Text("DOI")
+            } footer: {
+                Text("Digital Object Identifier")
+            }
+
+            // arXiv ID Section
+            Section {
+                TextField("e.g., 1108.0669 or astro-ph/0702089", text: $viewModel.paperFormState.arxivID)
+                    .font(.system(.body, design: .monospaced))
+                    .autocapitalization(.none)
+                    .disableAutocorrection(true)
+            } header: {
+                Text("arXiv ID")
+            } footer: {
+                Text("arXiv preprint identifier (new or old format)")
+            }
+
+            // Action Buttons Section
+            Section {
+                Button {
+                    performSearch()
+                } label: {
+                    HStack {
+                        Spacer()
+                        Text("Find Paper")
+                        Spacer()
+                    }
+                }
+                .disabled(isFormEmpty)
+
+                Button {
+                    addToInbox()
+                } label: {
+                    HStack {
+                        Spacer()
+                        if isAddingToInbox {
+                            ProgressView()
+                        } else {
+                            Text("Add to Inbox")
+                        }
+                        Spacer()
+                    }
+                }
+                .disabled(isFormEmpty || isAddingToInbox)
+
+                Button("Clear", role: .destructive) {
+                    searchViewModel.paperFormState.clear()
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .navigationTitle("Paper Lookup")
+        .task {
+            searchViewModel.setLibraryManager(libraryManager)
+        }
+    }
+
+    // MARK: - Computed Properties
+
+    private var isFormEmpty: Bool {
+        searchViewModel.paperFormState.isEmpty
+    }
+
+    // MARK: - Actions
+
+    private func performSearch() {
+        let state = searchViewModel.paperFormState
+        let query = SearchFormQueryBuilder.buildPaperQuery(
+            bibcode: state.bibcode,
+            doi: state.doi,
+            arxivID: state.arxivID
+        )
+
+        searchViewModel.query = query
+        searchViewModel.selectedSourceIDs = ["ads"]
+
+        Task {
+            await searchViewModel.search()
+        }
+    }
+
+    private func addToInbox() {
+        let state = searchViewModel.paperFormState
+        let query = SearchFormQueryBuilder.buildPaperQuery(
+            bibcode: state.bibcode,
+            doi: state.doi,
+            arxivID: state.arxivID
+        )
+
+        searchViewModel.query = query
+        searchViewModel.selectedSourceIDs = ["ads"]
+
+        isAddingToInbox = true
+
+        Task {
+            await searchViewModel.search()
+
+            let inboxManager = InboxManager.shared
+            for publication in searchViewModel.publications {
+                inboxManager.addToInbox(publication)
+            }
+
+            isAddingToInbox = false
+        }
+    }
+}
+
+#endif  // os(macOS/iOS)

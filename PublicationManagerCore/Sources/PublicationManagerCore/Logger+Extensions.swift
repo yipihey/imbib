@@ -73,6 +73,10 @@ public extension Logger {
     // MARK: - Share Extension
 
     static let shareExtension = Logger(subsystem: subsystem, category: "shareext")
+
+    // MARK: - Settings
+
+    static let settings = Logger(subsystem: subsystem, category: "settings")
 }
 
 // MARK: - Capturing Log Methods

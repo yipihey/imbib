@@ -884,13 +884,24 @@ struct UnifiedPublicationListWrapper: View {
     // MARK: - Helpers
 
     private func openPDF(for publication: CDPublication) {
-        if let linkedFiles = publication.linkedFiles,
-           let pdfFile = linkedFiles.first(where: { $0.isPDF }),
-           let libraryURL = currentLibrary?.folderURL {
-            let pdfURL = libraryURL.appendingPathComponent(pdfFile.relativePath)
-            #if os(macOS)
-            NSWorkspace.shared.open(pdfURL)
-            #endif
+        // Check user preference for opening PDFs
+        let openExternally = UserDefaults.standard.bool(forKey: "openPDFInExternalViewer")
+
+        if openExternally {
+            // Open in external viewer (Preview, Adobe, etc.)
+            if let linkedFiles = publication.linkedFiles,
+               let pdfFile = linkedFiles.first(where: { $0.isPDF }),
+               let libraryURL = currentLibrary?.folderURL {
+                let pdfURL = libraryURL.appendingPathComponent(pdfFile.relativePath)
+                #if os(macOS)
+                NSWorkspace.shared.open(pdfURL)
+                #endif
+            }
+        } else {
+            // Show in built-in PDF tab
+            // First ensure the publication is selected, then switch to PDF tab
+            libraryViewModel.selectedPublications = [publication.id]
+            NotificationCenter.default.post(name: .showPDFTab, object: nil)
         }
     }
 

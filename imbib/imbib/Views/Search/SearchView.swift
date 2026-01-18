@@ -154,14 +154,24 @@ struct SearchResultsListView: View {
     // MARK: - Actions
 
     private func openPDF(for publication: CDPublication) {
-        // Open the first PDF if available
-        if let linkedFiles = publication.linkedFiles,
-           let pdfFile = linkedFiles.first(where: { $0.isPDF }),
-           let libraryURL = libraryManager.activeLibrary?.folderURL {
-            let pdfURL = libraryURL.appendingPathComponent(pdfFile.relativePath)
-            #if os(macOS)
-            NSWorkspace.shared.open(pdfURL)
-            #endif
+        // Check user preference for opening PDFs
+        let openExternally = UserDefaults.standard.bool(forKey: "openPDFInExternalViewer")
+
+        if openExternally {
+            // Open in external viewer (Preview, Adobe, etc.)
+            if let linkedFiles = publication.linkedFiles,
+               let pdfFile = linkedFiles.first(where: { $0.isPDF }),
+               let libraryURL = libraryManager.activeLibrary?.folderURL {
+                let pdfURL = libraryURL.appendingPathComponent(pdfFile.relativePath)
+                #if os(macOS)
+                NSWorkspace.shared.open(pdfURL)
+                #endif
+            }
+        } else {
+            // Show in built-in PDF tab
+            // First ensure the publication is selected, then switch to PDF tab
+            libraryViewModel.selectedPublications = [publication.id]
+            NotificationCenter.default.post(name: .showPDFTab, object: nil)
         }
     }
 }

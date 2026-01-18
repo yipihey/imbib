@@ -8,6 +8,8 @@
 import SwiftUI
 import OSLog
 
+#if os(macOS)
+
 // MARK: - Default Library Set Editor
 
 /// Editor view for modifying the default library set configuration.
@@ -564,3 +566,20 @@ private class EditableCollection: Identifiable {
 #Preview {
     DefaultLibrarySetEditor()
 }
+
+#else
+
+// iOS placeholder - this editor is macOS-only for now
+public struct DefaultLibrarySetEditor: View {
+    public init() {}
+
+    public var body: some View {
+        ContentUnavailableView(
+            "macOS Only",
+            systemImage: "desktopcomputer",
+            description: Text("The Default Library Set Editor is only available on macOS.")
+        )
+    }
+}
+
+#endif

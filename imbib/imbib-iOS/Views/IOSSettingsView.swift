@@ -69,6 +69,21 @@ struct IOSSettingsView: View {
                     }
                 }
 
+                // Library Settings
+                Section("Library") {
+                    NavigationLink {
+                        IOSNotesSettingsView()
+                    } label: {
+                        Label("Notes", systemImage: "note.text")
+                    }
+
+                    NavigationLink {
+                        IOSImportExportSettingsView()
+                    } label: {
+                        Label("Import/Export", systemImage: "square.and.arrow.up.on.square")
+                    }
+                }
+
                 // Automation Settings
                 Section("Automation") {
                     NavigationLink {

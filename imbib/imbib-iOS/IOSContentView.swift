@@ -210,13 +210,20 @@ struct IOSContentView: View {
             }
 
         case .searchForm(let formType):
-            // TODO: Create iOS-specific versions of Classic and Paper forms
-            // For now, all forms use the standard iOS search view
-            IOSSearchView(
-                selectedPublication: $selectedPublication,
-                initialQuery: nil
-            )
-            .navigationTitle(formType.displayName)
+            switch formType {
+            case .adsModern:
+                ADSModernSearchFormView()
+            case .adsClassic:
+                ADSClassicSearchFormView()
+            case .adsPaper:
+                ADSPaperSearchFormView()
+            case .arxivAdvanced:
+                ArXivAdvancedSearchFormView()
+            case .arxivFeed:
+                ArXivFeedFormView()
+            case .arxivGroupFeed:
+                GroupArXivFeedFormView()
+            }
 
         case .smartSearch(let smartSearch):
             SmartSearchResultsView(smartSearch: smartSearch, selectedPublication: $selectedPublication)
@@ -225,12 +232,7 @@ struct IOSContentView: View {
             IOSCollectionListView(collection: collection, selection: $selectedPublication)
 
         case .scixLibrary(let library):
-            // TODO: Implement SciX library view
-            ContentUnavailableView(
-                library.name,
-                systemImage: "building.columns",
-                description: Text("SciX library with \(library.documentCount) papers")
-            )
+            IOSSciXLibraryListView(library: library, selection: $selectedPublication)
 
         case .none:
             ContentUnavailableView(
@@ -353,6 +355,16 @@ struct IOSLibraryListView: View {
     @State private var multiSelection = Set<UUID>()
     @State private var filterScope: FilterScope = .current
 
+    // Sheet state for new context menu actions
+    @State private var showBibTeXEditor = false
+    @State private var showMailComposer = false
+    @State private var publicationForSheet: CDPublication?
+
+    /// Whether this library is the Inbox
+    private var isInbox: Bool {
+        library.isInbox
+    }
+
     var body: some View {
         PublicationListView(
             publications: publications,
@@ -360,11 +372,15 @@ struct IOSLibraryListView: View {
             selectedPublication: $selection,
             library: library,
             allLibraries: libraryManager.libraries,
-            showImportButton: true,
+            showImportButton: !isInbox,  // Don't show import button in Inbox
             showSortMenu: true,
-            emptyStateMessage: "No Publications",
-            emptyStateDescription: "Import BibTeX files or search online to add papers.",
+            emptyStateMessage: isInbox ? "Inbox Empty" : "No Publications",
+            emptyStateDescription: isInbox
+                ? "Add feeds to start discovering papers."
+                : "Import BibTeX files or search online to add papers.",
             listID: .library(library.id),
+            disableUnreadFilter: isInbox,  // Keep papers visible after marking read in Inbox
+            isInInbox: isInbox,
             filterScope: $filterScope,
             onDelete: { ids in
                 // Remove from local state FIRST to prevent SwiftUI from rendering deleted objects
@@ -405,6 +421,13 @@ struct IOSLibraryListView: View {
             onOpenPDF: { publication in
                 openPDF(for: publication)
             },
+            // Inbox-specific actions (must come before onCategoryTap in parameter order)
+            onArchiveToLibrary: isInbox ? { ids, targetLibrary in
+                await archiveToLibrary(ids: ids, targetLibrary: targetLibrary)
+            } : nil,
+            onDismiss: isInbox ? { ids in
+                await dismissFromInbox(ids: ids)
+            } : nil,
             onCategoryTap: { category in
                 // Navigate to search with category query
                 NotificationCenter.default.post(
@@ -412,15 +435,73 @@ struct IOSLibraryListView: View {
                     object: nil,
                     userInfo: ["category": category]
                 )
+            },
+            // Enhanced context menu callbacks
+            onOpenInBrowser: { publication, destination in
+                openInBrowser(publication: publication, destination: destination)
+            },
+            onDownloadPDF: { publication in
+                downloadPDF(for: publication)
+            },
+            onViewEditBibTeX: { publication in
+                publicationForSheet = publication
+                showBibTeXEditor = true
+            },
+            onShare: { publication in
+                sharePublication(publication)
+            },
+            onShareByEmail: { publication in
+                publicationForSheet = publication
+                showMailComposer = true
+            },
+            onExploreReferences: { publication in
+                exploreReferences(for: publication)
+            },
+            onExploreCitations: { publication in
+                exploreCitations(for: publication)
+            },
+            onExploreSimilar: { publication in
+                exploreSimilar(for: publication)
             }
         )
         .navigationTitle(library.displayName)
+        .sheet(isPresented: $showBibTeXEditor) {
+            if let publication = publicationForSheet {
+                IOSBibTeXEditorSheet(publication: publication)
+            }
+        }
+        .mailComposer(isPresented: $showMailComposer, publication: publicationForSheet)
         .task(id: library.id) {
             refreshPublications()
         }
         .refreshable {
             refreshPublications()
         }
+    }
+
+    // MARK: - Inbox Actions
+
+    private func archiveToLibrary(ids: Set<UUID>, targetLibrary: CDLibrary) async {
+        for id in ids {
+            if let publication = publications.first(where: { $0.id == id }) {
+                // Add to target library
+                publication.addToLibrary(targetLibrary)
+                // Remove from Inbox
+                publication.removeFromLibrary(library)
+            }
+        }
+        try? PersistenceController.shared.viewContext.save()
+        refreshPublications()
+    }
+
+    private func dismissFromInbox(ids: Set<UUID>) async {
+        // Remove from local state first
+        publications.removeAll { ids.contains($0.id) }
+        multiSelection.subtract(ids)
+
+        // Delete from Core Data
+        await libraryViewModel.delete(ids: ids)
+        refreshPublications()
     }
 
     private func refreshPublications() {
@@ -441,6 +522,111 @@ struct IOSLibraryListView: View {
             let pdfURL = libraryURL.appendingPathComponent(pdfFile.relativePath)
             _ = FileManager_Opener.shared.openFile(pdfURL)
         }
+    }
+
+    // MARK: - Enhanced Context Menu Actions
+
+    private func openInBrowser(publication: CDPublication, destination: BrowserDestination) {
+        var urlString: String?
+
+        switch destination {
+        case .arxiv:
+            if let arxivID = publication.arxivID {
+                urlString = "https://arxiv.org/abs/\(arxivID)"
+            }
+        case .ads:
+            if let bibcode = publication.bibcode {
+                urlString = "https://ui.adsabs.harvard.edu/abs/\(bibcode)"
+            }
+        case .doi, .publisher:
+            if let doi = publication.doi {
+                urlString = doi.hasPrefix("http") ? doi : "https://doi.org/\(doi)"
+            }
+        }
+
+        if let urlString = urlString, let url = URL(string: urlString) {
+            UIApplication.shared.open(url)
+        }
+    }
+
+    private func downloadPDF(for publication: CDPublication) {
+        Task {
+            do {
+                // Try to download PDF from available sources
+                if let pdfURL = publication.bestRemotePDFURL {
+                    let (data, _) = try await URLSession.shared.data(from: pdfURL)
+                    try AttachmentManager.shared.importAttachment(
+                        data: data,
+                        for: publication,
+                        fileExtension: "pdf",
+                        displayName: "\(publication.citeKey).pdf"
+                    )
+                    refreshPublications()
+                }
+            } catch {
+                contentLogger.error("Failed to download PDF: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func sharePublication(_ publication: CDPublication) {
+        // Build share content
+        var items: [Any] = []
+
+        // Title and URL
+        let title = publication.title ?? "Untitled"
+        items.append(title)
+
+        // Add DOI or arXiv URL
+        if let doi = publication.doi {
+            let doiURL = doi.hasPrefix("http") ? doi : "https://doi.org/\(doi)"
+            if let url = URL(string: doiURL) {
+                items.append(url)
+            }
+        } else if let arxivID = publication.arxivID {
+            if let url = URL(string: "https://arxiv.org/abs/\(arxivID)") {
+                items.append(url)
+            }
+        }
+
+        // Present share sheet
+        let activityVC = UIActivityViewController(activityItems: items, applicationActivities: nil)
+
+        // Get the root view controller to present from
+        if let windowScene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+           let rootVC = windowScene.windows.first?.rootViewController {
+            // Handle iPad popover
+            if let popover = activityVC.popoverPresentationController {
+                popover.sourceView = rootVC.view
+                popover.sourceRect = CGRect(x: rootVC.view.bounds.midX, y: rootVC.view.bounds.midY, width: 0, height: 0)
+                popover.permittedArrowDirections = []
+            }
+            rootVC.present(activityVC, animated: true)
+        }
+    }
+
+    private func exploreReferences(for publication: CDPublication) {
+        // Navigate to references tab or trigger references search
+        NotificationCenter.default.post(
+            name: .exploreReferences,
+            object: publication
+        )
+    }
+
+    private func exploreCitations(for publication: CDPublication) {
+        // Navigate to citations tab or trigger citations search
+        NotificationCenter.default.post(
+            name: .exploreCitations,
+            object: publication
+        )
+    }
+
+    private func exploreSimilar(for publication: CDPublication) {
+        // Navigate to similar papers search
+        NotificationCenter.default.post(
+            name: .exploreSimilar,
+            object: publication
+        )
     }
 }
 

@@ -16,6 +16,10 @@ struct IOSInfoTab: View {
     @Environment(LibraryManager.self) private var libraryManager
     @Environment(\.themeColors) private var theme
     @State private var showPDFBrowser = false
+    @State private var showFilePicker = false
+    @State private var showShareSheet = false
+    @State private var fileToShare: URL?
+    @State private var isDownloadingPDF = false
 
     // State for exploration (references/citations/similar/co-reads)
     @State private var isExploringReferences = false
@@ -48,8 +52,16 @@ struct IOSInfoTab: View {
                     exploreSection
                 }
 
+                // PDF Sources
+                if hasPDFSources {
+                    pdfSourcesSection
+                }
+
                 // Attachments
                 attachmentsSection
+
+                // Record Info
+                recordInfoSection
             }
             .padding()
         }
@@ -59,6 +71,18 @@ struct IOSInfoTab: View {
                 library: libraryManager.find(id: libraryID),
                 onPDFSaved: nil
             )
+        }
+        .sheet(isPresented: $showShareSheet) {
+            if let url = fileToShare {
+                IOSShareSheet(items: [url])
+            }
+        }
+        .fileImporter(
+            isPresented: $showFilePicker,
+            allowedContentTypes: [.item],  // Accept any file type
+            allowsMultipleSelection: true
+        ) { result in
+            handleFileImport(result)
         }
         .alert("Exploration Error", isPresented: .constant(explorationError != nil)) {
             Button("OK") {
@@ -296,32 +320,114 @@ struct IOSInfoTab: View {
         return "Citations"
     }
 
+    // MARK: - PDF Sources Section
+
+    private var hasPDFSources: Bool {
+        publication.arxivID != nil || !publication.pdfLinks.isEmpty || publication.doi != nil
+    }
+
+    private var pdfSourcesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("PDF Sources")
+                .font(.headline)
+
+            VStack(spacing: 8) {
+                // arXiv direct PDF
+                if let arxivID = publication.arxivID {
+                    pdfSourceRow(
+                        label: "arXiv",
+                        url: URL(string: "https://arxiv.org/pdf/\(arxivID).pdf"),
+                        icon: "doc.text"
+                    )
+                }
+
+                // PDF links from publication metadata
+                ForEach(Array(publication.pdfLinks.enumerated()), id: \.offset) { index, link in
+                    let sourceName = link.sourceID ?? pdfSourceName(for: link.url)
+                    pdfSourceRow(
+                        label: sourceName,
+                        url: link.url,
+                        icon: "link"
+                    )
+                }
+
+                // DOI resolver fallback
+                if let doi = publication.doi, publication.arxivID == nil {
+                    pdfSourceRow(
+                        label: "Publisher (via DOI)",
+                        url: URL(string: "https://doi.org/\(doi)"),
+                        icon: "globe"
+                    )
+                }
+            }
+        }
+    }
+
+    private func pdfSourceRow(label: String, url: URL?, icon: String) -> some View {
+        HStack {
+            Image(systemName: icon)
+                .foregroundStyle(.secondary)
+                .frame(width: 24)
+
+            Text(label)
+
+            Spacer()
+
+            if let url = url {
+                Button {
+                    downloadPDF(from: url)
+                } label: {
+                    if isDownloadingPDF {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: "arrow.down.circle")
+                    }
+                }
+                .disabled(isDownloadingPDF)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func pdfSourceName(for url: URL) -> String {
+        let host = url.host ?? ""
+        if host.contains("arxiv.org") { return "arXiv" }
+        if host.contains("adsabs") { return "ADS" }
+        if host.contains("openalex") { return "OpenAlex" }
+        if host.contains("semanticscholar") { return "Semantic Scholar" }
+        if host.contains("doi.org") { return "DOI Resolver" }
+        return host.replacingOccurrences(of: "www.", with: "")
+    }
+
+    // MARK: - Attachments Section
+
     private var attachmentsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Attachments")
-                .font(.headline)
+            HStack {
+                Text("Attachments")
+                    .font(.headline)
+
+                Spacer()
+
+                Button {
+                    showFilePicker = true
+                } label: {
+                    Label("Add Files", systemImage: "plus")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
 
             if let linkedFiles = publication.linkedFiles, !linkedFiles.isEmpty {
                 ForEach(Array(linkedFiles), id: \.id) { file in
-                    HStack {
-                        FileTypeIcon(linkedFile: file)
-                        Text(file.displayName ?? file.relativePath)
-                            .lineLimit(1)
-                        Spacer()
-                        if file.isPDF {
-                            Button("View") {
-                                openFile(file)
-                            }
-                            .buttonStyle(.bordered)
-                            .controlSize(.small)
-                        }
-                    }
+                    attachmentRow(file)
                 }
             } else {
                 Text("No attachments")
                     .foregroundStyle(.secondary)
 
-                if publication.doi != nil || publication.bibcode != nil {
+                if publication.doi != nil || publication.bibcode != nil || publication.arxivID != nil {
                     Button {
                         showPDFBrowser = true
                     } label: {
@@ -329,6 +435,88 @@ struct IOSInfoTab: View {
                     }
                     .buttonStyle(.bordered)
                 }
+            }
+        }
+    }
+
+    private func attachmentRow(_ file: CDLinkedFile) -> some View {
+        HStack {
+            FileTypeIcon(linkedFile: file)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(file.displayName ?? file.relativePath)
+                    .lineLimit(1)
+
+                if file.fileSize > 0 {
+                    Text(formatFileSize(file.fileSize))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+
+            Spacer()
+
+            Menu {
+                Button {
+                    openFile(file)
+                } label: {
+                    Label("Open", systemImage: "arrow.up.right.square")
+                }
+
+                Button {
+                    shareFile(file)
+                } label: {
+                    Label("Share", systemImage: "square.and.arrow.up")
+                }
+
+                Divider()
+
+                Button(role: .destructive) {
+                    deleteFile(file)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    // MARK: - Record Info Section
+
+    private var recordInfoSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Record Info")
+                .font(.headline)
+
+            LabeledContent("Cite Key", value: publication.citeKey)
+            LabeledContent("Entry Type", value: publication.entryType.capitalized)
+
+            LabeledContent("Date Added") {
+                Text(publication.dateAdded.formatted(date: .abbreviated, time: .shortened))
+            }
+
+            if publication.dateModified != publication.dateAdded {
+                LabeledContent("Date Modified") {
+                    Text(publication.dateModified.formatted(date: .abbreviated, time: .shortened))
+                }
+            }
+
+            LabeledContent("Read Status") {
+                HStack {
+                    Image(systemName: publication.isRead ? "checkmark.circle" : "circle")
+                    Text(publication.isRead ? "Read" : "Unread")
+                }
+            }
+
+            if publication.citationCount > 0 {
+                LabeledContent("Citations", value: "\(publication.citationCount)")
+            }
+
+            if publication.referenceCount > 0 {
+                LabeledContent("References", value: "\(publication.referenceCount)")
             }
         }
     }
@@ -348,6 +536,92 @@ struct IOSInfoTab: View {
 
         let fileURL = folderURL.appendingPathComponent(file.relativePath)
         _ = FileManager_Opener.shared.openFile(fileURL)
+    }
+
+    private func shareFile(_ file: CDLinkedFile) {
+        guard let library = libraryManager.find(id: libraryID),
+              let folderURL = library.folderURL else { return }
+
+        let fileURL = folderURL.appendingPathComponent(file.relativePath)
+        fileToShare = fileURL
+        showShareSheet = true
+    }
+
+    private func deleteFile(_ file: CDLinkedFile) {
+        do {
+            try PDFManager.shared.delete(file, in: libraryManager.find(id: libraryID))
+        } catch {
+            print("Failed to delete file: \(error)")
+        }
+    }
+
+    private func downloadPDF(from url: URL) {
+        isDownloadingPDF = true
+
+        Task {
+            do {
+                let (data, _) = try await URLSession.shared.data(from: url)
+
+                // Verify it's a PDF
+                guard data.count >= 4,
+                      data.prefix(4).elementsEqual([0x25, 0x50, 0x44, 0x46]) else {
+                    // Not a PDF - open browser instead
+                    await MainActor.run {
+                        isDownloadingPDF = false
+                        showPDFBrowser = true
+                    }
+                    return
+                }
+
+                try PDFManager.shared.importPDF(
+                    data: data,
+                    for: publication,
+                    in: libraryManager.find(id: libraryID)
+                )
+
+                await MainActor.run {
+                    isDownloadingPDF = false
+                }
+            } catch {
+                await MainActor.run {
+                    isDownloadingPDF = false
+                    showPDFBrowser = true
+                }
+            }
+        }
+    }
+
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            for url in urls {
+                guard url.startAccessingSecurityScopedResource() else { continue }
+                defer { url.stopAccessingSecurityScopedResource() }
+
+                do {
+                    let data = try Data(contentsOf: url)
+                    let fileExtension = url.pathExtension.isEmpty ? "pdf" : url.pathExtension
+                    try PDFManager.shared.importAttachment(
+                        data: data,
+                        for: publication,
+                        in: libraryManager.find(id: libraryID),
+                        fileExtension: fileExtension,
+                        displayName: url.lastPathComponent
+                    )
+                } catch {
+                    print("Failed to import file: \(error)")
+                }
+            }
+        case .failure(let error):
+            print("File picker error: \(error)")
+        }
+    }
+
+    private func formatFileSize(_ bytes: Int64) -> String {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB]
+        formatter.countStyle = .file
+        return formatter.string(fromByteCount: bytes)
     }
 
     // MARK: - Exploration
@@ -459,4 +733,17 @@ struct IOSInfoTab: View {
             }
         }
     }
+}
+
+// MARK: - Share Sheet
+
+/// UIActivityViewController wrapper for sharing files.
+private struct IOSShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }

@@ -457,11 +457,357 @@ public struct GroupArXivFeedFormView: View {
     }
 }
 
+#elseif os(iOS)
+
+// MARK: - iOS Group arXiv Feed Form View
+
+/// iOS form for creating group arXiv feeds that monitor multiple authors
+public struct GroupArXivFeedFormView: View {
+
+    // MARK: - Environment
+
+    @Environment(SearchViewModel.self) private var searchViewModel
+    @Environment(LibraryManager.self) private var libraryManager
+
+    // MARK: - Local State
+
+    @State private var feedName: String = ""
+    @State private var authorsText: String = ""
+    @State private var selectedCategories: Set<String> = []
+    @State private var includeCrossListed: Bool = true
+    @State private var expandedGroups: Set<String> = []
+    @State private var isCreating: Bool = false
+    @State private var showError: Bool = false
+    @State private var errorMessage: String = ""
+
+    // MARK: - Edit Mode State
+
+    @State private var editingFeed: CDSmartSearch?
+
+    var isEditMode: Bool {
+        editingFeed != nil
+    }
+
+    // MARK: - Initialization
+
+    public init() {}
+
+    // MARK: - Body
+
+    public var body: some View {
+        Form {
+            // Feed Name Section
+            Section {
+                TextField("Friends", text: $feedName)
+            } header: {
+                Text("Feed Name")
+            } footer: {
+                Text("Leave blank to use \"Friends\" as the default name")
+            }
+
+            // Authors Section
+            Section {
+                TextEditor(text: $authorsText)
+                    .frame(minHeight: 100)
+            } header: {
+                Text("Authors")
+            } footer: {
+                VStack(alignment: .leading) {
+                    Text("Enter author names separated by commas or one per line")
+                    if !parsedAuthors.isEmpty {
+                        Text("\(parsedAuthors.count) authors entered")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            // Categories Section (required)
+            Section {
+                IOSArXivCategoryPickerView(
+                    selectedCategories: $selectedCategories,
+                    expandedGroups: $expandedGroups
+                )
+
+                if !selectedCategories.isEmpty {
+                    Text("\(selectedCategories.count) categories selected")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                HStack {
+                    Text("Subject Categories")
+                    Text("(required)")
+                        .foregroundStyle(.red)
+                }
+            }
+
+            // Options Section
+            Section {
+                Toggle("Include cross-listed papers", isOn: $includeCrossListed)
+            }
+
+            // Edit mode indicator
+            if let feed = editingFeed {
+                Section {
+                    HStack {
+                        Image(systemName: "pencil.circle.fill")
+                            .foregroundStyle(.orange)
+                        Text("Editing: \(feed.name)")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Cancel") {
+                            exitEditMode()
+                        }
+                        .foregroundStyle(.red)
+                    }
+                }
+            }
+
+            // Action Buttons
+            Section {
+                if isEditMode {
+                    Button("Save") {
+                        saveToFeed()
+                    }
+                    .frame(maxWidth: .infinity)
+                    .disabled(!isFormValid)
+                } else {
+                    Button {
+                        createFeed()
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if isCreating {
+                                ProgressView()
+                            } else {
+                                Text("Create Feed")
+                            }
+                            Spacer()
+                        }
+                    }
+                    .disabled(!isFormValid || isCreating)
+                }
+
+                Button("Clear All", role: .destructive) {
+                    clearForm()
+                }
+                .frame(maxWidth: .infinity)
+            }
+
+            // Error message
+            if showError {
+                Section {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                        Text(errorMessage)
+                            .foregroundStyle(.red)
+                    }
+                }
+            }
+        }
+        .navigationTitle(isEditMode ? "Edit Group Feed" : "Group Feed")
+        .onReceive(NotificationCenter.default.publisher(for: .editGroupArXivFeed)) { notification in
+            if let feed = notification.object as? CDSmartSearch {
+                loadFeedForEditing(feed)
+            }
+        }
+    }
+
+    // MARK: - Computed Properties
+
+    private var parsedAuthors: [String] {
+        authorsText
+            .components(separatedBy: CharacterSet(charactersIn: ",\n"))
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    private var effectiveFeedName: String {
+        let trimmed = feedName.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? "Friends" : trimmed
+    }
+
+    private var isFormValid: Bool {
+        !parsedAuthors.isEmpty && !selectedCategories.isEmpty
+    }
+
+    // MARK: - Actions
+
+    private func createFeed() {
+        guard isFormValid else { return }
+
+        isCreating = true
+        showError = false
+
+        Task {
+            do {
+                let query = buildGroupFeedQuery()
+
+                guard let library = libraryManager.activeLibrary ?? libraryManager.explorationLibrary else {
+                    throw FeedCreationError.noLibrary
+                }
+
+                let context = PersistenceController.shared.viewContext
+                let smartSearch = CDSmartSearch(context: context)
+                smartSearch.id = UUID()
+                smartSearch.name = effectiveFeedName
+                smartSearch.query = query
+                smartSearch.sources = ["arxiv"]
+                smartSearch.dateCreated = Date()
+                smartSearch.dateLastExecuted = nil
+                smartSearch.library = library
+                smartSearch.maxResults = 500
+                smartSearch.feedsToInbox = true
+                smartSearch.autoRefreshEnabled = true
+                smartSearch.refreshIntervalSeconds = 86400
+                smartSearch.isGroupFeed = true
+
+                let existingCount = library.smartSearches?.count ?? 0
+                smartSearch.order = Int16(existingCount)
+
+                let collection = CDCollection(context: context)
+                collection.id = UUID()
+                collection.name = effectiveFeedName
+                collection.isSmartSearchResults = true
+                collection.isSmartCollection = false
+                collection.smartSearch = smartSearch
+                collection.library = library
+                smartSearch.resultCollection = collection
+
+                try context.save()
+
+                Logger.viewModels.infoCapture(
+                    "Created group arXiv feed '\(smartSearch.name)' with \(parsedAuthors.count) authors and \(selectedCategories.count) categories",
+                    category: "feed"
+                )
+
+                await executeInitialFetch(smartSearch)
+
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+                    NotificationCenter.default.post(name: .navigateToSmartSearch, object: smartSearch.id)
+                }
+
+                clearForm()
+
+            } catch {
+                Logger.viewModels.errorCapture("Failed to create group feed: \(error.localizedDescription)", category: "feed")
+                await MainActor.run {
+                    errorMessage = error.localizedDescription
+                    showError = true
+                }
+            }
+
+            await MainActor.run {
+                isCreating = false
+            }
+        }
+    }
+
+    private func executeInitialFetch(_ smartSearch: CDSmartSearch) async {
+        do {
+            let fetchedCount = try await GroupFeedRefreshService.shared.refreshGroupFeed(smartSearch)
+            Logger.viewModels.infoCapture(
+                "Initial group feed fetch complete: \(fetchedCount) papers added to Inbox",
+                category: "feed"
+            )
+        } catch {
+            Logger.viewModels.errorCapture(
+                "Initial group feed fetch failed: \(error.localizedDescription)",
+                category: "feed"
+            )
+        }
+    }
+
+    private func saveToFeed() {
+        guard let feed = editingFeed else { return }
+        guard isFormValid else { return }
+
+        let query = buildGroupFeedQuery()
+
+        feed.name = effectiveFeedName
+        feed.query = query
+        feed.isGroupFeed = true
+        feed.resultCollection?.name = effectiveFeedName
+
+        do {
+            try PersistenceController.shared.viewContext.save()
+            Logger.viewModels.infoCapture("Updated group arXiv feed '\(feed.name)'", category: "feed")
+            NotificationCenter.default.post(name: .explorationLibraryDidChange, object: nil)
+            exitEditMode()
+        } catch {
+            Logger.viewModels.errorCapture("Failed to save group feed: \(error.localizedDescription)", category: "feed")
+            errorMessage = error.localizedDescription
+            showError = true
+        }
+    }
+
+    private func loadFeedForEditing(_ feed: CDSmartSearch) {
+        editingFeed = feed
+        feedName = feed.name
+
+        let (authors, categories) = parseGroupFeedQuery(feed.query)
+        authorsText = authors.joined(separator: "\n")
+        selectedCategories = categories
+
+        includeCrossListed = !feed.query.contains("crosslist:false")
+
+        Logger.viewModels.infoCapture(
+            "Loaded group feed '\(feed.name)' for editing with \(authors.count) authors and \(categories.count) categories",
+            category: "feed"
+        )
+    }
+
+    private func buildGroupFeedQuery() -> String {
+        let authorsString = parsedAuthors.joined(separator: ",")
+        let categoriesString = selectedCategories.sorted().joined(separator: ",")
+        let crosslistString = includeCrossListed ? "true" : "false"
+        return "GROUP_FEED|authors:\(authorsString)|categories:\(categoriesString)|crosslist:\(crosslistString)"
+    }
+
+    private func parseGroupFeedQuery(_ query: String) -> ([String], Set<String>) {
+        var authors: [String] = []
+        var categories: Set<String> = []
+
+        guard query.hasPrefix("GROUP_FEED|") else {
+            return (authors, categories)
+        }
+
+        let parts = query.dropFirst("GROUP_FEED|".count).components(separatedBy: "|")
+        for part in parts {
+            if part.hasPrefix("authors:") {
+                let authorsString = String(part.dropFirst("authors:".count))
+                authors = authorsString.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            } else if part.hasPrefix("categories:") {
+                let categoriesString = String(part.dropFirst("categories:".count))
+                categories = Set(categoriesString.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
+            }
+        }
+
+        return (authors, categories)
+    }
+
+    private func exitEditMode() {
+        editingFeed = nil
+        clearForm()
+    }
+
+    private func clearForm() {
+        feedName = ""
+        authorsText = ""
+        selectedCategories = []
+        includeCrossListed = true
+        showError = false
+        errorMessage = ""
+    }
+}
+
+#endif  // os(macOS/iOS)
+
 // MARK: - Notifications
 
 public extension Notification.Name {
     /// Posted when a group feed should be edited (object is CDSmartSearch)
     static let editGroupArXivFeed = Notification.Name("editGroupArXivFeed")
 }
-
-#endif  // os(macOS)

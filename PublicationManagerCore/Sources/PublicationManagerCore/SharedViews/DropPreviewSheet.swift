@@ -200,7 +200,7 @@ struct PDFImportPreviewView: View {
     @State private var selectedID: UUID?
 
     var body: some View {
-        HSplitView {
+        NavigationSplitView {
             // List of PDFs
             List(previews, selection: $selectedID) { preview in
                 PDFPreviewRow(preview: preview) { action in
@@ -220,8 +220,10 @@ struct PDFImportPreviewView: View {
                     onUpdatePreview(updated)
                 }
             }
+            #if os(macOS)
             .frame(minWidth: 200)
-
+            #endif
+        } detail: {
             // Detail view
             if let selectedID,
                let preview = previews.first(where: { $0.id == selectedID }) {
@@ -435,15 +437,17 @@ struct BibImportPreviewView: View {
     @State private var selectedID: UUID?
 
     var body: some View {
-        HSplitView {
+        NavigationSplitView {
             // List of entries
             List(preview.entries, selection: $selectedID) { entry in
                 BibEntryRow(entry: entry) { isSelected in
                     onUpdateEntry(entry.id, isSelected)
                 }
             }
+            #if os(macOS)
             .frame(minWidth: 200)
-
+            #endif
+        } detail: {
             // Detail view
             if let selectedID,
                let entry = preview.entries.first(where: { $0.id == selectedID }) {

@@ -250,4 +250,15 @@ public extension Notification.Name {
 
     /// Open inbox item (O key - vim style)
     static let inboxOpenItem = Notification.Name("inboxOpenItem")
+
+    // MARK: - Explore Actions (Context Menu)
+
+    /// Explore references for a publication (object = CDPublication)
+    static let exploreReferences = Notification.Name("exploreReferences")
+
+    /// Explore citations for a publication (object = CDPublication)
+    static let exploreCitations = Notification.Name("exploreCitations")
+
+    /// Explore similar papers for a publication (object = CDPublication)
+    static let exploreSimilar = Notification.Name("exploreSimilar")
 }

@@ -305,4 +305,260 @@ struct SourceToggleChip: View {
     }
 }
 
-#endif  // os(macOS)
+#elseif os(iOS)
+
+/// Modern single-box search form for iOS
+/// Results are shown via navigation to search results
+public struct ADSModernSearchFormView: View {
+
+    // MARK: - Environment
+
+    @Environment(SearchViewModel.self) private var searchViewModel
+    @Environment(LibraryManager.self) private var libraryManager
+
+    // MARK: - Local State
+
+    @State private var isAddingToInbox: Bool = false
+    @State private var availableSources: [SourceMetadata] = []
+    @FocusState private var isSearchFocused: Bool
+
+    // MARK: - Initialization
+
+    public init() {}
+
+    // MARK: - Body
+
+    public var body: some View {
+        @Bindable var viewModel = searchViewModel
+
+        Form {
+            // Search field section
+            Section {
+                HStack {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("e.g., author:\"Einstein\" year:1905", text: $viewModel.modernFormState.searchText)
+                        .textFieldStyle(.plain)
+                        .focused($isSearchFocused)
+                        .submitLabel(.search)
+                        .onSubmit {
+                            performSearch()
+                        }
+                    if !viewModel.modernFormState.searchText.isEmpty {
+                        Button {
+                            viewModel.modernFormState.clear()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            } header: {
+                Text("Search Query")
+            } footer: {
+                Text("Single search box with powerful query syntax")
+            }
+
+            // Source selection
+            Section("Sources") {
+                IOSSourceSelectionGrid(availableSources: availableSources)
+            }
+
+            // Query syntax help
+            Section("Query Syntax") {
+                VStack(alignment: .leading, spacing: 6) {
+                    syntaxHelpRow("author:\"Last, First\"", "Search by author")
+                    syntaxHelpRow("title:\"keywords\"", "Search in title")
+                    syntaxHelpRow("abs:\"words\"", "Search abstract")
+                    syntaxHelpRow("year:2020-2024", "Year range")
+                    syntaxHelpRow("bibcode:2019ApJ...", "By bibcode")
+                    syntaxHelpRow("doi:10.1086/...", "By DOI")
+                    syntaxHelpRow("arXiv:1234.5678", "By arXiv ID")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            // Edit mode indicator
+            if searchViewModel.isEditMode, let smartSearch = searchViewModel.editingSmartSearch {
+                Section {
+                    HStack {
+                        Image(systemName: "pencil.circle.fill")
+                            .foregroundStyle(.orange)
+                        Text("Editing: \(smartSearch.name)")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Cancel") {
+                            searchViewModel.exitEditMode()
+                        }
+                        .foregroundStyle(.red)
+                    }
+                }
+            }
+
+            // Action buttons
+            Section {
+                if searchViewModel.isEditMode {
+                    Button("Save") {
+                        searchViewModel.saveToSmartSearch()
+                    }
+                    .frame(maxWidth: .infinity)
+                    .disabled(isFormEmpty)
+                } else {
+                    Button {
+                        performSearch()
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text("Search")
+                            Spacer()
+                        }
+                    }
+                    .disabled(isFormEmpty)
+
+                    Button {
+                        addToInbox()
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if isAddingToInbox {
+                                ProgressView()
+                            } else {
+                                Text("Add to Inbox")
+                            }
+                            Spacer()
+                        }
+                    }
+                    .disabled(isFormEmpty || isAddingToInbox)
+                }
+
+                Button("Clear", role: .destructive) {
+                    clearForm()
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .navigationTitle("ADS Modern")
+        .task {
+            searchViewModel.setLibraryManager(libraryManager)
+            availableSources = await searchViewModel.availableSources
+        }
+        .onAppear {
+            isSearchFocused = true
+        }
+    }
+
+    // MARK: - Helper Views
+
+    @ViewBuilder
+    private func syntaxHelpRow(_ syntax: String, _ description: String) -> some View {
+        HStack(alignment: .top) {
+            Text(syntax)
+                .font(.system(.caption, design: .monospaced))
+                .frame(width: 140, alignment: .leading)
+            Text("—")
+            Text(description)
+        }
+    }
+
+    // MARK: - Computed Properties
+
+    private var isFormEmpty: Bool {
+        searchViewModel.modernFormState.isEmpty
+    }
+
+    // MARK: - Actions
+
+    private func performSearch() {
+        guard !isFormEmpty else { return }
+        searchViewModel.query = searchViewModel.modernFormState.searchText
+        Task {
+            await searchViewModel.search()
+        }
+    }
+
+    private func addToInbox() {
+        guard !isFormEmpty else { return }
+        searchViewModel.query = searchViewModel.modernFormState.searchText
+        isAddingToInbox = true
+        Task {
+            await searchViewModel.search()
+            let inboxManager = InboxManager.shared
+            for publication in searchViewModel.publications {
+                inboxManager.addToInbox(publication)
+            }
+            isAddingToInbox = false
+        }
+    }
+
+    private func clearForm() {
+        searchViewModel.modernFormState.clear()
+        searchViewModel.clearSourceSelection()
+    }
+}
+
+// MARK: - iOS Source Selection Grid
+
+struct IOSSourceSelectionGrid: View {
+    @Environment(SearchViewModel.self) private var viewModel
+    let availableSources: [SourceMetadata]
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 90))], spacing: 8) {
+            ForEach(availableSources, id: \.id) { source in
+                IOSSourceToggleChip(
+                    source: source,
+                    isSelected: viewModel.selectedSourceIDs.contains(source.id)
+                ) {
+                    viewModel.toggleSource(source.id)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+
+        HStack {
+            Button("Select All") {
+                Task {
+                    await viewModel.selectAllSources()
+                }
+            }
+            .font(.caption)
+
+            Spacer()
+
+            Button("Clear") {
+                viewModel.clearSourceSelection()
+            }
+            .font(.caption)
+        }
+    }
+}
+
+// MARK: - iOS Source Toggle Chip
+
+struct IOSSourceToggleChip: View {
+    let source: SourceMetadata
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: source.iconName)
+                    .font(.caption2)
+                Text(source.name)
+                    .font(.caption2)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(isSelected ? Color.accentColor : Color.gray.opacity(0.2))
+            .foregroundStyle(isSelected ? .white : .primary)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+#endif  // os(iOS/macOS)

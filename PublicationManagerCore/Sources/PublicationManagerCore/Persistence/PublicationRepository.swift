@@ -73,6 +73,19 @@ public actor PublicationRepository {
         }
     }
 
+    /// Fetch publications by multiple IDs
+    public func fetch(byIDs ids: Set<UUID>) async -> [CDPublication] {
+        guard !ids.isEmpty else { return [] }
+        let context = persistenceController.viewContext
+
+        return await context.perform {
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            request.predicate = NSPredicate(format: "id IN %@", ids as CVarArg)
+
+            return (try? context.fetch(request)) ?? []
+        }
+    }
+
     /// Search publications by title or author
     public func search(query: String) async -> [CDPublication] {
         guard !query.isEmpty else { return await fetchAll() }
@@ -128,14 +141,17 @@ public actor PublicationRepository {
         in library: CDLibrary? = nil,
         processLinkedFiles: Bool = true
     ) async -> CDPublication {
-        Logger.persistence.info("Creating publication: \(entry.citeKey)")
+        // Apply import settings to the entry
+        let processedEntry = await applyImportSettings(to: entry)
+
+        Logger.persistence.info("Creating publication: \(processedEntry.citeKey)")
         let context = persistenceController.viewContext
 
         let publication = await context.perform {
             let publication = CDPublication(context: context)
             publication.id = UUID()
             publication.dateAdded = Date()
-            publication.update(from: entry, context: context)
+            publication.update(from: processedEntry, context: context)
 
             self.persistenceController.save()
             return publication
@@ -144,11 +160,112 @@ public actor PublicationRepository {
         // Process linked files on MainActor
         if processLinkedFiles {
             await MainActor.run {
-                PDFManager.shared.processBdskFiles(from: entry, for: publication, in: library)
+                PDFManager.shared.processBdskFiles(from: processedEntry, for: publication, in: library)
             }
         }
 
         return publication
+    }
+
+    /// Apply import settings to a BibTeX entry
+    /// - Generates cite key if autoGenerateCiteKeys is enabled and cite key is missing/generic
+    /// - Applies default entry type if entry type is missing
+    private func applyImportSettings(to entry: BibTeXEntry) async -> BibTeXEntry {
+        let settings = await ImportExportSettingsStore.shared.settings
+        var processedEntry = entry
+
+        // Auto-generate cite key if setting is enabled and cite key is missing/generic
+        if settings.autoGenerateCiteKeys && isCiteKeyGeneric(entry.citeKey) {
+            let generatedKey = generateCiteKey(from: entry)
+            processedEntry.citeKey = generatedKey
+            Logger.persistence.debug("Generated cite key '\(generatedKey)' for entry")
+        }
+
+        // Apply default entry type if missing or generic
+        if processedEntry.entryType.isEmpty || processedEntry.entryType.lowercased() == "misc" {
+            // Only override "misc" if we have better information
+            let detectedType = detectEntryType(from: processedEntry)
+            if detectedType != "misc" || processedEntry.entryType.isEmpty {
+                processedEntry.entryType = detectedType.isEmpty ? settings.defaultEntryType : detectedType
+            }
+        }
+
+        return processedEntry
+    }
+
+    /// Check if a cite key is generic/placeholder
+    private func isCiteKeyGeneric(_ citeKey: String) -> Bool {
+        let lowercased = citeKey.lowercased()
+        return citeKey.isEmpty ||
+               lowercased == "new" ||
+               lowercased == "untitled" ||
+               lowercased == "unknown" ||
+               lowercased.hasPrefix("entry") ||
+               lowercased.hasPrefix("ref") ||
+               citeKey.allSatisfy { $0.isNumber }
+    }
+
+    /// Generate a cite key from entry fields: LastName + Year + TitleWord
+    private func generateCiteKey(from entry: BibTeXEntry) -> String {
+        // Extract last name from author field
+        let lastNamePart = entry.fields["author"]?
+            .components(separatedBy: " and ")
+            .first?
+            .components(separatedBy: ",")
+            .first?
+            .trimmingCharacters(in: .whitespaces)
+            .components(separatedBy: " ")
+            .last?
+            .filter { $0.isLetter } ?? "Unknown"
+
+        // Extract year
+        let yearPart = entry.fields["year"] ?? ""
+
+        // Extract first meaningful title word (longer than 3 characters)
+        let titleWord = (entry.fields["title"] ?? "")
+            .components(separatedBy: .whitespaces)
+            .first { $0.count > 3 }?
+            .filter { $0.isLetter }
+            .capitalized ?? ""
+
+        return "\(lastNamePart)\(yearPart)\(titleWord)"
+    }
+
+    /// Detect entry type from fields if not explicitly set
+    private func detectEntryType(from entry: BibTeXEntry) -> String {
+        let fields = entry.fields
+
+        // Check for journal article indicators
+        if fields["journal"] != nil {
+            return "article"
+        }
+
+        // Check for conference paper indicators
+        if fields["booktitle"] != nil || fields["conference"] != nil {
+            return "inproceedings"
+        }
+
+        // Check for book indicators
+        if fields["isbn"] != nil || (fields["publisher"] != nil && fields["editor"] != nil) {
+            return "book"
+        }
+
+        // Check for thesis indicators
+        if fields["school"] != nil {
+            if let type = fields["type"]?.lowercased(),
+               type.contains("phd") || type.contains("doctor") {
+                return "phdthesis"
+            }
+            return "mastersthesis"
+        }
+
+        // Check for technical report
+        if fields["institution"] != nil {
+            return "techreport"
+        }
+
+        // Default to misc
+        return "misc"
     }
 
     /// Import multiple entries
@@ -423,13 +540,23 @@ public actor PublicationRepository {
     public func exportAll() async -> String {
         let publications = await fetchAll(sortedBy: "citeKey", ascending: true)
         let entries = publications.map { $0.toBibTeXEntry() }
-        return BibTeXExporter().export(entries)
+
+        // Use user's preference for preserving raw BibTeX
+        let preserveRaw = await ImportExportSettingsStore.shared.exportPreserveRawBibTeX
+        let options = BibTeXExporter.Options(preferRawBibTeX: preserveRaw)
+
+        return BibTeXExporter(options: options).export(entries)
     }
 
     /// Export selected publications to BibTeX string
-    public func export(_ publications: [CDPublication]) -> String {
+    public func export(_ publications: [CDPublication]) async -> String {
         let entries = publications.map { $0.toBibTeXEntry() }
-        return BibTeXExporter().export(entries)
+
+        // Use user's preference for preserving raw BibTeX
+        let preserveRaw = await ImportExportSettingsStore.shared.exportPreserveRawBibTeX
+        let options = BibTeXExporter.Options(preferRawBibTeX: preserveRaw)
+
+        return BibTeXExporter(options: options).export(entries)
     }
 
     // MARK: - Deduplication (ADR-016)

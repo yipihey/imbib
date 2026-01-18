@@ -8,6 +8,34 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
+// MARK: - Browser Destination
+
+/// Destinations for "Open in Browser" context menu action
+public enum BrowserDestination: String, CaseIterable {
+    case arxiv
+    case ads
+    case doi
+    case publisher
+
+    public var displayName: String {
+        switch self {
+        case .arxiv: return "View on arXiv"
+        case .ads: return "View on ADS"
+        case .doi: return "View Publisher (DOI)"
+        case .publisher: return "View Publisher"
+        }
+    }
+
+    public var systemImage: String {
+        switch self {
+        case .arxiv: return "doc.text"
+        case .ads: return "star"
+        case .doi: return "link"
+        case .publisher: return "globe"
+        }
+    }
+}
+
 // MARK: - UUID Transferable Extension
 
 extension UTType {
@@ -53,7 +81,13 @@ public struct MailStylePublicationRow: View, Equatable {
 
     public static func == (lhs: MailStylePublicationRow, rhs: MailStylePublicationRow) -> Bool {
         // Only compare data, settings, and rowNumber - closures don't affect visual output
-        lhs.data == rhs.data && lhs.settings == rhs.settings && lhs.rowNumber == rhs.rowNumber
+        // Also compare isInInbox, hasPDF, and collections count as they affect display
+        lhs.data == rhs.data &&
+        lhs.settings == rhs.settings &&
+        lhs.rowNumber == rhs.rowNumber &&
+        lhs.isInInbox == rhs.isInInbox &&
+        lhs.hasPDF == rhs.hasPDF &&
+        lhs.collections.count == rhs.collections.count
     }
 
     // MARK: - Environment
@@ -79,6 +113,78 @@ public struct MailStylePublicationRow: View, Equatable {
 
     /// Action when files are dropped onto this row for attachment
     public var onFileDrop: (([NSItemProvider]) -> Void)?
+
+    // MARK: - Swipe Action Callbacks (iOS)
+
+    /// Action when delete is requested (swipe left)
+    public var onDelete: (() -> Void)?
+
+    /// Action when archive is requested (swipe right)
+    public var onArchive: (() -> Void)?
+
+    /// Action when dismiss is requested (swipe left, Inbox only)
+    public var onDismiss: (() -> Void)?
+
+    /// Whether this paper is in the Inbox (enables Inbox-specific actions)
+    public var isInInbox: Bool = false
+
+    // MARK: - Context Menu Callbacks
+
+    /// Action when Open PDF is requested
+    public var onOpenPDF: (() -> Void)?
+
+    /// Action when Copy Cite Key is requested
+    public var onCopyCiteKey: (() -> Void)?
+
+    /// Action when Copy BibTeX is requested
+    public var onCopyBibTeX: (() -> Void)?
+
+    /// Action when adding to a collection is requested
+    public var onAddToCollection: ((CDCollection) -> Void)?
+
+    /// Action when muting author is requested
+    public var onMuteAuthor: (() -> Void)?
+
+    /// Action when muting this paper is requested
+    public var onMutePaper: (() -> Void)?
+
+    /// Available collections for "Add to Collection" menu
+    public var collections: [CDCollection] = []
+
+    /// Whether the publication has an attached PDF
+    public var hasPDF: Bool = false
+
+    // MARK: - New Context Menu Callbacks
+
+    /// Action when Open in Browser is requested (arXiv, ADS, DOI)
+    public var onOpenInBrowser: ((BrowserDestination) -> Void)?
+
+    /// Action when Download PDF is requested
+    public var onDownloadPDF: (() -> Void)?
+
+    /// Action when View/Edit BibTeX is requested
+    public var onViewEditBibTeX: (() -> Void)?
+
+    /// Action when Share (system share sheet) is requested
+    public var onShare: (() -> Void)?
+
+    /// Action when Share by Email is requested (with PDF + BibTeX attachments)
+    public var onShareByEmail: (() -> Void)?
+
+    /// Action when Explore References is requested
+    public var onExploreReferences: (() -> Void)?
+
+    /// Action when Explore Citations is requested
+    public var onExploreCitations: (() -> Void)?
+
+    /// Action when Explore Similar Papers is requested
+    public var onExploreSimilar: (() -> Void)?
+
+    /// Action when adding to a library is requested
+    public var onAddToLibrary: ((CDLibrary) -> Void)?
+
+    /// Available libraries for "Add to Library" menu
+    public var libraries: [CDLibrary] = []
 
     /// Whether the row is currently a drop target
     @State private var isDropTargeted = false
@@ -113,7 +219,32 @@ public struct MailStylePublicationRow: View, Equatable {
         rowNumber: Int? = nil,
         onToggleRead: (() -> Void)? = nil,
         onCategoryTap: ((String) -> Void)? = nil,
-        onFileDrop: (([NSItemProvider]) -> Void)? = nil
+        onFileDrop: (([NSItemProvider]) -> Void)? = nil,
+        // Swipe actions (iOS)
+        onDelete: (() -> Void)? = nil,
+        onArchive: (() -> Void)? = nil,
+        onDismiss: (() -> Void)? = nil,
+        isInInbox: Bool = false,
+        // Context menu actions
+        onOpenPDF: (() -> Void)? = nil,
+        onCopyCiteKey: (() -> Void)? = nil,
+        onCopyBibTeX: (() -> Void)? = nil,
+        onAddToCollection: ((CDCollection) -> Void)? = nil,
+        onMuteAuthor: (() -> Void)? = nil,
+        onMutePaper: (() -> Void)? = nil,
+        collections: [CDCollection] = [],
+        hasPDF: Bool = false,
+        // New context menu actions
+        onOpenInBrowser: ((BrowserDestination) -> Void)? = nil,
+        onDownloadPDF: (() -> Void)? = nil,
+        onViewEditBibTeX: (() -> Void)? = nil,
+        onShare: (() -> Void)? = nil,
+        onShareByEmail: (() -> Void)? = nil,
+        onExploreReferences: (() -> Void)? = nil,
+        onExploreCitations: (() -> Void)? = nil,
+        onExploreSimilar: (() -> Void)? = nil,
+        onAddToLibrary: ((CDLibrary) -> Void)? = nil,
+        libraries: [CDLibrary] = []
     ) {
         self.data = data
         self.settings = settings
@@ -121,6 +252,31 @@ public struct MailStylePublicationRow: View, Equatable {
         self.onToggleRead = onToggleRead
         self.onCategoryTap = onCategoryTap
         self.onFileDrop = onFileDrop
+        // Swipe actions
+        self.onDelete = onDelete
+        self.onArchive = onArchive
+        self.onDismiss = onDismiss
+        self.isInInbox = isInInbox
+        // Context menu
+        self.onOpenPDF = onOpenPDF
+        self.onCopyCiteKey = onCopyCiteKey
+        self.onCopyBibTeX = onCopyBibTeX
+        self.onAddToCollection = onAddToCollection
+        self.onMuteAuthor = onMuteAuthor
+        self.onMutePaper = onMutePaper
+        self.collections = collections
+        self.hasPDF = hasPDF
+        // New context menu
+        self.onOpenInBrowser = onOpenInBrowser
+        self.onDownloadPDF = onDownloadPDF
+        self.onViewEditBibTeX = onViewEditBibTeX
+        self.onShare = onShare
+        self.onShareByEmail = onShareByEmail
+        self.onExploreReferences = onExploreReferences
+        self.onExploreCitations = onExploreCitations
+        self.onExploreSimilar = onExploreSimilar
+        self.onAddToLibrary = onAddToLibrary
+        self.libraries = libraries
     }
 
     // MARK: - Body
@@ -268,12 +424,71 @@ public struct MailStylePublicationRow: View, Equatable {
         .contextMenu {
             contextMenuContent
         }
+        #if os(iOS)
+        // Swipe actions (iOS only)
+        // Swipe LEFT (.trailing) = Dismiss (moves to dismissed library, like Mail archive)
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if let onDismiss = onDismiss {
+                Button {
+                    onDismiss()
+                } label: {
+                    Label("Dismiss", systemImage: "xmark.circle")
+                }
+                .tint(.orange)
+            }
+        }
+        // Swipe RIGHT (.leading) = Archive + Toggle Read
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            // Archive (green, leftmost)
+            if let onArchive = onArchive {
+                Button {
+                    onArchive()
+                } label: {
+                    Label("Archive", systemImage: "archivebox")
+                }
+                .tint(.green)
+            }
+
+            // Toggle Read (blue)
+            if let onToggleRead = onToggleRead {
+                Button {
+                    onToggleRead()
+                } label: {
+                    Label(
+                        isUnread ? "Read" : "Unread",
+                        systemImage: isUnread ? "envelope.open" : "envelope.badge"
+                    )
+                }
+                .tint(.blue)
+            }
+        }
+        #endif
     }
 
     // MARK: - Context Menu
 
     @ViewBuilder
     private var contextMenuContent: some View {
+        // SECTION 1: PDF Actions
+        pdfActionsSection
+
+        // SECTION 2: BibTeX
+        if let onViewEditBibTeX = onViewEditBibTeX {
+            Button {
+                onViewEditBibTeX()
+            } label: {
+                Label("View/Edit BibTeX", systemImage: "doc.plaintext")
+            }
+
+            Divider()
+        }
+
+        // SECTION 3: Share
+        shareSection
+
+        Divider()
+
+        // SECTION 4: Read Status
         if let onToggleRead = onToggleRead {
             Button {
                 onToggleRead()
@@ -283,22 +498,260 @@ public struct MailStylePublicationRow: View, Equatable {
                     systemImage: isUnread ? "envelope.open" : "envelope.badge"
                 )
             }
+        }
 
+        Divider()
+
+        // SECTION 5: Organization (Libraries & Collections)
+        organizationSection
+
+        // SECTION 6: Explore (References, Citations, Similar)
+        exploreSection
+
+        // SECTION 7: Inbox-specific actions
+        if isInInbox {
+            Divider()
+            inboxActionsSection
+        }
+
+        Divider()
+
+        // SECTION 8: Delete
+        if let onDelete = onDelete {
+            Button(role: .destructive) {
+                onDelete()
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    // MARK: - Context Menu Sections
+
+    @ViewBuilder
+    private var pdfActionsSection: some View {
+        // Open PDF (if available)
+        if hasPDF, let onOpenPDF = onOpenPDF {
+            Button {
+                onOpenPDF()
+            } label: {
+                Label("Open PDF", systemImage: "doc.text")
+            }
+        }
+
+        // Download PDF (if no PDF)
+        if !hasPDF, let onDownloadPDF = onDownloadPDF {
+            Button {
+                onDownloadPDF()
+            } label: {
+                Label("Download PDF", systemImage: "arrow.down.doc")
+            }
+        }
+
+        // Open in Browser submenu
+        if let onOpenInBrowser = onOpenInBrowser {
+            Menu {
+                // arXiv (if has arXiv ID)
+                if data.arxivID != nil {
+                    Button {
+                        onOpenInBrowser(.arxiv)
+                    } label: {
+                        Label(BrowserDestination.arxiv.displayName, systemImage: BrowserDestination.arxiv.systemImage)
+                    }
+                }
+
+                // ADS (if has bibcode)
+                if data.bibcode != nil {
+                    Button {
+                        onOpenInBrowser(.ads)
+                    } label: {
+                        Label(BrowserDestination.ads.displayName, systemImage: BrowserDestination.ads.systemImage)
+                    }
+                }
+
+                // DOI/Publisher (if has DOI)
+                if data.doi != nil {
+                    Button {
+                        onOpenInBrowser(.doi)
+                    } label: {
+                        Label(BrowserDestination.doi.displayName, systemImage: BrowserDestination.doi.systemImage)
+                    }
+                }
+            } label: {
+                Label("Open in Browser", systemImage: "safari")
+            }
+        }
+
+        if hasPDF || !hasPDF && onDownloadPDF != nil || onOpenInBrowser != nil {
             Divider()
         }
+    }
 
-        // Standard context menu items
-        Button {
-            copyTitle()
+    @ViewBuilder
+    private var shareSection: some View {
+        Menu {
+            // Share Paper (system share sheet)
+            if let onShare = onShare {
+                Button {
+                    onShare()
+                } label: {
+                    Label("Share Paper", systemImage: "square.and.arrow.up")
+                }
+            }
+
+            // Share by Email (with PDF + BibTeX)
+            if let onShareByEmail = onShareByEmail {
+                Button {
+                    onShareByEmail()
+                } label: {
+                    Label("Share by Email", systemImage: "envelope")
+                }
+            }
+
+            Divider()
+
+            // Copy Cite Key
+            if let onCopyCiteKey = onCopyCiteKey {
+                Button {
+                    onCopyCiteKey()
+                } label: {
+                    Label("Copy Cite Key", systemImage: "key")
+                }
+            }
+
+            // Copy BibTeX
+            if let onCopyBibTeX = onCopyBibTeX {
+                Button {
+                    onCopyBibTeX()
+                } label: {
+                    Label("Copy BibTeX", systemImage: "doc.on.doc")
+                }
+            }
+
+            // Copy Title
+            Button {
+                copyTitle()
+            } label: {
+                Label("Copy Title", systemImage: "doc.on.doc")
+            }
+
+            // Copy DOI
+            if let doi = data.doi {
+                Button {
+                    copyDOI(doi)
+                } label: {
+                    Label("Copy DOI", systemImage: "link")
+                }
+            }
         } label: {
-            Label("Copy Title", systemImage: "doc.on.doc")
+            Label("Share", systemImage: "square.and.arrow.up")
+        }
+    }
+
+    @ViewBuilder
+    private var organizationSection: some View {
+        // Add to Library menu
+        if !libraries.isEmpty, let onAddToLibrary = onAddToLibrary {
+            Menu {
+                ForEach(libraries, id: \.id) { library in
+                    Button {
+                        onAddToLibrary(library)
+                    } label: {
+                        Label(library.displayName, systemImage: "books.vertical")
+                    }
+                }
+            } label: {
+                Label("Add to Library", systemImage: "books.vertical.fill")
+            }
         }
 
-        if let doi = data.doi {
-            Button {
-                copyDOI(doi)
+        // Add to Collection menu
+        if !collections.isEmpty, let onAddToCollection = onAddToCollection {
+            Menu {
+                ForEach(collections, id: \.id) { collection in
+                    Button {
+                        onAddToCollection(collection)
+                    } label: {
+                        Text(collection.name)
+                    }
+                }
             } label: {
-                Label("Copy DOI", systemImage: "link")
+                Label("Add to Collection", systemImage: "folder.badge.plus")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var exploreSection: some View {
+        if onExploreReferences != nil || onExploreCitations != nil || onExploreSimilar != nil {
+            Menu {
+                if let onExploreReferences = onExploreReferences {
+                    Button {
+                        onExploreReferences()
+                    } label: {
+                        Label("Find References", systemImage: "doc.text.magnifyingglass")
+                    }
+                }
+
+                if let onExploreCitations = onExploreCitations {
+                    Button {
+                        onExploreCitations()
+                    } label: {
+                        Label("Find Citations", systemImage: "quote.bubble")
+                    }
+                }
+
+                if let onExploreSimilar = onExploreSimilar {
+                    Button {
+                        onExploreSimilar()
+                    } label: {
+                        Label("Find Similar Papers", systemImage: "rectangle.stack")
+                    }
+                }
+            } label: {
+                Label("Explore", systemImage: "sparkle.magnifyingglass")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var inboxActionsSection: some View {
+        if let onArchive = onArchive {
+            Button {
+                onArchive()
+            } label: {
+                Label("Archive to Library", systemImage: "archivebox")
+            }
+        }
+
+        if let onDismiss = onDismiss {
+            Button {
+                onDismiss()
+            } label: {
+                Label("Dismiss", systemImage: "xmark.circle")
+            }
+        }
+
+        // Mute options
+        if onMuteAuthor != nil || onMutePaper != nil {
+            Menu {
+                if let onMuteAuthor = onMuteAuthor {
+                    Button {
+                        onMuteAuthor()
+                    } label: {
+                        Label("Mute Author", systemImage: "person.slash")
+                    }
+                }
+
+                if let onMutePaper = onMutePaper {
+                    Button {
+                        onMutePaper()
+                    } label: {
+                        Label("Mute This Paper", systemImage: "doc.badge.ellipsis")
+                    }
+                }
+            } label: {
+                Label("Mute", systemImage: "bell.slash")
             }
         }
     }
@@ -377,6 +830,8 @@ extension PublicationRowData {
         citationCount: Int,
         referenceCount: Int = 0,
         doi: String?,
+        arxivID: String? = nil,
+        bibcode: String? = nil,
         venue: String? = nil,
         dateAdded: Date = Date(),
         dateModified: Date = Date(),
@@ -394,6 +849,8 @@ extension PublicationRowData {
         self.citationCount = citationCount
         self.referenceCount = referenceCount
         self.doi = doi
+        self.arxivID = arxivID
+        self.bibcode = bibcode
         self.venue = venue
         self.dateAdded = dateAdded
         self.dateModified = dateModified

@@ -507,8 +507,12 @@ public final class LibraryViewModel {
 
     /// Add publications by IDs to another library (publications can belong to multiple libraries)
     public func addToLibrary(_ ids: Set<UUID>, library: CDLibrary) async {
-        let toAdd = publications.filter { ids.contains($0.id) }
-        guard !toAdd.isEmpty else { return }
+        // Fetch publications directly from repository to avoid issues with faulted objects
+        let toAdd = await repository.fetch(byIDs: ids)
+        guard !toAdd.isEmpty else {
+            Logger.viewModels.warning("No publications found for IDs: \(ids)")
+            return
+        }
 
         await repository.addToLibrary(toAdd, library: library)
 
@@ -522,8 +526,12 @@ public final class LibraryViewModel {
 
     /// Add publications by IDs to a collection
     public func addToCollection(_ ids: Set<UUID>, collection: CDCollection) async {
-        let toAdd = publications.filter { ids.contains($0.id) }
-        guard !toAdd.isEmpty else { return }
+        // Fetch publications directly from repository to avoid issues with faulted objects
+        let toAdd = await repository.fetch(byIDs: ids)
+        guard !toAdd.isEmpty else {
+            Logger.viewModels.warning("No publications found for IDs: \(ids)")
+            return
+        }
 
         await repository.addPublications(toAdd, to: collection)
         Logger.viewModels.infoCapture("Added \(toAdd.count) publications to \(collection.name)", category: "library")
@@ -534,8 +542,12 @@ public final class LibraryViewModel {
 
     /// Remove publications from all collections (return to "All Publications")
     public func removeFromAllCollections(_ ids: Set<UUID>) async {
-        let toRemove = publications.filter { ids.contains($0.id) }
-        guard !toRemove.isEmpty else { return }
+        // Fetch publications directly from repository to avoid issues with faulted objects
+        let toRemove = await repository.fetch(byIDs: ids)
+        guard !toRemove.isEmpty else {
+            Logger.viewModels.warning("No publications found for IDs: \(ids)")
+            return
+        }
 
         await repository.removeFromAllCollections(toRemove)
         Logger.viewModels.infoCapture("Removed \(toRemove.count) publications from all collections", category: "library")
@@ -543,8 +555,12 @@ public final class LibraryViewModel {
 
     /// Remove publications from a specific library
     public func removeFromLibrary(_ ids: Set<UUID>, library: CDLibrary) async {
-        let toRemove = publications.filter { ids.contains($0.id) }
-        guard !toRemove.isEmpty else { return }
+        // Fetch publications directly from repository to avoid issues with faulted objects
+        let toRemove = await repository.fetch(byIDs: ids)
+        guard !toRemove.isEmpty else {
+            Logger.viewModels.warning("No publications found for IDs: \(ids)")
+            return
+        }
 
         await repository.removeFromLibrary(toRemove, library: library)
         Logger.viewModels.infoCapture("Removed \(toRemove.count) publications from \(library.displayName)", category: "library")

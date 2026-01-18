@@ -358,6 +358,34 @@ public enum ADSSearchFieldCategory: String, CaseIterable {
     }
 }
 
+// MARK: - Year Picker
+
+/// A picker for selecting a year with optional "Any" value
+public struct YearPicker: View {
+    let label: String
+    @Binding var selection: Int?
+
+    private let currentYear = Calendar.current.component(.year, from: Date())
+    private let startYear = 1800
+
+    public init(_ label: String, selection: Binding<Int?>) {
+        self.label = label
+        self._selection = selection
+    }
+
+    public var body: some View {
+        Picker(label, selection: $selection) {
+            Text("Any").tag(nil as Int?)
+            ForEach((startYear...currentYear).reversed(), id: \.self) { year in
+                Text(String(year)).tag(year as Int?)
+            }
+        }
+        #if os(macOS)
+        .pickerStyle(.menu)
+        #endif
+    }
+}
+
 #if os(macOS)
 
 // MARK: - ADS Search Field Picker
@@ -542,34 +570,6 @@ struct ADSSearchFieldInfoView: View {
         } else {
             onInsert("\(field.syntax)\(formattedValue)")
         }
-    }
-}
-
-// MARK: - Year Picker
-
-/// A picker for selecting a year with optional "Any" value
-public struct YearPicker: View {
-    let label: String
-    @Binding var selection: Int?
-
-    private let currentYear = Calendar.current.component(.year, from: Date())
-    private let startYear = 1800
-
-    public init(_ label: String, selection: Binding<Int?>) {
-        self.label = label
-        self._selection = selection
-    }
-
-    public var body: some View {
-        Picker(label, selection: $selection) {
-            Text("Any").tag(nil as Int?)
-            ForEach((startYear...currentYear).reversed(), id: \.self) { year in
-                Text(String(year)).tag(year as Int?)
-            }
-        }
-        #if os(macOS)
-        .pickerStyle(.menu)
-        #endif
     }
 }
 
@@ -1418,4 +1418,190 @@ public struct ADSClassicSearchFormView: View {
     }
 }
 
-#endif  // os(macOS)
+#elseif os(iOS)
+
+// MARK: - iOS ADS Classic Search Form View
+
+/// Form-only view for iOS
+public struct ADSClassicSearchFormView: View {
+
+    @Environment(SearchViewModel.self) private var searchViewModel
+    @Environment(LibraryManager.self) private var libraryManager
+
+    @State private var isAddingToInbox: Bool = false
+
+    public init() {}
+
+    public var body: some View {
+        @Bindable var viewModel = searchViewModel
+
+        Form {
+            // Authors Section
+            Section("Authors") {
+                TextEditor(text: $viewModel.classicFormState.authors)
+                    .frame(minHeight: 80)
+                Text("One author per line (Last, First M)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            // Objects Section
+            Section("Objects") {
+                TextField("SIMBAD/NED object names", text: $viewModel.classicFormState.objects)
+            }
+
+            // Title Section
+            Section("Title") {
+                TextField("Title words", text: $viewModel.classicFormState.titleWords)
+                Picker("Logic", selection: $viewModel.classicFormState.titleLogic) {
+                    Text("AND").tag(QueryLogic.and)
+                    Text("OR").tag(QueryLogic.or)
+                }
+                .pickerStyle(.segmented)
+            }
+
+            // Abstract Section
+            Section("Abstract / Keywords") {
+                TextField("Abstract words", text: $viewModel.classicFormState.abstractWords)
+                Picker("Logic", selection: $viewModel.classicFormState.abstractLogic) {
+                    Text("AND").tag(QueryLogic.and)
+                    Text("OR").tag(QueryLogic.or)
+                }
+                .pickerStyle(.segmented)
+            }
+
+            // Year Section
+            Section("Publication Date") {
+                HStack {
+                    Text("From")
+                    Spacer()
+                    YearPicker("", selection: $viewModel.classicFormState.yearFrom)
+                }
+                HStack {
+                    Text("To")
+                    Spacer()
+                    YearPicker("", selection: $viewModel.classicFormState.yearTo)
+                }
+            }
+
+            // Database Section
+            Section("Database") {
+                Picker("Collection", selection: $viewModel.classicFormState.database) {
+                    ForEach(ADSDatabase.allCases, id: \.self) { db in
+                        Text(db.displayName).tag(db)
+                    }
+                }
+                .pickerStyle(.segmented)
+            }
+
+            // Filters Section
+            Section("Filters") {
+                Toggle("Refereed only", isOn: $viewModel.classicFormState.refereedOnly)
+                Toggle("Articles only", isOn: $viewModel.classicFormState.articlesOnly)
+            }
+
+            // Edit mode indicator
+            if searchViewModel.isEditMode, let smartSearch = searchViewModel.editingSmartSearch {
+                Section {
+                    HStack {
+                        Image(systemName: "pencil.circle.fill")
+                            .foregroundStyle(.orange)
+                        Text("Editing: \(smartSearch.name)")
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Cancel") {
+                            searchViewModel.exitEditMode()
+                        }
+                        .foregroundStyle(.red)
+                    }
+                }
+            }
+
+            // Action Buttons
+            Section {
+                if searchViewModel.isEditMode {
+                    Button("Save") {
+                        searchViewModel.saveToSmartSearch()
+                    }
+                    .frame(maxWidth: .infinity)
+                    .disabled(isFormEmpty)
+                } else {
+                    Button {
+                        performSearch()
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Text("Search")
+                            Spacer()
+                        }
+                    }
+                    .disabled(isFormEmpty)
+
+                    Button {
+                        addToInbox()
+                    } label: {
+                        HStack {
+                            Spacer()
+                            if isAddingToInbox {
+                                ProgressView()
+                            } else {
+                                Text("Add to Inbox")
+                            }
+                            Spacer()
+                        }
+                    }
+                    .disabled(isFormEmpty || isAddingToInbox)
+                }
+
+                Button("Clear", role: .destructive) {
+                    searchViewModel.classicFormState.clear()
+                }
+                .frame(maxWidth: .infinity)
+            }
+        }
+        .navigationTitle("ADS Classic")
+        .task {
+            searchViewModel.setLibraryManager(libraryManager)
+        }
+    }
+
+    private var isFormEmpty: Bool {
+        searchViewModel.classicFormState.isEmpty
+    }
+
+    private func performSearch() {
+        let state = searchViewModel.classicFormState
+        let query = SearchFormQueryBuilder.buildClassicQuery(
+            authors: state.authors,
+            objects: state.objects,
+            titleWords: state.titleWords,
+            titleLogic: state.titleLogic,
+            abstractWords: state.abstractWords,
+            abstractLogic: state.abstractLogic,
+            yearFrom: state.yearFrom,
+            yearTo: state.yearTo,
+            database: state.database,
+            refereedOnly: state.refereedOnly,
+            articlesOnly: state.articlesOnly
+        )
+        searchViewModel.query = query
+        searchViewModel.selectedSourceIDs = Set(state.database.sourceIDs)
+        Task {
+            await searchViewModel.search()
+        }
+    }
+
+    private func addToInbox() {
+        isAddingToInbox = true
+        performSearch()
+        Task {
+            let inboxManager = InboxManager.shared
+            for publication in searchViewModel.publications {
+                inboxManager.addToInbox(publication)
+            }
+            isAddingToInbox = false
+        }
+    }
+}
+
+#endif  // os(macOS/iOS)

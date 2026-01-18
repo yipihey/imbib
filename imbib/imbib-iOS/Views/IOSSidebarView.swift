@@ -221,6 +221,9 @@ struct IOSSidebarView: View {
                     explorationSectionContent
                 }
             }
+        case .dismissed:
+            // Dismissed section (not implemented on iOS yet)
+            EmptyView()
         }
     }
 

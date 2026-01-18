@@ -72,6 +72,11 @@ targets:
         com.apple.security.network.client: true
         com.apple.security.application-groups:
           - group.com.imbib.app
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.imbib.app
+        com.apple.developer.icloud-services:
+          - CloudKit
+        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)com.imbib.app
 
   # iOS App
   imbib-iOS:
@@ -96,6 +101,18 @@ targets:
           - CFBundleURLName: com.imbib.app
             CFBundleURLSchemes:
               - imbib
+        UILaunchScreen:
+          UIColorName: AccentColor
+        UIRequiresFullScreen: true
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
     settings:
       base:
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
@@ -112,6 +129,11 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.com.imbib.app
+        com.apple.developer.icloud-container-identifiers:
+          - iCloud.com.imbib.app
+        com.apple.developer.icloud-services:
+          - CloudKit
+        com.apple.developer.ubiquity-kvstore-identifier: $(TeamIdentifierPrefix)com.imbib.app
 
   # macOS Share Extension
   imbib-ShareExtension:

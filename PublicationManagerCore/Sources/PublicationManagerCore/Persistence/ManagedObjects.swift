@@ -8,6 +8,10 @@
 import Foundation
 import CoreData
 
+#if os(iOS)
+import UIKit
+#endif
+
 // MARK: - Publication
 
 @objc(CDPublication)

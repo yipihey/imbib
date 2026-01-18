@@ -61,7 +61,12 @@ public final class PersistenceController: @unchecked Sendable {
 
     // MARK: - Shared Instance
 
-    public static let shared = PersistenceController()
+    // TODO: Re-enable CloudKit after setting up container in Apple Developer Console
+    // CloudKit requires creating the container at: https://developer.apple.com/account/resources/identifiers/list/cloudContainers
+    public static let shared = PersistenceController(
+        configuration: .default  // Temporarily disabled CloudKit for debugging
+        // configuration: .withCloudKit(containerID: "iCloud.com.imbib.app")
+    )
 
     // MARK: - Preview Instance
 
@@ -302,6 +307,7 @@ public final class PersistenceController: @unchecked Sendable {
         id.name = "id"
         id.attributeType = .UUIDAttributeType
         id.isOptional = false
+        id.defaultValue = UUID()  // CloudKit requires default value
         properties.append(id)
 
         // Core fields
@@ -309,6 +315,7 @@ public final class PersistenceController: @unchecked Sendable {
         citeKey.name = "citeKey"
         citeKey.attributeType = .stringAttributeType
         citeKey.isOptional = false
+        citeKey.defaultValue = ""  // CloudKit requires default value
         properties.append(citeKey)
 
         let entryType = NSAttributeDescription()
@@ -534,12 +541,14 @@ public final class PersistenceController: @unchecked Sendable {
         id.name = "id"
         id.attributeType = .UUIDAttributeType
         id.isOptional = false
+        id.defaultValue = UUID()  // CloudKit requires default value
         properties.append(id)
 
         let familyName = NSAttributeDescription()
         familyName.name = "familyName"
         familyName.attributeType = .stringAttributeType
         familyName.isOptional = false
+        familyName.defaultValue = ""  // CloudKit requires default value
         properties.append(familyName)
 
         let givenName = NSAttributeDescription()
@@ -587,18 +596,21 @@ public final class PersistenceController: @unchecked Sendable {
         id.name = "id"
         id.attributeType = .UUIDAttributeType
         id.isOptional = false
+        id.defaultValue = UUID()  // CloudKit requires default value
         properties.append(id)
 
         let relativePath = NSAttributeDescription()
         relativePath.name = "relativePath"
         relativePath.attributeType = .stringAttributeType
         relativePath.isOptional = false
+        relativePath.defaultValue = ""  // CloudKit requires default value
         properties.append(relativePath)
 
         let filename = NSAttributeDescription()
         filename.name = "filename"
         filename.attributeType = .stringAttributeType
         filename.isOptional = false
+        filename.defaultValue = ""  // CloudKit requires default value
         properties.append(filename)
 
         let fileType = NSAttributeDescription()
@@ -658,12 +670,14 @@ public final class PersistenceController: @unchecked Sendable {
         id.name = "id"
         id.attributeType = .UUIDAttributeType
         id.isOptional = false
+        id.defaultValue = UUID()  // CloudKit requires default value
         properties.append(id)
 
         let name = NSAttributeDescription()
         name.name = "name"
         name.attributeType = .stringAttributeType
         name.isOptional = false
+        name.defaultValue = ""  // CloudKit requires default value
         properties.append(name)
 
         let color = NSAttributeDescription()
@@ -687,12 +701,14 @@ public final class PersistenceController: @unchecked Sendable {
         id.name = "id"
         id.attributeType = .UUIDAttributeType
         id.isOptional = false
+        id.defaultValue = UUID()  // CloudKit requires default value
         properties.append(id)
 
         let name = NSAttributeDescription()
         name.name = "name"
         name.attributeType = .stringAttributeType
         name.isOptional = false
+        name.defaultValue = ""  // CloudKit requires default value
         properties.append(name)
 
         let color = NSAttributeDescription()
@@ -723,12 +739,14 @@ public final class PersistenceController: @unchecked Sendable {
         id.name = "id"
         id.attributeType = .UUIDAttributeType
         id.isOptional = false
+        id.defaultValue = UUID()  // CloudKit requires default value
         properties.append(id)
 
         let name = NSAttributeDescription()
         name.name = "name"
         name.attributeType = .stringAttributeType
         name.isOptional = false
+        name.defaultValue = ""  // CloudKit requires default value
         properties.append(name)
 
         let isSmartCollection = NSAttributeDescription()
@@ -774,6 +792,7 @@ public final class PersistenceController: @unchecked Sendable {
         id.name = "id"
         id.attributeType = .UUIDAttributeType
         id.isOptional = false
+        id.defaultValue = UUID()  // CloudKit requires default value
         properties.append(id)
 
         let name = NSAttributeDescription()
@@ -874,18 +893,21 @@ public final class PersistenceController: @unchecked Sendable {
         id.name = "id"
         id.attributeType = .UUIDAttributeType
         id.isOptional = false
+        id.defaultValue = UUID()  // CloudKit requires default value
         properties.append(id)
 
         let name = NSAttributeDescription()
         name.name = "name"
         name.attributeType = .stringAttributeType
         name.isOptional = false
+        name.defaultValue = ""  // CloudKit requires default value
         properties.append(name)
 
         let query = NSAttributeDescription()
         query.name = "query"
         query.attributeType = .stringAttributeType
         query.isOptional = false
+        query.defaultValue = ""  // CloudKit requires default value
         properties.append(query)
 
         let sourceIDs = NSAttributeDescription()
@@ -966,18 +988,21 @@ public final class PersistenceController: @unchecked Sendable {
         id.name = "id"
         id.attributeType = .UUIDAttributeType
         id.isOptional = false
+        id.defaultValue = UUID()  // CloudKit requires default value
         properties.append(id)
 
         let type = NSAttributeDescription()
         type.name = "type"
         type.attributeType = .stringAttributeType
         type.isOptional = false
+        type.defaultValue = ""  // CloudKit requires default value
         properties.append(type)
 
         let value = NSAttributeDescription()
         value.name = "value"
         value.attributeType = .stringAttributeType
         value.isOptional = false
+        value.defaultValue = ""  // CloudKit requires default value
         properties.append(value)
 
         let dateAdded = NSAttributeDescription()
@@ -1002,6 +1027,7 @@ public final class PersistenceController: @unchecked Sendable {
         id.name = "id"
         id.attributeType = .UUIDAttributeType
         id.isOptional = false
+        id.defaultValue = UUID()  // CloudKit requires default value
         properties.append(id)
 
         let doi = NSAttributeDescription()
@@ -1057,12 +1083,14 @@ public final class PersistenceController: @unchecked Sendable {
         id.name = "id"
         id.attributeType = .UUIDAttributeType
         id.isOptional = false
+        id.defaultValue = UUID()  // CloudKit requires default value
         properties.append(id)
 
         let remoteID = NSAttributeDescription()
         remoteID.name = "remoteID"
         remoteID.attributeType = .stringAttributeType
         remoteID.isOptional = false
+        remoteID.defaultValue = ""  // CloudKit requires default value
         properties.append(remoteID)
 
         let name = NSAttributeDescription()
@@ -1154,6 +1182,7 @@ public final class PersistenceController: @unchecked Sendable {
         id.name = "id"
         id.attributeType = .UUIDAttributeType
         id.isOptional = false
+        id.defaultValue = UUID()  // CloudKit requires default value
         properties.append(id)
 
         let action = NSAttributeDescription()
@@ -1200,6 +1229,7 @@ public final class PersistenceController: @unchecked Sendable {
         id.name = "id"
         id.attributeType = .UUIDAttributeType
         id.isOptional = false
+        id.defaultValue = UUID()  // CloudKit requires default value
         properties.append(id)
 
         // Annotation type (highlight, underline, strikethrough, note, freeText)
@@ -1223,6 +1253,7 @@ public final class PersistenceController: @unchecked Sendable {
         boundsJSON.name = "boundsJSON"
         boundsJSON.attributeType = .stringAttributeType
         boundsJSON.isOptional = false
+        boundsJSON.defaultValue = "{}"  // CloudKit requires default value
         properties.append(boundsJSON)
 
         // Color (hex string like "#FFFF00")
@@ -1476,7 +1507,7 @@ public final class PersistenceController: @unchecked Sendable {
         authorToPub.name = "publication"
         authorToPub.destinationEntity = publication
         authorToPub.maxCount = 1
-        authorToPub.isOptional = false
+        authorToPub.isOptional = true  // CloudKit requires optional relationships
         authorToPub.deleteRule = .nullifyDeleteRule
 
         pubToAuthors.inverseRelationship = authorToPub
@@ -1487,7 +1518,7 @@ public final class PersistenceController: @unchecked Sendable {
         paToAuthor.name = "author"
         paToAuthor.destinationEntity = author
         paToAuthor.maxCount = 1
-        paToAuthor.isOptional = false
+        paToAuthor.isOptional = true  // CloudKit requires optional relationships
         paToAuthor.deleteRule = .nullifyDeleteRule
 
         let authorToPAs = NSRelationshipDescription()
@@ -1510,7 +1541,7 @@ public final class PersistenceController: @unchecked Sendable {
         fileToPub.name = "publication"
         fileToPub.destinationEntity = publication
         fileToPub.maxCount = 1
-        fileToPub.isOptional = false
+        fileToPub.isOptional = true  // CloudKit requires optional relationships
         fileToPub.deleteRule = .nullifyDeleteRule
 
         pubToFiles.inverseRelationship = fileToPub

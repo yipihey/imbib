@@ -91,13 +91,7 @@ public final class AnnotationPersistence {
         }
 
         // Save color as hex
-        #if os(macOS)
         cdAnnotation.color = pdfAnnotation.color.hexString
-        #else
-        if let color = pdfAnnotation.color {
-            cdAnnotation.color = color.hexString
-        }
-        #endif
 
         // Save contents
         cdAnnotation.contents = pdfAnnotation.contents
@@ -149,13 +143,7 @@ public final class AnnotationPersistence {
             }
 
             // Color
-            #if os(macOS)
             cdAnnotation.color = item.annotation.color.hexString
-            #else
-            if let color = item.annotation.color {
-                cdAnnotation.color = color.hexString
-            }
-            #endif
 
             // Contents
             cdAnnotation.contents = item.annotation.contents
