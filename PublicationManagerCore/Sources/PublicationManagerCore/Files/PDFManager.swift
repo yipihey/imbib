@@ -518,12 +518,16 @@ public final class AttachmentManager: ObservableObject {
     // MARK: - File Operations
 
     /// Get the absolute URL for a linked file.
+    ///
+    /// With iCloud-only storage, files are resolved relative to the library's
+    /// container URL (`~/Library/Application Support/imbib/Libraries/{UUID}/`).
     public func resolveURL(for linkedFile: CDLinkedFile, in library: CDLibrary?) -> URL? {
-        guard let baseURL = library?.resolveURL()?.deletingLastPathComponent() else {
-            // Fall back to app support directory
-            return applicationSupportURL?.appendingPathComponent(linkedFile.relativePath)
+        if let library = library {
+            // Use the library's container URL as base
+            return library.containerURL.appendingPathComponent(linkedFile.relativePath)
         }
-        return baseURL.appendingPathComponent(linkedFile.relativePath)
+        // Fall back to app support directory for default library
+        return applicationSupportURL?.appendingPathComponent("DefaultLibrary/\(linkedFile.relativePath)")
     }
 
     /// Delete a linked file from disk and Core Data.
@@ -647,20 +651,24 @@ public final class AttachmentManager: ObservableObject {
     // MARK: - Private Helpers
 
     /// Resolve the Papers directory for a library.
+    ///
+    /// With iCloud-only storage, all PDFs are stored in the app container at:
+    /// `~/Library/Application Support/imbib/Libraries/{UUID}/Papers/`
+    ///
+    /// This eliminates sandbox complexity since files in the app container
+    /// are always accessible without security-scoped bookmarks.
     private func resolvePapersDirectory(for library: CDLibrary?) throws -> URL {
         let papersURL: URL
 
-        if let library, let papersPath = library.papersDirectoryPath {
-            papersURL = URL(fileURLWithPath: papersPath)
-        } else if let library, let bibURL = library.resolveURL() {
-            // Papers folder next to .bib file
-            papersURL = bibURL.deletingLastPathComponent().appendingPathComponent(papersFolderName)
+        if let library = library {
+            // Use the library's container-based Papers directory
+            papersURL = library.papersContainerURL
         } else {
-            // Fall back to app support
+            // Fall back to default Papers directory in app support
             guard let appSupport = applicationSupportURL else {
                 throw PDFError.noPapersDirectory
             }
-            papersURL = appSupport.appendingPathComponent(papersFolderName)
+            papersURL = appSupport.appendingPathComponent("DefaultLibrary/\(papersFolderName)")
         }
 
         // Create directory if needed

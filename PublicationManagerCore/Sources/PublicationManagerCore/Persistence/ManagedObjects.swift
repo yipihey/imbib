@@ -811,8 +811,31 @@ public extension CDLibrary {
     }
 
     /// Folder URL where the library's files are stored (parent directory of .bib file)
+    @available(*, deprecated, message: "Use papersContainerURL instead for iCloud-only storage")
     var folderURL: URL? {
         resolveURL()?.deletingLastPathComponent()
+    }
+
+    // MARK: - Container-Based Storage (iCloud-Only)
+
+    /// App container URL for this library's data.
+    ///
+    /// All library files (PDFs, etc.) are stored in the app's Application Support directory
+    /// under `Libraries/{libraryID}/`. This eliminates sandbox complexity and ensures
+    /// files are always accessible without security-scoped bookmarks.
+    ///
+    /// Path: `~/Library/Application Support/imbib/Libraries/{UUID}/`
+    var containerURL: URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("imbib")
+        return base.appendingPathComponent("Libraries/\(id.uuidString)")
+    }
+
+    /// Papers directory within the app container for this library.
+    ///
+    /// Path: `~/Library/Application Support/imbib/Libraries/{UUID}/Papers/`
+    var papersContainerURL: URL {
+        containerURL.appendingPathComponent("Papers")
     }
 }
 

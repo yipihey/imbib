@@ -202,6 +202,16 @@ public actor ListViewStateStore {
         Logger.viewModels.debugCapture("Cleared list view state for \(cacheKey)", category: "viewstate")
     }
 
+    /// Clear only the selection (preserving sort order and filters)
+    /// Used when navigating back from detail view to prevent re-selection
+    public func clearSelection(for listID: ListViewID) {
+        var state = get(for: listID) ?? ListViewState()
+        state.selectedPublicationID = nil
+        state.lastVisitedDate = Date()
+        save(state, for: listID)
+        Logger.viewModels.debugCapture("Cleared selection for \(listID.storageKey)", category: "viewstate")
+    }
+
     /// Clear all list view states (for testing)
     public func clearAll() {
         cache.removeAll()

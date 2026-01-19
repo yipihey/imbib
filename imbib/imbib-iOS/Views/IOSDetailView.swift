@@ -40,6 +40,7 @@ enum IOSDetailTab: String, CaseIterable {
 struct DetailView: View {
     let publication: CDPublication
     let libraryID: UUID
+    let listID: ListViewID?
     @Binding var selectedPublication: CDPublication?
 
     @Environment(LibraryViewModel.self) private var libraryViewModel
@@ -49,12 +50,13 @@ struct DetailView: View {
     @State private var selectedTab: IOSDetailTab = .info
     @State private var isPDFFullscreen: Bool = false
 
-    init?(publication: CDPublication, libraryID: UUID, selectedPublication: Binding<CDPublication?>) {
+    init?(publication: CDPublication, libraryID: UUID, selectedPublication: Binding<CDPublication?>, listID: ListViewID? = nil) {
         guard !publication.isDeleted, publication.managedObjectContext != nil else {
             return nil
         }
         self.publication = publication
         self.libraryID = libraryID
+        self.listID = listID
         self._selectedPublication = selectedPublication
     }
 
@@ -96,9 +98,15 @@ struct DetailView: View {
             }
         }
         .onDisappear {
-            // Clear selection when navigating back to prevent re-selection
-            // This handles both system back button and swipe gesture
-            selectedPublication = nil
+            // Clear persisted state to prevent loadState() from re-selecting on view reload
+            // Note: We do NOT set selectedPublication = nil here because:
+            // 1. onDisappear can fire during push animations, not just pops
+            // 2. navigationDestination(item:) automatically manages the binding when user taps back
+            if let listID = listID {
+                Task {
+                    await ListViewStateStore.shared.clearSelection(for: listID)
+                }
+            }
         }
     }
 

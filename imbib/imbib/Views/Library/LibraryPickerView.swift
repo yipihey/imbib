@@ -18,7 +18,6 @@ struct LibraryPickerView: View {
     // MARK: - State
 
     @State private var showingNewLibrary = false
-    @State private var showingOpenPanel = false
     @State private var newLibraryName = ""
 
     // MARK: - Body
@@ -45,14 +44,6 @@ struct LibraryPickerView: View {
                     } label: {
                         Label("New Library", systemImage: "plus")
                     }
-
-                    #if os(macOS)
-                    Button {
-                        openExistingLibrary()
-                    } label: {
-                        Label("Open Existing...", systemImage: "folder")
-                    }
-                    #endif
                 }
             }
             .navigationTitle("Libraries")
@@ -90,26 +81,6 @@ struct LibraryPickerView: View {
         newLibraryName = ""
         dismiss()
     }
-
-    #if os(macOS)
-    private func openExistingLibrary() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.init(filenameExtension: "bib")!]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.message = "Select a BibTeX library file"
-
-        if panel.runModal() == .OK, let url = panel.url {
-            do {
-                let library = try libraryManager.openLibrary(at: url)
-                libraryManager.setActive(library)
-                dismiss()
-            } catch {
-                print("Failed to open library: \(error)")
-            }
-        }
-    }
-    #endif
 }
 
 // MARK: - Library Row

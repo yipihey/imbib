@@ -609,15 +609,21 @@ public struct PublicationListView: View {
             }
             showUnreadOnly = state.showUnreadOnly
 
+            // On iOS, don't restore selection - it would trigger navigation via navigationDestination
+            // On macOS, restore selection for the detail column display
+            #if os(macOS)
             // Restore selection if publication still exists and is valid
             if let selectedID = state.selectedPublicationID,
                let publication = publicationsByID[selectedID],  // O(1) lookup instead of O(n)
                !publication.isDeleted,
                publication.managedObjectContext != nil {
                 selection = [selectedID]
-                // Also update selectedPublication directly - onChange may not fire during initial load
+                // Also update selectedPublication directly for macOS detail column
                 selectedPublication = publication
             }
+            #endif
+            // On iOS, selection restoration is skipped to prevent automatic navigation
+            // Users tap to select and navigate; persisted state is used for sort/filter only
         }
 
         hasLoadedState = true

@@ -64,7 +64,7 @@ struct IOSContentView: View {
                 // Use navigationDestination for proper iPhone stack navigation
                 .navigationDestination(item: $selectedPublication) { publication in
                     if let libraryID = selectedLibraryID,
-                       let detail = DetailView(publication: publication, libraryID: libraryID, selectedPublication: $selectedPublication) {
+                       let detail = DetailView(publication: publication, libraryID: libraryID, selectedPublication: $selectedPublication, listID: currentListID) {
                         detail
                     }
                 }
@@ -259,7 +259,7 @@ struct IOSContentView: View {
            !publication.isDeleted,
            publication.managedObjectContext != nil,
            let libraryID = selectedLibraryID,
-           let detail = DetailView(publication: publication, libraryID: libraryID, selectedPublication: $selectedPublication) {
+           let detail = DetailView(publication: publication, libraryID: libraryID, selectedPublication: $selectedPublication, listID: currentListID) {
             detail
         } else {
             ContentUnavailableView(
@@ -283,6 +283,26 @@ struct IOSContentView: View {
             return smartSearch.library?.id
         case .collection(let collection):
             return collection.effectiveLibrary?.id
+        default:
+            return nil
+        }
+    }
+
+    /// Derive the ListViewID from current section for state persistence
+    private var currentListID: ListViewID? {
+        switch selectedSection {
+        case .inbox:
+            return InboxManager.shared.inboxLibrary.map { .library($0.id) }
+        case .inboxFeed(let smartSearch):
+            return .smartSearch(smartSearch.id)
+        case .library(let library):
+            return .library(library.id)
+        case .smartSearch(let smartSearch):
+            return .smartSearch(smartSearch.id)
+        case .collection(let collection):
+            return .collection(collection.id)
+        case .scixLibrary(let library):
+            return .scixLibrary(library.id)
         default:
             return nil
         }

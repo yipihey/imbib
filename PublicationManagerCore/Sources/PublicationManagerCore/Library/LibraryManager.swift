@@ -100,13 +100,15 @@ public final class LibraryManager {
 
     // MARK: - Library Management
 
-    /// Create a new library
+    /// Create a new library with iCloud storage.
+    ///
+    /// Libraries are stored in the app container and synced via CloudKit.
+    /// This eliminates sandbox complexity from user-selected folders.
+    ///
+    /// - Parameter name: Display name for the library
+    /// - Returns: The created CDLibrary entity
     @discardableResult
-    public func createLibrary(
-        name: String,
-        bibFileURL: URL? = nil,
-        papersDirectoryURL: URL? = nil
-    ) -> CDLibrary {
+    public func createLibrary(name: String) -> CDLibrary {
         Logger.library.infoCapture("Creating library: \(name)", category: "library")
 
         let context = persistenceController.viewContext
@@ -114,22 +116,17 @@ public final class LibraryManager {
         let library = CDLibrary(context: context)
         library.id = UUID()
         library.name = name
-        library.bibFilePath = bibFileURL?.path
-        library.papersDirectoryPath = papersDirectoryURL?.path
         library.dateCreated = Date()
         library.isDefault = libraries.isEmpty  // First library is default
 
-        // Create security-scoped bookmark if URL provided (macOS only)
-        #if os(macOS)
-        if let url = bibFileURL {
-            library.bookmarkData = try? url.bookmarkData(
-                options: .withSecurityScope,
-                includingResourceValuesForKeys: nil,
-                relativeTo: nil
-            )
-            Logger.library.debugCapture("Created security-scoped bookmark for: \(url.lastPathComponent)", category: "library")
+        // Create the Papers directory in the app container
+        let papersURL = library.papersContainerURL
+        do {
+            try FileManager.default.createDirectory(at: papersURL, withIntermediateDirectories: true)
+            Logger.library.debugCapture("Created Papers directory: \(papersURL.path)", category: "library")
+        } catch {
+            Logger.library.warningCapture("Failed to create Papers directory: \(error.localizedDescription)", category: "library")
         }
-        #endif
 
         persistenceController.save()
         loadLibraries()
@@ -138,50 +135,16 @@ public final class LibraryManager {
         return library
     }
 
-    /// Open an existing .bib file as a library
+    /// Legacy method for backward compatibility.
+    @available(*, deprecated, message: "Use createLibrary(name:) instead - local folder storage is no longer supported")
     @discardableResult
-    public func openLibrary(at url: URL) throws -> CDLibrary {
-        Logger.library.infoCapture("Opening library at: \(url.lastPathComponent)", category: "library")
-
-        // Check if already open
-        if let existing = libraries.first(where: { $0.bibFilePath == url.path }) {
-            Logger.library.debugCapture("Library already open, switching to: \(existing.displayName)", category: "library")
-            setActive(existing)
-            return existing
-        }
-
-        #if os(macOS)
-        // Create security-scoped bookmark (macOS only)
-        guard url.startAccessingSecurityScopedResource() else {
-            Logger.library.errorCapture("Access denied to: \(url.lastPathComponent)", category: "library")
-            throw LibraryError.accessDenied(url)
-        }
-        defer { url.stopAccessingSecurityScopedResource() }
-
-        let bookmarkData = try url.bookmarkData(
-            options: .withSecurityScope,
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        )
-
-        let library = createLibrary(
-            name: url.deletingPathExtension().lastPathComponent,
-            bibFileURL: url
-        )
-        library.bookmarkData = bookmarkData
-        #else
-        // iOS: Files are accessed via document picker, no security scoping needed
-        let library = createLibrary(
-            name: url.deletingPathExtension().lastPathComponent,
-            bibFileURL: url
-        )
-        #endif
-
-        persistenceController.save()
-        setActive(library)
-
-        Logger.library.infoCapture("Opened library: \(library.displayName)", category: "library")
-        return library
+    public func createLibrary(
+        name: String,
+        bibFileURL: URL?,
+        papersDirectoryURL: URL?
+    ) -> CDLibrary {
+        // Ignore file URLs and just create a container-based library
+        return createLibrary(name: name)
     }
 
     /// Set the active library
@@ -213,20 +176,19 @@ public final class LibraryManager {
         loadLibraries()
     }
 
-    /// Delete a library and optionally its files
+    /// Delete a library and optionally its files.
+    ///
+    /// With iCloud-only storage, files are stored in the app container under
+    /// `Libraries/{UUID}/`. Setting `deleteFiles: true` removes this directory.
     public func deleteLibrary(_ library: CDLibrary, deleteFiles: Bool = false) throws {
         Logger.library.warningCapture("Deleting library: \(library.displayName), deleteFiles: \(deleteFiles)", category: "library")
 
         if deleteFiles {
-            // Delete .bib file
-            if let path = library.bibFilePath {
-                try? FileManager.default.removeItem(atPath: path)
-                Logger.library.debugCapture("Deleted .bib file: \(path)", category: "library")
-            }
-            // Delete Papers directory
-            if let path = library.papersDirectoryPath {
-                try? FileManager.default.removeItem(atPath: path)
-                Logger.library.debugCapture("Deleted Papers directory: \(path)", category: "library")
+            // Delete the library's container directory (includes Papers/)
+            let containerURL = library.containerURL
+            if FileManager.default.fileExists(atPath: containerURL.path) {
+                try? FileManager.default.removeItem(at: containerURL)
+                Logger.library.debugCapture("Deleted library container: \(containerURL.path)", category: "library")
             }
         }
 
@@ -550,6 +512,38 @@ public final class LibraryManager {
 
         context.delete(collection)
         persistenceController.save()
+    }
+
+    // MARK: - BibTeX Export
+
+    /// Export a library to BibTeX format.
+    ///
+    /// Exports all publications in the library to a .bib file at the specified URL.
+    /// This allows users to share their library with BibDesk and other tools.
+    ///
+    /// - Parameters:
+    ///   - library: The library to export
+    ///   - url: The destination URL for the .bib file
+    /// - Throws: `LibraryError.notFound` if library has no publications, or file system errors
+    public func exportToBibTeX(_ library: CDLibrary, to url: URL) throws {
+        Logger.library.infoCapture("Exporting library '\(library.displayName)' to BibTeX", category: "library")
+
+        guard let publications = library.publications, !publications.isEmpty else {
+            Logger.library.warningCapture("No publications to export", category: "library")
+            throw LibraryError.notFound(library.id)
+        }
+
+        // Convert to BibTeX entries
+        let entries = publications.map { $0.toBibTeXEntry() }
+
+        // Export using BibTeXExporter
+        let exporter = BibTeXExporter()
+        let content = exporter.export(entries)
+
+        // Write to file
+        try content.write(to: url, atomically: true, encoding: .utf8)
+
+        Logger.library.infoCapture("Exported \(entries.count) entries to: \(url.lastPathComponent)", category: "library")
     }
 }
 

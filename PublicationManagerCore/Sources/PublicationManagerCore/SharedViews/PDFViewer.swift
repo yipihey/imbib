@@ -221,25 +221,40 @@ struct PDFKitViewRepresentable: NSViewRepresentable {
     }
 }
 
+/// Custom PDFView subclass that can suppress context menus in annotation mode
+class AnnotationModePDFView: PDFView {
+    var isAnnotationMode: Bool = false
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        // Suppress context menu when in annotation mode
+        if isAnnotationMode {
+            return nil
+        }
+        return super.menu(for: event)
+    }
+}
+
 /// macOS PDFKit wrapper with controls and annotation support
 struct ControlledPDFKitView: NSViewRepresentable {
     let document: PDFDocument
     @Binding var currentPage: Int
     @Binding var scaleFactor: CGFloat
     @Binding var hasSelection: Bool
+    var isAnnotationMode: Bool = false
     var pdfViewRef: ((PDFView?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
 
-    func makeNSView(context: Context) -> PDFView {
-        let pdfView = PDFView()
+    func makeNSView(context: Context) -> AnnotationModePDFView {
+        let pdfView = AnnotationModePDFView()
         pdfView.document = document
         pdfView.autoScales = true
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
         pdfView.backgroundColor = .textBackgroundColor
+        pdfView.isAnnotationMode = isAnnotationMode
 
         // Observe page changes
         NotificationCenter.default.addObserver(
@@ -303,10 +318,13 @@ struct ControlledPDFKitView: NSViewRepresentable {
         return pdfView
     }
 
-    func updateNSView(_ pdfView: PDFView, context: Context) {
+    func updateNSView(_ pdfView: AnnotationModePDFView, context: Context) {
         if pdfView.document !== document {
             pdfView.document = document
         }
+
+        // Update annotation mode
+        pdfView.isAnnotationMode = isAnnotationMode
 
         // Update page if changed externally
         if let page = pdfView.document?.page(at: currentPage - 1),
@@ -323,7 +341,7 @@ struct ControlledPDFKitView: NSViewRepresentable {
 
     class Coordinator: NSObject {
         var parent: ControlledPDFKitView
-        weak var pdfView: PDFView?
+        weak var pdfView: AnnotationModePDFView?
 
         init(_ parent: ControlledPDFKitView) {
             self.parent = parent
@@ -431,25 +449,78 @@ struct PDFKitViewRepresentable: UIViewRepresentable {
     }
 }
 
+/// Custom PDFView subclass for iOS that can suppress edit menus in annotation mode
+class AnnotationModePDFViewiOS: PDFView {
+    var isAnnotationMode: Bool = false
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        // In annotation mode, suppress standard edit actions (Copy, Select All, etc.)
+        if isAnnotationMode {
+            let suppressedActions: [Selector] = [
+                #selector(copy(_:)),
+                #selector(selectAll(_:)),
+                #selector(cut(_:)),
+                #selector(paste(_:)),
+                #selector(select(_:)),
+                NSSelectorFromString("_share:"),
+                NSSelectorFromString("_lookup:"),
+                NSSelectorFromString("_translate:"),
+                NSSelectorFromString("_define:")
+            ]
+            if suppressedActions.contains(action) {
+                return false
+            }
+        }
+        return super.canPerformAction(action, withSender: sender)
+    }
+
+    // Also suppress the edit menu interaction on iOS 16+
+    override func buildMenu(with builder: UIMenuBuilder) {
+        if isAnnotationMode {
+            // Remove standard edit menu items in annotation mode
+            builder.remove(menu: .standardEdit)
+            builder.remove(menu: .lookup)
+            builder.remove(menu: .share)
+        }
+        super.buildMenu(with: builder)
+    }
+}
+
 /// iOS PDFKit wrapper with controls and annotation support
 struct ControlledPDFKitView: UIViewRepresentable {
     let document: PDFDocument
     @Binding var currentPage: Int
     @Binding var scaleFactor: CGFloat
     @Binding var hasSelection: Bool
+    @Binding var canGoBack: Bool
+    @Binding var canGoForward: Bool
+    var isAnnotationMode: Bool = false
     var pdfViewRef: ((PDFView?) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
 
-    func makeUIView(context: Context) -> PDFView {
-        let pdfView = PDFView()
+    func makeUIView(context: Context) -> AnnotationModePDFViewiOS {
+        let pdfView = AnnotationModePDFViewiOS()
         pdfView.document = document
         pdfView.autoScales = true
         pdfView.displayMode = .singlePageContinuous
         pdfView.displayDirection = .vertical
         pdfView.backgroundColor = .systemBackground
+        pdfView.isAnnotationMode = isAnnotationMode
+
+        // Add swipe gesture for back navigation
+        let swipeRight = UISwipeGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleSwipeBack(_:)))
+        swipeRight.direction = .right
+        swipeRight.numberOfTouchesRequired = 2  // Two-finger swipe to avoid conflicts with scrolling
+        pdfView.addGestureRecognizer(swipeRight)
+
+        // Add swipe gesture for forward navigation
+        let swipeLeft = UISwipeGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleSwipeForward(_:)))
+        swipeLeft.direction = .left
+        swipeLeft.numberOfTouchesRequired = 2
+        pdfView.addGestureRecognizer(swipeLeft)
 
         // Observe page changes
         NotificationCenter.default.addObserver(
@@ -503,20 +574,33 @@ struct ControlledPDFKitView: UIViewRepresentable {
             object: nil
         )
 
+        // Observe history changes for back/forward navigation
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(Coordinator.historyChanged(_:)),
+            name: .PDFViewVisiblePagesChanged,
+            object: pdfView
+        )
+
         context.coordinator.pdfView = pdfView
 
-        // Pass reference back to parent
+        // Pass reference back to parent and update initial history state
         DispatchQueue.main.async {
             pdfViewRef?(pdfView)
+            // Update initial back/forward state
+            context.coordinator.updateHistoryState()
         }
 
         return pdfView
     }
 
-    func updateUIView(_ pdfView: PDFView, context: Context) {
+    func updateUIView(_ pdfView: AnnotationModePDFViewiOS, context: Context) {
         if pdfView.document !== document {
             pdfView.document = document
         }
+
+        // Update annotation mode
+        pdfView.isAnnotationMode = isAnnotationMode
 
         // Update page if changed externally
         if let page = pdfView.document?.page(at: currentPage - 1),
@@ -529,14 +613,25 @@ struct ControlledPDFKitView: UIViewRepresentable {
         if abs(pdfView.scaleFactor - targetScale) > 0.01 {
             pdfView.scaleFactor = targetScale
         }
+
+        // Sync history state
+        context.coordinator.updateHistoryState()
     }
 
     class Coordinator: NSObject {
         var parent: ControlledPDFKitView
-        weak var pdfView: PDFView?
+        weak var pdfView: AnnotationModePDFViewiOS?
 
         init(_ parent: ControlledPDFKitView) {
             self.parent = parent
+        }
+
+        func updateHistoryState() {
+            guard let pdfView = pdfView else { return }
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.canGoBack = pdfView.canGoBack
+                self?.parent.canGoForward = pdfView.canGoForward
+            }
         }
 
         @objc func pageChanged(_ notification: Notification) {
@@ -549,6 +644,9 @@ struct ControlledPDFKitView: UIViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 self?.parent.currentPage = pageIndex + 1
             }
+
+            // Update history state after page change
+            updateHistoryState()
         }
 
         @objc func scaleChanged(_ notification: Notification) {
@@ -557,6 +655,22 @@ struct ControlledPDFKitView: UIViewRepresentable {
             DispatchQueue.main.async { [weak self] in
                 self?.parent.scaleFactor = scale
             }
+        }
+
+        @objc func historyChanged(_ notification: Notification) {
+            updateHistoryState()
+        }
+
+        @objc func handleSwipeBack(_ gesture: UISwipeGestureRecognizer) {
+            guard let pdfView = pdfView, pdfView.canGoBack else { return }
+            pdfView.goBack(nil)
+            updateHistoryState()
+        }
+
+        @objc func handleSwipeForward(_ gesture: UISwipeGestureRecognizer) {
+            guard let pdfView = pdfView, pdfView.canGoForward else { return }
+            pdfView.goForward(nil)
+            updateHistoryState()
         }
 
         @objc func selectionChanged(_ notification: Notification) {
@@ -663,6 +777,10 @@ public struct PDFViewerWithControls: View {
     @State private var currentSearchIndex: Int = 0
     @State private var isSearching: Bool = false
     @State private var isSearchVisible: Bool = false  // iOS: expandable search bar
+
+    // Navigation history state (for back/forward after following links)
+    @State private var canGoBack: Bool = false
+    @State private var canGoForward: Bool = false
 
     // Annotation state
     @State private var hasSelection: Bool = false
@@ -811,8 +929,12 @@ public struct PDFViewerWithControls: View {
                 // PDF Content
                 pdfContent
                     #if os(iOS)
+                    // Only allow tap-to-fullscreen when NOT in annotation mode
+                    // In annotation mode, taps should be handled by PDFView for text selection
                     .onTapGesture {
-                        enterFullscreen()
+                        if !showAnnotationToolbar {
+                            enterFullscreen()
+                        }
                     }
                     #endif
 
@@ -885,13 +1007,27 @@ public struct PDFViewerWithControls: View {
         } else if let error {
             errorView(error)
         } else if let document = pdfDocument {
+            #if os(iOS)
             ControlledPDFKitView(
                 document: document,
                 currentPage: $currentPage,
                 scaleFactor: scaleFactorBinding,
                 hasSelection: $hasSelection,
+                canGoBack: $canGoBack,
+                canGoForward: $canGoForward,
+                isAnnotationMode: showAnnotationToolbar,
                 pdfViewRef: { pdfViewReference = $0 }
             )
+            #else
+            ControlledPDFKitView(
+                document: document,
+                currentPage: $currentPage,
+                scaleFactor: scaleFactorBinding,
+                hasSelection: $hasSelection,
+                isAnnotationMode: showAnnotationToolbar,
+                pdfViewRef: { pdfViewReference = $0 }
+            )
+            #endif
         } else {
             errorView(.documentNotLoaded)
         }
@@ -901,9 +1037,10 @@ public struct PDFViewerWithControls: View {
 
     #if os(iOS)
     private var fullscreenPDFView: some View {
-        ZStack(alignment: .topLeading) {
-            // Full PDF content
+        ZStack(alignment: toolbarPosition.alignment) {
+            // Full PDF content (centered, fills screen)
             pdfContent
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .ignoresSafeArea()
                 .onTapGesture {
                     // Show back button and reset hide timer
@@ -916,19 +1053,39 @@ public struct PDFViewerWithControls: View {
                         }
                 )
 
-            // Floating back button
-            if showBackButton {
-                Button {
-                    exitFullscreen()
-                } label: {
-                    Image(systemName: "chevron.left.circle.fill")
-                        .font(.system(size: 36))
-                        .foregroundStyle(.white, .black.opacity(0.6))
-                        .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+            // Floating annotation toolbar (persists in fullscreen when annotation mode is active)
+            if showAnnotationToolbar && pdfDocument != nil {
+                AnnotationToolbar(
+                    selectedTool: $selectedAnnotationTool,
+                    highlightColor: $highlightColor,
+                    hasSelection: hasSelection,
+                    onHighlight: highlightSelection,
+                    onUnderline: underlineSelection,
+                    onStrikethrough: strikethroughSelection,
+                    onAddNote: addNoteAtSelection
+                )
+                .padding(fullscreenToolbarPadding)
+            }
+
+            // Floating back button (top-left, always on top)
+            VStack {
+                HStack {
+                    if showBackButton {
+                        Button {
+                            exitFullscreen()
+                        } label: {
+                            Image(systemName: "chevron.left.circle.fill")
+                                .font(.system(size: 36))
+                                .foregroundStyle(.white, .black.opacity(0.6))
+                                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                        }
+                        .padding(.top, 60)  // Account for status bar
+                        .padding(.leading, 20)
+                        .transition(.opacity)
+                    }
+                    Spacer()
                 }
-                .padding(.top, 60)  // Account for status bar
-                .padding(.leading, 20)
-                .transition(.opacity)
+                Spacer()
             }
         }
         .background(Color.black)
@@ -937,6 +1094,16 @@ public struct PDFViewerWithControls: View {
             showBackButtonTemporarily()
         }
         .statusBarHidden(true)
+    }
+
+    /// Padding for annotation toolbar in fullscreen mode (accounts for safe areas)
+    private var fullscreenToolbarPadding: EdgeInsets {
+        switch toolbarPosition {
+        case .top: return EdgeInsets(top: 60, leading: 16, bottom: 0, trailing: 16)
+        case .bottom: return EdgeInsets(top: 0, leading: 16, bottom: 40, trailing: 16)
+        case .left: return EdgeInsets(top: 60, leading: 16, bottom: 40, trailing: 0)
+        case .right: return EdgeInsets(top: 60, leading: 0, bottom: 40, trailing: 16)
+        }
     }
 
     private func enterFullscreen() {
@@ -1215,6 +1382,28 @@ public struct PDFViewerWithControls: View {
                         .disabled(scaleFactor >= 4.0)
                     }
 
+                    // Link history navigation (shown when history exists)
+                    if canGoBack || canGoForward {
+                        Divider()
+                            .frame(height: 20)
+
+                        HStack(spacing: 6) {
+                            Button {
+                                goBackInHistory()
+                            } label: {
+                                Image(systemName: "chevron.backward.circle")
+                            }
+                            .disabled(!canGoBack)
+
+                            Button {
+                                goForwardInHistory()
+                            } label: {
+                                Image(systemName: "chevron.forward.circle")
+                            }
+                            .disabled(!canGoForward)
+                        }
+                    }
+
                     Divider()
                         .frame(height: 20)
 
@@ -1246,6 +1435,13 @@ public struct PDFViewerWithControls: View {
                         }
                     } label: {
                         Image(systemName: "magnifyingglass")
+                    }
+
+                    // Fullscreen button (allows entering fullscreen while in annotation mode)
+                    Button {
+                        enterFullscreen()
+                    } label: {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
                     }
 
                     // Open externally
@@ -1576,6 +1772,26 @@ public struct PDFViewerWithControls: View {
     private func resetZoom() {
         scaleFactor = 1.0
     }
+
+    #if os(iOS)
+    private func goBackInHistory() {
+        pdfViewReference?.goBack(nil)
+        // Update state after navigation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            canGoBack = pdfViewReference?.canGoBack ?? false
+            canGoForward = pdfViewReference?.canGoForward ?? false
+        }
+    }
+
+    private func goForwardInHistory() {
+        pdfViewReference?.goForward(nil)
+        // Update state after navigation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            canGoBack = pdfViewReference?.canGoBack ?? false
+            canGoForward = pdfViewReference?.canGoForward ?? false
+        }
+    }
+    #endif
 
     private func openInExternalApp(url: URL) {
         Logger.files.infoCapture("openInExternalApp called with URL: \(url.path)", category: "pdf")
