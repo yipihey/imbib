@@ -44,6 +44,7 @@ struct DetailView: View {
 
     @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(LibraryManager.self) private var libraryManager
+    @Environment(\.dismiss) private var dismiss
 
     @State private var selectedTab: IOSDetailTab = .info
     @State private var isPDFFullscreen: Bool = false
@@ -108,7 +109,7 @@ struct DetailView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 Button {
-                    selectedPublication = nil
+                    dismiss()
                 } label: {
                     HStack(spacing: 4) {
                         Image(systemName: "chevron.left")
