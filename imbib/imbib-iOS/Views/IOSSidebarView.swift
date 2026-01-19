@@ -7,6 +7,7 @@
 
 import SwiftUI
 import PublicationManagerCore
+import CoreData
 import os
 
 /// iOS sidebar with library navigation, smart searches, and collections.
@@ -605,6 +606,28 @@ struct IOSSidebarView: View {
 
     // MARK: - Inbox Section
 
+    /// Get all smart searches that feed to the Inbox (using Core Data fetch like macOS)
+    private var inboxFeeds: [CDSmartSearch] {
+        let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
+        request.predicate = NSPredicate(format: "feedsToInbox == YES")
+        request.sortDescriptors = [NSSortDescriptor(key: "name", ascending: true)]
+
+        do {
+            return try PersistenceController.shared.viewContext.fetch(request)
+        } catch {
+            return []
+        }
+    }
+
+    /// Get unread count for a specific inbox feed
+    private func unreadCountForFeed(_ feed: CDSmartSearch) -> Int {
+        guard let collection = feed.resultCollection,
+              let publications = collection.publications else {
+            return 0
+        }
+        return publications.filter { !$0.isRead && !$0.isDeleted }.count
+    }
+
     /// Inbox section content (without Section wrapper)
     @ViewBuilder
     private var inboxSectionContent: some View {
@@ -625,12 +648,24 @@ struct IOSSidebarView: View {
         .tag(SidebarSection.inbox)
 
         // Inbox Feeds (Smart Searches that feed to inbox)
-        if let inboxLib = InboxManager.shared.inboxLibrary,
-           let feedSet = inboxLib.smartSearches?.filter({ $0.feedsToInbox }),
-           !feedSet.isEmpty {
-            ForEach(Array(feedSet)) { feed in
-                Label(feed.name, systemImage: "antenna.radiowaves.left.and.right")
-                    .tag(SidebarSection.inboxFeed(feed))
+        let feeds = inboxFeeds
+        if !feeds.isEmpty {
+            ForEach(feeds, id: \.id) { feed in
+                HStack {
+                    Label(feed.name, systemImage: "antenna.radiowaves.left.and.right")
+                    Spacer()
+                    let unread = unreadCountForFeed(feed)
+                    if unread > 0 {
+                        Text("\(unread)")
+                            .font(.system(size: 10, weight: .medium))
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(.blue)
+                            .foregroundStyle(.white)
+                            .clipShape(Capsule())
+                    }
+                }
+                .tag(SidebarSection.inboxFeed(feed))
             }
         }
     }
