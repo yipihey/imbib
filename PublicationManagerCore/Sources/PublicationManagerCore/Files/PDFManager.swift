@@ -69,12 +69,12 @@ public final class AttachmentManager: ObservableObject {
     ) -> CDLinkedFile? {
         Logger.files.infoCapture("Linking existing PDF: \(relativePath)", category: "files")
 
-        // Verify file exists
+        // Verify file exists using container-based path
         var absoluteURL: URL?
-        if let library, let bibURL = library.resolveURL() {
-            absoluteURL = bibURL.deletingLastPathComponent().appendingPathComponent(relativePath)
+        if let library = library {
+            absoluteURL = library.containerURL.appendingPathComponent(relativePath)
         } else if let appSupport = applicationSupportURL {
-            absoluteURL = appSupport.appendingPathComponent(relativePath)
+            absoluteURL = appSupport.appendingPathComponent("DefaultLibrary/\(relativePath)")
         }
 
         if let url = absoluteURL, !fileManager.fileExists(atPath: url.path) {

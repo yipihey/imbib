@@ -139,12 +139,12 @@ public actor PDFSearchService {
     private func resolvePDFURL(linkedFile: CDLinkedFile, library: CDLibrary?) -> URL? {
         let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
 
-        if let library, let bibURL = library.resolveURL() {
-            let baseURL = bibURL.deletingLastPathComponent()
-            return baseURL.appendingPathComponent(normalizedPath)
+        if let library = library {
+            // Use container-based path (iCloud-only storage)
+            return library.containerURL.appendingPathComponent(normalizedPath)
         } else {
             let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("imbib")
+                .appendingPathComponent("imbib/DefaultLibrary")
             return appSupport.appendingPathComponent(normalizedPath)
         }
     }
