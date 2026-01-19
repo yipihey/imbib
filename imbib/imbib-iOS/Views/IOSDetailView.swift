@@ -86,20 +86,10 @@ struct DetailView: View {
         }
         .navigationTitle(isPDFFullscreen ? "" : (publication.title ?? "Details"))
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarBackButtonHidden(true)
+        .navigationBarBackButtonHidden(isPDFFullscreen)
         .toolbar(isPDFFullscreen ? .hidden : .visible, for: .navigationBar)
         .toolbar {
             if !isPDFFullscreen {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        goBack()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "chevron.left")
-                            Text("Back")
-                        }
-                    }
-                }
                 ToolbarItem(placement: .topBarTrailing) {
                     moreMenu
                 }
