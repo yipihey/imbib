@@ -50,19 +50,40 @@ public struct PDFKitViewer: View {
     public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil) {
         // Normalize unicode to match how PDFManager saved the file
         let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
+        let fileManager = FileManager.default
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("imbib")
 
         if let library = library {
-            // Use container-based path (iCloud-only storage)
-            let fileURL = library.containerURL.appendingPathComponent(normalizedPath)
-            Logger.files.debugCapture("PDFKitViewer resolving path: \(fileURL.path)", category: "pdf")
-            self.source = .url(fileURL)
+            // Primary: container-based path (iCloud-only storage)
+            let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
+
+            // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
+            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+
+            if fileManager.fileExists(atPath: containerURL.path) {
+                Logger.files.debugCapture("PDFKitViewer resolving path: \(containerURL.path)", category: "pdf")
+                self.source = .url(containerURL)
+            } else if fileManager.fileExists(atPath: legacyURL.path) {
+                Logger.files.debugCapture("PDFKitViewer using legacy path: \(legacyURL.path)", category: "pdf")
+                self.source = .url(legacyURL)
+            } else {
+                // File not found at either location - use container path (will show error)
+                Logger.files.warningCapture("PDFKitViewer file not found: \(containerURL.path)", category: "pdf")
+                self.source = .url(containerURL)
+            }
         } else {
-            // Fall back to default library in app support directory
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("imbib/DefaultLibrary")
-            let fileURL = appSupport.appendingPathComponent(normalizedPath)
-            Logger.files.debugCapture("PDFKitViewer resolving path (fallback): \(fileURL.path)", category: "pdf")
-            self.source = .url(fileURL)
+            // No library - check default library path and legacy path
+            let defaultURL = appSupport.appendingPathComponent("DefaultLibrary/\(normalizedPath)")
+            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+
+            if fileManager.fileExists(atPath: defaultURL.path) {
+                self.source = .url(defaultURL)
+            } else if fileManager.fileExists(atPath: legacyURL.path) {
+                self.source = .url(legacyURL)
+            } else {
+                self.source = .url(defaultURL)
+            }
         }
     }
 
@@ -819,18 +840,36 @@ public struct PDFViewerWithControls: View {
     public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false), onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
         // Normalize unicode to match how PDFManager saved the file
         let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
+        let fileManager = FileManager.default
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("imbib")
 
         if let library = library {
-            // Use container-based path (iCloud-only storage)
-            let fileURL = library.containerURL.appendingPathComponent(normalizedPath)
-            Logger.files.debugCapture("PDFViewerWithControls resolving path: \(fileURL.path)", category: "pdf")
-            self.source = .url(fileURL)
+            // Primary: container-based path (iCloud-only storage)
+            let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
+            // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
+            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+
+            if fileManager.fileExists(atPath: containerURL.path) {
+                Logger.files.debugCapture("PDFViewerWithControls resolving path: \(containerURL.path)", category: "pdf")
+                self.source = .url(containerURL)
+            } else if fileManager.fileExists(atPath: legacyURL.path) {
+                Logger.files.debugCapture("PDFViewerWithControls using legacy path: \(legacyURL.path)", category: "pdf")
+                self.source = .url(legacyURL)
+            } else {
+                Logger.files.warningCapture("PDFViewerWithControls file not found: \(containerURL.path)", category: "pdf")
+                self.source = .url(containerURL)
+            }
         } else {
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("imbib/DefaultLibrary")
-            let fileURL = appSupport.appendingPathComponent(normalizedPath)
-            Logger.files.debugCapture("PDFViewerWithControls resolving path (fallback): \(fileURL.path)", category: "pdf")
-            self.source = .url(fileURL)
+            let defaultURL = appSupport.appendingPathComponent("DefaultLibrary/\(normalizedPath)")
+            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+            if fileManager.fileExists(atPath: defaultURL.path) {
+                self.source = .url(defaultURL)
+            } else if fileManager.fileExists(atPath: legacyURL.path) {
+                self.source = .url(legacyURL)
+            } else {
+                self.source = .url(defaultURL)
+            }
         }
         self.publicationID = publicationID
         self.linkedFile = linkedFile
@@ -855,18 +894,36 @@ public struct PDFViewerWithControls: View {
     public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil, publicationID: UUID? = nil, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
         // Normalize unicode to match how PDFManager saved the file
         let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
+        let fileManager = FileManager.default
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("imbib")
 
         if let library = library {
-            // Use container-based path (iCloud-only storage)
-            let fileURL = library.containerURL.appendingPathComponent(normalizedPath)
-            Logger.files.debugCapture("PDFViewerWithControls resolving path: \(fileURL.path)", category: "pdf")
-            self.source = .url(fileURL)
+            // Primary: container-based path (iCloud-only storage)
+            let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
+            // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
+            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+
+            if fileManager.fileExists(atPath: containerURL.path) {
+                Logger.files.debugCapture("PDFViewerWithControls resolving path: \(containerURL.path)", category: "pdf")
+                self.source = .url(containerURL)
+            } else if fileManager.fileExists(atPath: legacyURL.path) {
+                Logger.files.debugCapture("PDFViewerWithControls using legacy path: \(legacyURL.path)", category: "pdf")
+                self.source = .url(legacyURL)
+            } else {
+                Logger.files.warningCapture("PDFViewerWithControls file not found: \(containerURL.path)", category: "pdf")
+                self.source = .url(containerURL)
+            }
         } else {
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("imbib/DefaultLibrary")
-            let fileURL = appSupport.appendingPathComponent(normalizedPath)
-            Logger.files.debugCapture("PDFViewerWithControls resolving path (fallback): \(fileURL.path)", category: "pdf")
-            self.source = .url(fileURL)
+            let defaultURL = appSupport.appendingPathComponent("DefaultLibrary/\(normalizedPath)")
+            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+            if fileManager.fileExists(atPath: defaultURL.path) {
+                self.source = .url(defaultURL)
+            } else if fileManager.fileExists(atPath: legacyURL.path) {
+                self.source = .url(legacyURL)
+            } else {
+                self.source = .url(defaultURL)
+            }
         }
         self.publicationID = publicationID
         self.linkedFile = linkedFile

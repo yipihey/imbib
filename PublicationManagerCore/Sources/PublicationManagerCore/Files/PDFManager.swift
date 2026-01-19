@@ -521,13 +521,35 @@ public final class AttachmentManager: ObservableObject {
     ///
     /// With iCloud-only storage, files are resolved relative to the library's
     /// container URL (`~/Library/Application Support/imbib/Libraries/{UUID}/`).
+    /// Falls back to legacy path (`imbib/Papers/`) for pre-v1.3.0 downloads.
     public func resolveURL(for linkedFile: CDLinkedFile, in library: CDLibrary?) -> URL? {
+        let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
+        guard let appSupport = applicationSupportURL else { return nil }
+
         if let library = library {
-            // Use the library's container URL as base
-            return library.containerURL.appendingPathComponent(linkedFile.relativePath)
+            // Primary: container-based path (iCloud-only storage)
+            let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
+            // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
+            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+
+            if fileManager.fileExists(atPath: containerURL.path) {
+                return containerURL
+            } else if fileManager.fileExists(atPath: legacyURL.path) {
+                return legacyURL
+            }
+            return containerURL
         }
-        // Fall back to app support directory for default library
-        return applicationSupportURL?.appendingPathComponent("DefaultLibrary/\(linkedFile.relativePath)")
+
+        // No library - check default library path and legacy path
+        let defaultURL = appSupport.appendingPathComponent("DefaultLibrary/\(normalizedPath)")
+        let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+
+        if fileManager.fileExists(atPath: defaultURL.path) {
+            return defaultURL
+        } else if fileManager.fileExists(atPath: legacyURL.path) {
+            return legacyURL
+        }
+        return defaultURL
     }
 
     /// Delete a linked file from disk and Core Data.

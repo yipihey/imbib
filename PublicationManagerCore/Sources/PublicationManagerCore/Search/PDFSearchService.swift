@@ -138,14 +138,31 @@ public actor PDFSearchService {
 
     private func resolvePDFURL(linkedFile: CDLinkedFile, library: CDLibrary?) -> URL? {
         let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
+        let fileManager = FileManager.default
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+            .appendingPathComponent("imbib")
 
         if let library = library {
-            // Use container-based path (iCloud-only storage)
-            return library.containerURL.appendingPathComponent(normalizedPath)
+            // Primary: container-based path (iCloud-only storage)
+            let containerURL = library.containerURL.appendingPathComponent(normalizedPath)
+            // Fallback: legacy path (pre-v1.3.0 downloads went to imbib/Papers/)
+            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+
+            if fileManager.fileExists(atPath: containerURL.path) {
+                return containerURL
+            } else if fileManager.fileExists(atPath: legacyURL.path) {
+                return legacyURL
+            }
+            return containerURL
         } else {
-            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-                .appendingPathComponent("imbib/DefaultLibrary")
-            return appSupport.appendingPathComponent(normalizedPath)
+            let defaultURL = appSupport.appendingPathComponent("DefaultLibrary/\(normalizedPath)")
+            let legacyURL = appSupport.appendingPathComponent(normalizedPath)
+            if fileManager.fileExists(atPath: defaultURL.path) {
+                return defaultURL
+            } else if fileManager.fileExists(atPath: legacyURL.path) {
+                return legacyURL
+            }
+            return defaultURL
         }
     }
 }
