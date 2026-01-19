@@ -95,6 +95,11 @@ struct DetailView: View {
                 }
             }
         }
+        .onDisappear {
+            // Clear selection when navigating back to prevent re-selection
+            // This handles both system back button and swipe gesture
+            selectedPublication = nil
+        }
     }
 
     // MARK: - Navigation
