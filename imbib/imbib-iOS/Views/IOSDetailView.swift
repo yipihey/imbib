@@ -65,110 +65,107 @@ struct DetailView: View {
                 IOSPDFTab(publication: publication, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
             } else {
                 // Normal tabbed view
-                tabbedContent
+                TabView(selection: $selectedTab) {
+                    IOSInfoTab(publication: publication, libraryID: libraryID)
+                        .tabItem { Label(IOSDetailTab.info.label, systemImage: IOSDetailTab.info.icon) }
+                        .tag(IOSDetailTab.info)
+
+                    IOSBibTeXTab(publication: publication)
+                        .tabItem { Label(IOSDetailTab.bibtex.label, systemImage: IOSDetailTab.bibtex.icon) }
+                        .tag(IOSDetailTab.bibtex)
+
+                    IOSPDFTab(publication: publication, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
+                        .tabItem { Label(IOSDetailTab.pdf.label, systemImage: IOSDetailTab.pdf.icon) }
+                        .tag(IOSDetailTab.pdf)
+
+                    IOSNotesTab(publication: publication)
+                        .tabItem { Label(IOSDetailTab.notes.label, systemImage: IOSDetailTab.notes.icon) }
+                        .tag(IOSDetailTab.notes)
+                }
             }
         }
         .navigationTitle(isPDFFullscreen ? "" : (publication.title ?? "Details"))
         .navigationBarTitleDisplayMode(.inline)
-        .navigationBarHidden(isPDFFullscreen)
+        .navigationBarBackButtonHidden(true)
         .toolbar(isPDFFullscreen ? .hidden : .visible, for: .navigationBar)
+        .toolbar {
+            if !isPDFFullscreen {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        goBack()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "chevron.left")
+                            Text("Back")
+                        }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    moreMenu
+                }
+            }
+        }
     }
 
-    @ViewBuilder
-    private var tabbedContent: some View {
-        TabView(selection: $selectedTab) {
-            // Info Tab
-            IOSInfoTab(publication: publication, libraryID: libraryID)
-                .tabItem {
-                    Label(IOSDetailTab.info.label, systemImage: IOSDetailTab.info.icon)
-                }
-                .tag(IOSDetailTab.info)
+    // MARK: - Navigation
 
-            // BibTeX Tab
-            IOSBibTeXTab(publication: publication)
-                .tabItem {
-                    Label(IOSDetailTab.bibtex.label, systemImage: IOSDetailTab.bibtex.icon)
-                }
-                .tag(IOSDetailTab.bibtex)
+    private func goBack() {
+        // Clear selection to trigger navigation pop
+        selectedPublication = nil
+    }
 
-            // PDF Tab
-            IOSPDFTab(publication: publication, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
-                .tabItem {
-                    Label(IOSDetailTab.pdf.label, systemImage: IOSDetailTab.pdf.icon)
-                }
-                .tag(IOSDetailTab.pdf)
+    // MARK: - More Menu
 
-            // Notes Tab
-            IOSNotesTab(publication: publication)
-                .tabItem {
-                    Label(IOSDetailTab.notes.label, systemImage: IOSDetailTab.notes.icon)
-                }
-                .tag(IOSDetailTab.notes)
-        }
-        .navigationBarBackButtonHidden(true)
-        .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
+    private var moreMenu: some View {
+        Menu {
+            Button {
+                toggleReadStatus()
+            } label: {
+                Label(
+                    publication.isRead ? "Mark as Unread" : "Mark as Read",
+                    systemImage: publication.isRead ? "envelope.badge" : "envelope.open"
+                )
+            }
+
+            Button {
+                copyBibTeX()
+            } label: {
+                Label("Copy BibTeX", systemImage: "doc.on.doc")
+            }
+
+            Button {
+                copyCiteKey()
+            } label: {
+                Label("Copy Cite Key", systemImage: "key")
+            }
+
+            Divider()
+
+            if let doi = publication.doi {
                 Button {
-                    dismiss()
+                    openURL("https://doi.org/\(doi)")
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.left")
-                        Text("Back")
-                    }
+                    Label("Open DOI", systemImage: "arrow.up.right.square")
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        toggleReadStatus()
-                    } label: {
-                        Label(
-                            publication.isRead ? "Mark as Unread" : "Mark as Read",
-                            systemImage: publication.isRead ? "envelope.badge" : "envelope.open"
-                        )
-                    }
 
-                    Button {
-                        copyBibTeX()
-                    } label: {
-                        Label("Copy BibTeX", systemImage: "doc.on.doc")
-                    }
-
-                    Button {
-                        copyCiteKey()
-                    } label: {
-                        Label("Copy Cite Key", systemImage: "key")
-                    }
-
-                    Divider()
-
-                    if let doi = publication.doi {
-                        Button {
-                            openURL("https://doi.org/\(doi)")
-                        } label: {
-                            Label("Open DOI", systemImage: "arrow.up.right.square")
-                        }
-                    }
-
-                    if let arxivID = publication.arxivID {
-                        Button {
-                            openURL("https://arxiv.org/abs/\(arxivID)")
-                        } label: {
-                            Label("Open arXiv", systemImage: "arrow.up.right.square")
-                        }
-                    }
-
-                    if let bibcode = publication.bibcode {
-                        Button {
-                            openURL("https://ui.adsabs.harvard.edu/abs/\(bibcode)")
-                        } label: {
-                            Label("Open ADS", systemImage: "arrow.up.right.square")
-                        }
-                    }
+            if let arxivID = publication.arxivID {
+                Button {
+                    openURL("https://arxiv.org/abs/\(arxivID)")
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Label("Open arXiv", systemImage: "arrow.up.right.square")
                 }
             }
+
+            if let bibcode = publication.bibcode {
+                Button {
+                    openURL("https://ui.adsabs.harvard.edu/abs/\(bibcode)")
+                } label: {
+                    Label("Open ADS", systemImage: "arrow.up.right.square")
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
         }
     }
 
