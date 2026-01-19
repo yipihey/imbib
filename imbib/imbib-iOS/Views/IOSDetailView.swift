@@ -110,7 +110,9 @@ struct DetailView: View {
     // MARK: - Navigation
 
     private func goBack() {
-        // Clear selection to trigger navigation pop
+        // Use dismiss to pop navigation (same as swipe gesture)
+        // Also clear selection to keep state in sync
+        dismiss()
         selectedPublication = nil
     }
 
