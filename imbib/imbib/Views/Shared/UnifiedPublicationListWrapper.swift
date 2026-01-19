@@ -195,7 +195,7 @@ struct UnifiedPublicationListWrapper: View {
             .toolbar { toolbarContent }
             .focusable()
             .focusEffectDisabled()
-            .onKeyPress(.init("a")) { handleArchiveKey() }
+            .onKeyPress(.init("k")) { handleKeepKey() }
             .onKeyPress(.init("d")) { handleDismissKey() }
             .task(id: source.id) {
                 filterMode = initialFilterMode
@@ -249,7 +249,7 @@ struct UnifiedPublicationListWrapper: View {
             .modifier(InboxTriageModifier(
                 isInboxView: isInboxView,
                 hasSelection: !selectedPublicationIDs.isEmpty,
-                onArchive: archiveSelectedToDefaultLibrary,
+                onKeep: keepSelectedToDefaultLibrary,
                 onDismiss: dismissSelectedFromInbox
             ))
             .alert("Duplicate File", isPresented: $showDuplicateAlert) {
@@ -360,9 +360,9 @@ struct UnifiedPublicationListWrapper: View {
                 }
             },
             onDownloadPDFs: onDownloadPDFs,
-            // Archive callback - available for all views (moves papers to target library)
-            onArchiveToLibrary: { ids, targetLibrary in
-                await archiveToLibrary(ids: ids, targetLibrary: targetLibrary)
+            // Keep callback - available for all views (moves papers to target library)
+            onKeepToLibrary: { ids, targetLibrary in
+                await keepToLibrary(ids: ids, targetLibrary: targetLibrary)
             },
             // Inbox-specific triage callbacks
             onDismiss: isInboxView ? { ids in
@@ -647,10 +647,10 @@ struct UnifiedPublicationListWrapper: View {
 
     // MARK: - Inbox Triage Handlers
 
-    /// Handle 'A' key - archive selected to default library
-    private func handleArchiveKey() -> KeyPress.Result {
+    /// Handle 'K' key - keep selected to default library
+    private func handleKeepKey() -> KeyPress.Result {
         guard !isTextFieldFocused(), isInboxView, !selectedPublicationIDs.isEmpty else { return .ignored }
-        archiveSelectedToDefaultLibrary()
+        keepSelectedToDefaultLibrary()
         return .handled
     }
 
@@ -661,14 +661,14 @@ struct UnifiedPublicationListWrapper: View {
         return .handled
     }
 
-    /// Archive selected publications to the Archive library (created on first use if needed)
-    private func archiveSelectedToDefaultLibrary() {
-        // Use the Archive library (created automatically on first use)
-        let archiveLibrary = libraryManager.getOrCreateArchiveLibrary()
+    /// Keep selected publications to the Keep library (created on first use if needed)
+    private func keepSelectedToDefaultLibrary() {
+        // Use the Keep library (created automatically on first use)
+        let keepLibrary = libraryManager.getOrCreateKeepLibrary()
 
         let ids = selectedPublicationIDs
         Task {
-            await archiveToLibrary(ids: ids, targetLibrary: archiveLibrary)
+            await keepToLibrary(ids: ids, targetLibrary: keepLibrary)
         }
     }
 
@@ -722,11 +722,11 @@ struct UnifiedPublicationListWrapper: View {
         logger.info("Dismissed \(count) papers from Inbox to Dismissed library")
     }
 
-    // MARK: - Archive Implementation
+    // MARK: - Keep Implementation
 
-    /// Archive publications to a target library (adds to target AND removes from current).
-    /// Selects the next paper in the list after archiving.
-    private func archiveToLibrary(ids: Set<UUID>, targetLibrary: CDLibrary) async {
+    /// Keep publications to a target library (adds to target AND removes from current).
+    /// Selects the next paper in the list after keeping.
+    private func keepToLibrary(ids: Set<UUID>, targetLibrary: CDLibrary) async {
         // Find next paper to select before removing current selection
         let nextPaperID = findNextPaperAfter(ids: ids)
 
@@ -735,7 +735,7 @@ struct UnifiedPublicationListWrapper: View {
             let inboxManager = InboxManager.shared
             let pubs = ids.compactMap { id in publications.first(where: { $0.id == id }) }
             for pub in pubs {
-                inboxManager.archiveToLibrary(pub, library: targetLibrary)
+                inboxManager.keepToLibrary(pub, library: targetLibrary)
             }
 
             // Also remove from smart search result collection if viewing a feed
@@ -746,14 +746,14 @@ struct UnifiedPublicationListWrapper: View {
                 }
                 try? PersistenceController.shared.viewContext.save()
             }
-            logger.info("Archived \(ids.count) papers from Inbox to \(targetLibrary.displayName)")
+            logger.info("Kept \(ids.count) papers from Inbox to \(targetLibrary.displayName)")
         } else if case .smartSearch(let smartSearch) = source {
-            // For smart searches (feeds): use InboxManager to properly archive
+            // For smart searches (feeds): use InboxManager to properly keep
             // This removes from Inbox, adds to target, and tracks dismissal
             let inboxManager = InboxManager.shared
             let pubs = ids.compactMap { id in publications.first(where: { $0.id == id }) }
             for pub in pubs {
-                inboxManager.archiveToLibrary(pub, library: targetLibrary)
+                inboxManager.keepToLibrary(pub, library: targetLibrary)
             }
 
             // Also remove from smart search result collection
@@ -763,14 +763,14 @@ struct UnifiedPublicationListWrapper: View {
                 }
                 try? PersistenceController.shared.viewContext.save()
             }
-            logger.info("Archived \(ids.count) papers from smart search '\(smartSearch.name)' to \(targetLibrary.displayName)")
+            logger.info("Kept \(ids.count) papers from smart search '\(smartSearch.name)' to \(targetLibrary.displayName)")
         } else if let sourceLibrary = currentLibrary {
             // For regular libraries: add to target, remove from source
             await libraryViewModel.addToLibrary(ids, library: targetLibrary)
             await libraryViewModel.removeFromLibrary(ids, library: sourceLibrary)
-            logger.info("Archived \(ids.count) papers from \(sourceLibrary.displayName) to \(targetLibrary.displayName)")
+            logger.info("Kept \(ids.count) papers from \(sourceLibrary.displayName) to \(targetLibrary.displayName)")
         } else {
-            logger.warning("Cannot archive - no source library")
+            logger.warning("Cannot keep - no source library")
             return
         }
 
@@ -974,14 +974,14 @@ private struct SmartSearchRefreshModifier: ViewModifier {
 private struct InboxTriageModifier: ViewModifier {
     let isInboxView: Bool
     let hasSelection: Bool
-    let onArchive: () -> Void
+    let onKeep: () -> Void
     let onDismiss: () -> Void
 
     func body(content: Content) -> some View {
         content
-            .onReceive(NotificationCenter.default.publisher(for: .inboxArchive)) { _ in
+            .onReceive(NotificationCenter.default.publisher(for: .inboxKeep)) { _ in
                 if isInboxView && hasSelection {
-                    onArchive()
+                    onKeep()
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: .inboxDismiss)) { _ in

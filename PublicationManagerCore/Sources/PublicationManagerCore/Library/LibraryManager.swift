@@ -290,36 +290,36 @@ public final class LibraryManager {
         return createLibrary(name: "My Library")
     }
 
-    // MARK: - Archive Library (Inbox Triage)
+    // MARK: - Keep Library (Inbox Triage)
 
-    /// Get or create the Archive library for Inbox triage.
+    /// Get or create the Keep library for Inbox triage.
     ///
-    /// The Archive library is used by the "A" keyboard shortcut in the Inbox.
-    /// If a user-configured archive library is set in preferences, that library is used.
-    /// Otherwise, if no archive library exists, one is created automatically on first use.
+    /// The Keep library is used by the "K" keyboard shortcut in the Inbox.
+    /// If a user-configured keep library is set in preferences, that library is used.
+    /// Otherwise, if no keep library exists, one is created automatically on first use.
     @discardableResult
-    public func getOrCreateArchiveLibrary() -> CDLibrary {
-        // Check if user has configured a specific archive library
-        if let configuredID = UserDefaults.standard.string(forKey: "archiveLibraryID"),
+    public func getOrCreateKeepLibrary() -> CDLibrary {
+        // Check if user has configured a specific keep library
+        if let configuredID = UserDefaults.standard.string(forKey: "keepLibraryID"),
            let uuid = UUID(uuidString: configuredID),
            let configuredLibrary = libraries.first(where: { $0.id == uuid }) {
-            Logger.library.debugCapture("Using user-configured archive library: \(configuredLibrary.displayName)", category: "library")
+            Logger.library.debugCapture("Using user-configured keep library: \(configuredLibrary.displayName)", category: "library")
             return configuredLibrary
         }
 
-        // Return existing archive library if available
-        if let archiveLib = libraries.first(where: { $0.isArchiveLibrary }) {
-            return archiveLib
+        // Return existing keep library if available
+        if let keepLib = libraries.first(where: { $0.isKeepLibrary }) {
+            return keepLib
         }
 
-        // Create new Archive library
-        Logger.library.infoCapture("Creating Archive library for Inbox triage", category: "library")
+        // Create new Keep library
+        Logger.library.infoCapture("Creating Keep library for Inbox triage", category: "library")
 
         let context = persistenceController.viewContext
         let library = CDLibrary(context: context)
         library.id = UUID()
-        library.name = "Archive"
-        library.isArchiveLibrary = true
+        library.name = "Keep"
+        library.isKeepLibrary = true
         library.isDefault = false
         library.dateCreated = Date()
         library.sortOrder = Int16(libraries.count)  // After existing libraries
@@ -327,13 +327,13 @@ public final class LibraryManager {
         persistenceController.save()
         loadLibraries()
 
-        Logger.library.infoCapture("Created Archive library with ID: \(library.id)", category: "library")
+        Logger.library.infoCapture("Created Keep library with ID: \(library.id)", category: "library")
         return library
     }
 
-    /// Get the Archive library (for UI display purposes)
-    public var archiveLibrary: CDLibrary? {
-        libraries.first { $0.isArchiveLibrary }
+    /// Get the Keep library (for UI display purposes)
+    public var keepLibrary: CDLibrary? {
+        libraries.first { $0.isKeepLibrary }
     }
 
     // MARK: - Dismissed Library (Inbox Triage)

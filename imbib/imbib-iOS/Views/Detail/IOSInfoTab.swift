@@ -31,34 +31,38 @@ struct IOSInfoTab: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                // Header
+                // Email-style Header (From, Year, Subject, Venue)
                 headerSection
 
                 Divider()
 
-                // Info
-                infoSection
+                // Explore (References, Citations, Similar, Co-Reads)
+                if canExploreReferences {
+                    exploreSection
+                    Divider()
+                }
 
                 // Abstract
                 if let abstract = publication.abstract, !abstract.isEmpty {
                     abstractSection(abstract)
-                }
-
-                // Identifiers
-                identifiersSection
-
-                // Explore
-                if canExploreReferences {
-                    exploreSection
+                    Divider()
                 }
 
                 // PDF Sources
                 if hasPDFSources {
                     pdfSourcesSection
+                    Divider()
                 }
 
                 // Attachments
                 attachmentsSection
+                Divider()
+
+                // Identifiers (DOI, arXiv, ADS, PubMed)
+                if hasIdentifiers {
+                    identifiersSection
+                    Divider()
+                }
 
                 // Record Info
                 recordInfoSection
@@ -103,64 +107,51 @@ struct IOSInfoTab: View {
 
     // MARK: - Sections
 
+    /// Email-style header matching macOS InfoTab
     private var headerSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Title
-            Text(publication.title ?? "Untitled")
-                .font(.title2)
-                .fontWeight(.semibold)
-
-            // Authors
-            if !publication.authorString.isEmpty {
-                Text(publication.authorString)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 10) {
+            // From: Authors (expandable if more than 10)
+            infoRow("From") {
+                ExpandableAuthorList(authorString: publication.authorString)
             }
 
-            // Year and venue
-            HStack {
-                if publication.year > 0 {
+            // Year
+            if publication.year > 0 {
+                infoRow("Year") {
                     Text(String(publication.year))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                if let venue = venueString, !venue.isEmpty {
-                    Text("•")
-                        .foregroundStyle(.tertiary)
-                    Text(venue)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
 
-            // Read status
-            HStack {
-                Image(systemName: publication.isRead ? "envelope.open" : "envelope.badge.fill")
-                    .foregroundStyle(publication.isRead ? Color.secondary : theme.unreadDot)
-                Text(publication.isRead ? "Read" : "Unread")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            // Subject: Title
+            infoRow("Subject") {
+                Text(publication.title ?? "Untitled")
+                    .textSelection(.enabled)
+            }
+
+            // Venue
+            if let venue = venueString, !venue.isEmpty {
+                infoRow("Venue") {
+                    Text(JournalMacros.expand(venue))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
             }
         }
     }
 
-    private var infoSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Information")
-                .font(.headline)
+    /// Email-style info row with label and content
+    @ViewBuilder
+    private func infoRow<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text("\(label):")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .frame(width: 60, alignment: .trailing)
 
-            LabeledContent("Entry Type", value: publication.entryType.capitalized)
-            LabeledContent("Cite Key", value: publication.citeKey)
+            content()
+                .font(.subheadline)
 
-            LabeledContent("Date Added") {
-                Text(publication.dateAdded.formatted(date: .abbreviated, time: .omitted))
-            }
-
-            if publication.citationCount > 0 {
-                LabeledContent("Citations") {
-                    Text("\(publication.citationCount)")
-                }
-            }
+            Spacer(minLength: 0)
         }
     }
 
@@ -173,59 +164,55 @@ struct IOSInfoTab: View {
         }
     }
 
+    /// Whether this paper has any identifiers to display
+    private var hasIdentifiers: Bool {
+        publication.doi != nil || publication.arxivID != nil || publication.bibcode != nil || publication.pmid != nil
+    }
+
     private var identifiersSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Identifiers")
-                .font(.headline)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
 
-            if let doi = publication.doi {
-                Button {
-                    if let url = URL(string: "https://doi.org/\(doi)") {
-                        _ = FileManager_Opener.shared.openURL(url)
+            // Compact horizontal scroll for identifier links
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    if let doi = publication.doi {
+                        identifierLink("DOI", value: doi, url: "https://doi.org/\(doi)")
                     }
-                } label: {
-                    LabeledContent("DOI") {
-                        HStack {
-                            Text(doi)
-                            Image(systemName: "arrow.up.right.square")
-                        }
-                        .foregroundStyle(theme.linkColor)
+                    if let arxivID = publication.arxivID {
+                        identifierLink("arXiv", value: arxivID, url: "https://arxiv.org/abs/\(arxivID)")
                     }
-                }
-            }
-
-            if let arxivID = publication.arxivID {
-                Button {
-                    if let url = URL(string: "https://arxiv.org/abs/\(arxivID)") {
-                        _ = FileManager_Opener.shared.openURL(url)
+                    if let bibcode = publication.bibcode {
+                        identifierLink("ADS", value: bibcode, url: "https://ui.adsabs.harvard.edu/abs/\(bibcode)")
                     }
-                } label: {
-                    LabeledContent("arXiv") {
-                        HStack {
-                            Text(arxivID)
-                            Image(systemName: "arrow.up.right.square")
-                        }
-                        .foregroundStyle(theme.linkColor)
-                    }
-                }
-            }
-
-            if let bibcode = publication.bibcode {
-                Button {
-                    if let url = URL(string: "https://ui.adsabs.harvard.edu/abs/\(bibcode)") {
-                        _ = FileManager_Opener.shared.openURL(url)
-                    }
-                } label: {
-                    LabeledContent("ADS") {
-                        HStack {
-                            Text(bibcode)
-                            Image(systemName: "arrow.up.right.square")
-                        }
-                        .foregroundStyle(theme.linkColor)
+                    if let pmid = publication.pmid {
+                        identifierLink("PubMed", value: pmid, url: "https://pubmed.ncbi.nlm.nih.gov/\(pmid)")
                     }
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func identifierLink(_ label: String, value: String, url: String) -> some View {
+        Button {
+            if let linkURL = URL(string: url) {
+                _ = FileManager_Opener.shared.openURL(linkURL)
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text("\(label):")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.caption)
+                    .foregroundStyle(theme.linkColor)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Explore Section
@@ -241,9 +228,11 @@ struct IOSInfoTab: View {
     }
 
     private var exploreSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             Text("Explore")
-                .font(.headline)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
 
             // Single row of buttons using ScrollView for horizontal overflow on smaller screens
             ScrollView(.horizontal, showsIndicators: false) {

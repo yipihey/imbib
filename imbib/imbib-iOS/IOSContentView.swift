@@ -61,7 +61,15 @@ struct IOSContentView: View {
             }
         } content: {
             contentList
+                // Use navigationDestination for proper iPhone stack navigation
+                .navigationDestination(item: $selectedPublication) { publication in
+                    if let libraryID = selectedLibraryID,
+                       let detail = DetailView(publication: publication, libraryID: libraryID, selectedPublication: $selectedPublication) {
+                        detail
+                    }
+                }
         } detail: {
+            // iPad uses this detail column; iPhone uses navigationDestination above
             detailView
         }
         .onReceive(NotificationCenter.default.publisher(for: .showLibrary)) { notification in
@@ -251,7 +259,7 @@ struct IOSContentView: View {
            !publication.isDeleted,
            publication.managedObjectContext != nil,
            let libraryID = selectedLibraryID,
-           let detail = DetailView(publication: publication, libraryID: libraryID) {
+           let detail = DetailView(publication: publication, libraryID: libraryID, selectedPublication: $selectedPublication) {
             detail
         } else {
             ContentUnavailableView(
@@ -422,8 +430,8 @@ struct IOSLibraryListView: View {
                 openPDF(for: publication)
             },
             // Inbox-specific actions (must come before onCategoryTap in parameter order)
-            onArchiveToLibrary: isInbox ? { ids, targetLibrary in
-                await archiveToLibrary(ids: ids, targetLibrary: targetLibrary)
+            onKeepToLibrary: isInbox ? { ids, targetLibrary in
+                await keepToLibrary(ids: ids, targetLibrary: targetLibrary)
             } : nil,
             onDismiss: isInbox ? { ids in
                 await dismissFromInbox(ids: ids)
@@ -481,7 +489,7 @@ struct IOSLibraryListView: View {
 
     // MARK: - Inbox Actions
 
-    private func archiveToLibrary(ids: Set<UUID>, targetLibrary: CDLibrary) async {
+    private func keepToLibrary(ids: Set<UUID>, targetLibrary: CDLibrary) async {
         for id in ids {
             if let publication = publications.first(where: { $0.id == id }) {
                 // Add to target library

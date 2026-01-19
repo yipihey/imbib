@@ -193,7 +193,7 @@ struct PaperCommand: AsyncParsableCommand {
     @Argument(help: "Action: open, open-pdf, open-notes, toggle-read, mark-read, mark-unread, delete, copy-bibtex, copy-citation, share")
     var action: String
 
-    @Option(name: .long, help: "Library ID for archive action")
+    @Option(name: .long, help: "Library ID for keep action")
     var library: String?
 
     @Option(name: .long, help: "Collection ID for add-to/remove-from collection")
@@ -221,7 +221,7 @@ struct SelectedCommand: AsyncParsableCommand {
         abstract: "Perform action on selected papers"
     )
 
-    @Argument(help: "Action: open, toggle-read, mark-read, mark-unread, mark-all-read, delete, archive, copy, cut, share, copy-citation, copy-identifier")
+    @Argument(help: "Action: open, toggle-read, mark-read, mark-unread, mark-all-read, delete, keep, copy, cut, share, copy-citation, copy-identifier")
     var action: String
 
     func run() async throws {
@@ -238,7 +238,7 @@ struct InboxCommand: AsyncParsableCommand {
         abstract: "Inbox actions"
     )
 
-    @Argument(help: "Action: show, archive, dismiss, toggle-star, mark-read, mark-unread, next, previous, open")
+    @Argument(help: "Action: show, keep, dismiss, toggle-star, mark-read, mark-unread, next, previous, open")
     var action: String = "show"
 
     func run() async throws {

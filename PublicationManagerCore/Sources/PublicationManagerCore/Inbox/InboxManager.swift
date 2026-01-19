@@ -15,13 +15,13 @@ import OSLog
 ///
 /// The Inbox is a single global library that receives papers from smart searches
 /// and ad-hoc searches. Papers are automatically removed from the Inbox when
-/// archived to other libraries.
+/// kept to other libraries.
 ///
 /// Features:
 /// - Single global Inbox library (created on first access)
 /// - Mute list management (authors, papers, venues, categories)
 /// - Unread count tracking
-/// - Auto-remove on archive
+/// - Auto-remove on keep
 @MainActor
 @Observable
 public final class InboxManager {
@@ -201,13 +201,13 @@ public final class InboxManager {
         }
     }
 
-    // MARK: - Auto-Remove on Archive
+    // MARK: - Auto-Remove on Keep
 
     /// Set up observers for auto-remove behavior
     private func setupObservers() {
         // Listen for publications being added to libraries
         NotificationCenter.default.addObserver(
-            forName: .publicationArchivedToLibrary,
+            forName: .publicationKeptToLibrary,
             object: nil,
             queue: .main
         ) { [weak self] notification in
@@ -215,13 +215,13 @@ public final class InboxManager {
                   let publication = notification.object as? CDPublication else { return }
 
             Task { @MainActor in
-                self.handleArchive(publication)
+                self.handleKeep(publication)
             }
         }
     }
 
-    /// Handle when a paper is archived to another library
-    private func handleArchive(_ publication: CDPublication) {
+    /// Handle when a paper is kept to another library
+    private func handleKeep(_ publication: CDPublication) {
         guard let inbox = inboxLibrary else { return }
 
         // Check if paper is in Inbox
@@ -410,9 +410,9 @@ public final class InboxManager {
         updateUnreadCount()
     }
 
-    /// Archive a paper from Inbox to a target library
-    public func archiveToLibrary(_ publication: CDPublication, library: CDLibrary) {
-        Logger.inbox.infoCapture("Archiving paper '\(publication.citeKey)' to library '\(library.displayName)'", category: "papers")
+    /// Keep a paper from Inbox to a target library
+    public func keepToLibrary(_ publication: CDPublication, library: CDLibrary) {
+        Logger.inbox.infoCapture("Keeping paper '\(publication.citeKey)' to library '\(library.displayName)'", category: "papers")
 
         // Track dismissal so paper won't reappear in Inbox
         trackDismissal(publication)
@@ -430,7 +430,7 @@ public final class InboxManager {
         updateUnreadCount()
 
         // Post notification for auto-remove
-        NotificationCenter.default.post(name: .publicationArchivedToLibrary, object: publication)
+        NotificationCenter.default.post(name: .publicationKeptToLibrary, object: publication)
     }
 
     /// Get all papers in the Inbox, filtered by age limit
@@ -574,9 +574,6 @@ public final class InboxManager {
 // MARK: - Notifications
 
 public extension Notification.Name {
-    /// Posted when a publication is archived from Inbox to another library
-    static let publicationArchivedToLibrary = Notification.Name("publicationArchivedToLibrary")
-
     /// Posted when Inbox unread count changes
     static let inboxUnreadCountChanged = Notification.Name("inboxUnreadCountChanged")
 }

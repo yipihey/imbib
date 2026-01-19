@@ -704,12 +704,6 @@ struct InfoTab: View {
 
                     Divider()
 
-                    // MARK: - Identifiers (compact row)
-                    if hasIdentifiers {
-                        identifiersSection
-                        Divider()
-                    }
-
                     // MARK: - Explore (References & Citations)
                     if canExploreReferences {
                         exploreSection
@@ -746,6 +740,12 @@ struct InfoTab: View {
 
                         attachView
                             .id(attachmentsRefreshID)
+                        Divider()
+                    }
+
+                    // MARK: - Identifiers (compact row)
+                    if hasIdentifiers {
+                        identifiersSection
                         Divider()
                     }
 
@@ -836,10 +836,9 @@ struct InfoTab: View {
     @ViewBuilder
     private var headerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // From: Authors
+            // From: Authors (expandable if more than 10)
             infoRow("From") {
-                Text(paper.authors.isEmpty ? "Unknown" : paper.authors.joined(separator: "; "))
-                    .textSelection(.enabled)
+                ExpandableAuthorList(authors: paper.authors)
             }
 
             // Year

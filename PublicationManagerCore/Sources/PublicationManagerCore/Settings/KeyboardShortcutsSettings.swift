@@ -471,12 +471,12 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
             notificationName: "markAllAsRead"
         ),
         KeyboardShortcutBinding(
-            id: "archiveToLibrary",
-            displayName: "Archive to Library",
+            id: "keepToLibrary",
+            displayName: "Keep to Library",
             category: .paperActions,
-            key: .character("a"),
+            key: .character("k"),
             modifiers: [.control, .command],
-            notificationName: "archiveToLibrary"
+            notificationName: "keepToLibrary"
         ),
         KeyboardShortcutBinding(
             id: "dismissFromInbox",
@@ -597,12 +597,12 @@ public struct KeyboardShortcutsSettings: Codable, Equatable, Sendable {
 
         // MARK: Inbox Triage (Single Keys)
         KeyboardShortcutBinding(
-            id: "inboxArchive",
-            displayName: "Archive",
+            id: "inboxKeep",
+            displayName: "Keep",
             category: .inboxTriage,
-            key: .character("a"),
+            key: .character("k"),
             modifiers: .none,
-            notificationName: "inboxArchive"
+            notificationName: "inboxKeep"
         ),
         KeyboardShortcutBinding(
             id: "inboxDismiss",

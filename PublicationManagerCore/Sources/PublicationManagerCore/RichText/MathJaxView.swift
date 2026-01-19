@@ -241,8 +241,15 @@ struct MathJaxWebView: UIViewRepresentable {
         webView.navigationDelegate = context.coordinator
         webView.isOpaque = false
         webView.backgroundColor = .clear
+
+        // Disable scrolling on internal scroll view
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.bounces = false
+
+        // CRITICAL: Disable user interaction so touches pass through to parent ScrollView.
+        // This sacrifices text selection in the abstract but enables proper scrolling.
+        // On iOS, WKWebView's gesture recognizers capture all touches otherwise.
+        webView.isUserInteractionEnabled = false
 
         return webView
     }

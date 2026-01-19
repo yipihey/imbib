@@ -178,17 +178,17 @@ final class URLCommandParserTests: XCTestCase {
         }
     }
 
-    func testPaperCommand_archive() throws {
+    func testPaperCommand_keep() throws {
         let libraryID = UUID()
-        let url = URL(string: "imbib://paper/TestKey/archive?library=\(libraryID.uuidString)")!
+        let url = URL(string: "imbib://paper/TestKey/keep?library=\(libraryID.uuidString)")!
         let command = try parser.parse(url)
 
         if case .paper(let citeKey, let action) = command {
             XCTAssertEqual(citeKey, "TestKey")
-            if case .archive(let id) = action {
+            if case .keep(let id) = action {
                 XCTAssertEqual(id, libraryID)
             } else {
-                XCTFail("Expected archive action")
+                XCTFail("Expected keep action")
             }
         } else {
             XCTFail("Expected paper command")
@@ -249,12 +249,12 @@ final class URLCommandParserTests: XCTestCase {
         }
     }
 
-    func testInboxCommand_archive() throws {
-        let url = URL(string: "imbib://inbox/archive")!
+    func testInboxCommand_keep() throws {
+        let url = URL(string: "imbib://inbox/keep")!
         let command = try parser.parse(url)
 
         if case .inbox(let action) = command {
-            XCTAssertEqual(action, .archive)
+            XCTAssertEqual(action, .keep)
         } else {
             XCTFail("Expected inbox command")
         }

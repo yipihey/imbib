@@ -433,22 +433,22 @@ struct InboxSettingsTab: View {
     @State private var dismissedPaperCount: Int = 0
     @State private var selectedMuteType: CDMutedItem.MuteType = .author
     @State private var newMuteValue: String = ""
-    @State private var selectedArchiveLibraryID: UUID?
+    @State private var selectedKeepLibraryID: UUID?
 
     var body: some View {
         Form {
-            Section("Archive Destination") {
-                Picker("Archive to", selection: $selectedArchiveLibraryID) {
-                    Text("Auto (create Archive library)").tag(nil as UUID?)
-                    ForEach(availableArchiveLibraries, id: \.id) { library in
+            Section("Keep Destination") {
+                Picker("Keep to", selection: $selectedKeepLibraryID) {
+                    Text("Auto (create Keep library)").tag(nil as UUID?)
+                    ForEach(availableKeepLibraries, id: \.id) { library in
                         Text(library.displayName).tag(library.id as UUID?)
                     }
                 }
-                .onChange(of: selectedArchiveLibraryID) { _, newValue in
-                    saveArchiveLibrarySetting(newValue)
+                .onChange(of: selectedKeepLibraryID) { _, newValue in
+                    saveKeepLibrarySetting(newValue)
                 }
 
-                Text("When you press A on a paper in the Inbox, it will be moved to this library")
+                Text("When you press K on a paper in the Inbox, it will be moved to this library")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -543,14 +543,14 @@ struct InboxSettingsTab: View {
             await viewModel.loadInboxSettings()
             loadMutedItems()
             loadDismissedPaperCount()
-            loadArchiveLibrarySetting()
+            loadKeepLibrarySetting()
         }
     }
 
-    // MARK: - Archive Library
+    // MARK: - Keep Library
 
-    /// Libraries available as archive destinations (excludes Inbox, Dismissed, system libraries)
-    private var availableArchiveLibraries: [CDLibrary] {
+    /// Libraries available as keep destinations (excludes Inbox, Dismissed, system libraries)
+    private var availableKeepLibraries: [CDLibrary] {
         libraryManager.libraries.filter { library in
             !library.isInbox &&
             !library.isDismissedLibrary &&
@@ -558,16 +558,16 @@ struct InboxSettingsTab: View {
         }.sorted { $0.displayName < $1.displayName }
     }
 
-    private func loadArchiveLibrarySetting() {
-        selectedArchiveLibraryID = UserDefaults.standard.string(forKey: "archiveLibraryID")
+    private func loadKeepLibrarySetting() {
+        selectedKeepLibraryID = UserDefaults.standard.string(forKey: "keepLibraryID")
             .flatMap { UUID(uuidString: $0) }
     }
 
-    private func saveArchiveLibrarySetting(_ id: UUID?) {
+    private func saveKeepLibrarySetting(_ id: UUID?) {
         if let id = id {
-            UserDefaults.standard.set(id.uuidString, forKey: "archiveLibraryID")
+            UserDefaults.standard.set(id.uuidString, forKey: "keepLibraryID")
         } else {
-            UserDefaults.standard.removeObject(forKey: "archiveLibraryID")
+            UserDefaults.standard.removeObject(forKey: "keepLibraryID")
         }
     }
 

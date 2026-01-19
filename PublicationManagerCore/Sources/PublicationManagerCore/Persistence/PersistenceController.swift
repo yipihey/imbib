@@ -61,11 +61,12 @@ public final class PersistenceController: @unchecked Sendable {
 
     // MARK: - Shared Instance
 
-    // TODO: Re-enable CloudKit after setting up container in Apple Developer Console
-    // CloudKit requires creating the container at: https://developer.apple.com/account/resources/identifiers/list/cloudContainers
+    /// Shared instance with CloudKit sync enabled.
+    ///
+    /// CloudKit container must be created at: https://developer.apple.com/account/resources/identifiers/list/cloudContainers
+    /// The schema is automatically created on first sync (development mode).
     public static let shared = PersistenceController(
-        configuration: .default  // Temporarily disabled CloudKit for debugging
-        // configuration: .withCloudKit(containerID: "iCloud.com.imbib.app")
+        configuration: .withCloudKit(containerID: "iCloud.com.imbib.app")
     )
 
     // MARK: - Preview Instance
@@ -862,13 +863,13 @@ public final class PersistenceController: @unchecked Sendable {
         isSystemLibrary.defaultValue = false
         properties.append(isSystemLibrary)
 
-        // Archive library flag (for Inbox triage)
-        let isArchiveLibrary = NSAttributeDescription()
-        isArchiveLibrary.name = "isArchiveLibrary"
-        isArchiveLibrary.attributeType = .booleanAttributeType
-        isArchiveLibrary.isOptional = false
-        isArchiveLibrary.defaultValue = false
-        properties.append(isArchiveLibrary)
+        // Keep library flag (for Inbox triage)
+        let isKeepLibrary = NSAttributeDescription()
+        isKeepLibrary.name = "isKeepLibrary"
+        isKeepLibrary.attributeType = .booleanAttributeType
+        isKeepLibrary.isOptional = false
+        isKeepLibrary.defaultValue = false
+        properties.append(isKeepLibrary)
 
         // Dismissed library flag (for Inbox triage)
         let isDismissedLibrary = NSAttributeDescription()

@@ -253,11 +253,11 @@ final class AppIntentsTests: XCTestCase {
         }
     }
 
-    func testArchiveSelectedPapersIntent_automationCommand() {
-        let intent = ArchiveSelectedPapersIntent()
+    func testKeepSelectedPapersIntent_automationCommand() {
+        let intent = KeepSelectedPapersIntent()
 
         if case .selectedPapers(let action) = intent.automationCommand {
-            XCTAssertEqual(action, .archive)
+            XCTAssertEqual(action, .keep)
         } else {
             XCTFail("Expected selectedPapers command")
         }
@@ -275,11 +275,11 @@ final class AppIntentsTests: XCTestCase {
 
     // MARK: - Inbox Intents
 
-    func testArchiveInboxItemIntent_automationCommand() {
-        let intent = ArchiveInboxItemIntent()
+    func testKeepInboxItemIntent_automationCommand() {
+        let intent = KeepInboxItemIntent()
 
         if case .inbox(let action) = intent.automationCommand {
-            XCTAssertEqual(action, .archive)
+            XCTAssertEqual(action, .keep)
         } else {
             XCTFail("Expected inbox command")
         }

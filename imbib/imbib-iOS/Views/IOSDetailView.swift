@@ -40,18 +40,21 @@ enum IOSDetailTab: String, CaseIterable {
 struct DetailView: View {
     let publication: CDPublication
     let libraryID: UUID
+    @Binding var selectedPublication: CDPublication?
 
     @Environment(LibraryViewModel.self) private var libraryViewModel
     @Environment(LibraryManager.self) private var libraryManager
 
     @State private var selectedTab: IOSDetailTab = .info
+    @State private var isPDFFullscreen: Bool = false
 
-    init?(publication: CDPublication, libraryID: UUID) {
+    init?(publication: CDPublication, libraryID: UUID, selectedPublication: Binding<CDPublication?>) {
         guard !publication.isDeleted, publication.managedObjectContext != nil else {
             return nil
         }
         self.publication = publication
         self.libraryID = libraryID
+        self._selectedPublication = selectedPublication
     }
 
     var body: some View {
@@ -71,7 +74,7 @@ struct DetailView: View {
                 .tag(IOSDetailTab.bibtex)
 
             // PDF Tab
-            IOSPDFTab(publication: publication, libraryID: libraryID)
+            IOSPDFTab(publication: publication, libraryID: libraryID, isFullscreen: $isPDFFullscreen)
                 .tabItem {
                     Label(IOSDetailTab.pdf.label, systemImage: IOSDetailTab.pdf.icon)
                 }
@@ -84,9 +87,23 @@ struct DetailView: View {
                 }
                 .tag(IOSDetailTab.notes)
         }
+        .toolbar(isPDFFullscreen ? .hidden : .visible, for: .tabBar)
+        .toolbar(isPDFFullscreen ? .hidden : .visible, for: .navigationBar)
         .navigationTitle(publication.title ?? "Details")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    // Clear selection to navigate back (same as swipe)
+                    selectedPublication = nil
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "chevron.left")
+                        Text("Back")
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button {
@@ -173,7 +190,8 @@ struct DetailView: View {
     NavigationStack {
         if let view = DetailView(
             publication: CDPublication(),
-            libraryID: UUID()
+            libraryID: UUID(),
+            selectedPublication: .constant(nil)
         ) {
             view
                 .environment(LibraryViewModel())

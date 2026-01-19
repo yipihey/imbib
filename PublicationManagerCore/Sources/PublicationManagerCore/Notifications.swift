@@ -59,8 +59,8 @@ public extension Notification.Name {
 
     // MARK: - Inbox Triage Actions
 
-    /// Archive selected inbox items to default library (A key)
-    static let inboxArchive = Notification.Name("inboxArchive")
+    /// Keep selected inbox items to default library (K key)
+    static let inboxKeep = Notification.Name("inboxKeep")
 
     /// Dismiss selected inbox items (D key)
     static let inboxDismiss = Notification.Name("inboxDismiss")
@@ -136,8 +136,11 @@ public extension Notification.Name {
     /// Delete selected papers (⌘Delete)
     static let deleteSelectedPapers = Notification.Name("deleteSelectedPapers")
 
-    /// Archive selected papers to library (⌃⌘A)
-    static let archiveToLibrary = Notification.Name("archiveToLibrary")
+    /// Keep selected papers to library (⌃⌘K)
+    static let keepToLibrary = Notification.Name("keepToLibrary")
+
+    /// Posted when a publication is kept to a library (for auto-removal from Inbox)
+    static let publicationKeptToLibrary = Notification.Name("publicationKeptToLibrary")
 
     /// Dismiss selected papers from inbox (⇧⌘J)
     static let dismissFromInbox = Notification.Name("dismissFromInbox")

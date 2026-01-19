@@ -116,7 +116,7 @@ public enum PaperAction: Sendable {
     case markRead
     case markUnread
     case delete
-    case archive(libraryID: UUID?)
+    case keep(libraryID: UUID?)
     case addToCollection(collectionID: UUID)
     case removeFromCollection(collectionID: UUID)
     case copyBibTeX
@@ -135,7 +135,7 @@ public enum SelectedPapersAction: String, Sendable, CaseIterable {
     case markUnread = "mark-unread"
     case markAllRead = "mark-all-read"
     case delete = "delete"
-    case archive = "archive"
+    case keep = "keep"
     case copy = "copy"
     case cut = "cut"
     case share = "share"
@@ -167,7 +167,7 @@ public enum CollectionAction: String, Sendable, CaseIterable {
 /// Actions on inbox items.
 public enum InboxAction: String, Sendable, CaseIterable {
     case show = "show"
-    case archive = "archive"
+    case keep = "keep"
     case dismiss = "dismiss"
     case toggleStar = "toggle-star"
     case markRead = "mark-read"
@@ -232,7 +232,7 @@ public struct URLCommandParser {
     /// - `imbib://paper/Einstein1905/open-pdf`
     /// - `imbib://navigate/inbox`
     /// - `imbib://selected/toggle-read`
-    /// - `imbib://inbox/archive`
+    /// - `imbib://inbox/keep`
     /// - `imbib://pdf/go-to-page?page=5`
     public func parse(_ url: URL) throws -> AutomationCommand {
         guard url.scheme == "imbib" else {
@@ -422,9 +422,9 @@ public struct URLCommandParser {
         case "mark-read": action = .markRead
         case "mark-unread": action = .markUnread
         case "delete": action = .delete
-        case "archive":
+        case "keep":
             let libraryID = params["library"].flatMap { UUID(uuidString: $0) }
-            action = .archive(libraryID: libraryID)
+            action = .keep(libraryID: libraryID)
         case "add-to-collection":
             guard let collectionIDStr = params["collection"],
                   let collectionID = UUID(uuidString: collectionIDStr) else {

@@ -8,21 +8,21 @@
 import AppIntents
 import Foundation
 
-// MARK: - Archive Inbox Item Intent
+// MARK: - Keep Inbox Item Intent
 
-/// Archive the current inbox item to the library.
+/// Keep the current inbox item to the library.
 @available(iOS 16.0, macOS 13.0, *)
-public struct ArchiveInboxItemIntent: AppIntent, AutomationIntent {
+public struct KeepInboxItemIntent: AppIntent, AutomationIntent {
 
-    public static var title: LocalizedStringResource = "Archive Inbox Item"
+    public static var title: LocalizedStringResource = "Keep Inbox Item"
 
     public static var description = IntentDescription(
-        "Archive the current inbox item to your library.",
+        "Keep the current inbox item to your library.",
         categoryName: "Inbox"
     )
 
     public var automationCommand: AutomationCommand {
-        .inbox(action: .archive)
+        .inbox(action: .keep)
     }
 
     public init() {}

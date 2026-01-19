@@ -162,9 +162,9 @@ final class AppIntentsIntegrationTests: XCTestCase {
     }
 
     func testInboxIntent_commandMatchesURLScheme() async {
-        let intent = ArchiveInboxItemIntent()
+        let intent = KeepInboxItemIntent()
 
-        guard let url = AutomationURLBuilder.inbox(action: .archive) else {
+        guard let url = AutomationURLBuilder.inbox(action: .keep) else {
             XCTFail("Failed to build URL")
             return
         }

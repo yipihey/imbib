@@ -427,16 +427,16 @@ final class InboxManagerTests: XCTestCase {
         XCTAssertEqual(results?.count ?? 0, 0)
     }
 
-    func testArchiveToLibrary_addsPaperToTargetLibrary() {
+    func testKeepToLibrary_addsPaperToTargetLibrary() {
         // Given
         let inbox = inboxManager.getOrCreateInbox()
-        let targetLib = createTestLibrary(name: "Archive")
+        let targetLib = createTestLibrary(name: "Keep")
         let pub = createTestPublication(citeKey: "Test2024")
         pub.addToLibrary(inbox)
         persistenceController.save()
 
         // When
-        inboxManager.archiveToLibrary(pub, library: targetLib)
+        inboxManager.keepToLibrary(pub, library: targetLib)
 
         // Then
         XCTAssertTrue(pub.libraries?.contains(targetLib) ?? false)

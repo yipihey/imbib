@@ -51,7 +51,7 @@ struct KeyboardShortcutsView: View {
                     ("Open References", "⇧⌘R"),
                     ("Toggle Read/Unread", "⇧⌘U"),
                     ("Mark All as Read", "⌥⌘U"),
-                    ("Archive to Library", "⌃⌘A"),
+                    ("Keep to Library", "⌃⌘K"),
                     ("Dismiss from Inbox", "⇧⌘J"),
                     ("Add to Collection", "⌘L"),
                     ("Remove from Collection", "⇧⌘L"),
@@ -78,7 +78,7 @@ struct KeyboardShortcutsView: View {
 
                 // Inbox Triage (Single Keys)
                 ShortcutSection(title: "Inbox Triage (Single Keys)", shortcuts: [
-                    ("Archive", "A"),
+                    ("Keep", "K"),
                     ("Dismiss", "D"),
                     ("Star/Flag", "S"),
                     ("Mark as Read", "R"),

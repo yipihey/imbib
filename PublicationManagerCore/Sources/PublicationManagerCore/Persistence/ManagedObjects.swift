@@ -595,7 +595,30 @@ public extension CDAttachmentTag {
 
 @objc(CDCollection)
 public class CDCollection: NSManagedObject, Identifiable {
-    @NSManaged public var id: UUID
+    // Use private primitive accessor to handle CloudKit sync where UUID might be nil
+    @NSManaged private var primitiveId: UUID?
+
+    /// Computed id that ensures a valid UUID is always returned.
+    public var id: UUID {
+        get {
+            willAccessValue(forKey: "id")
+            defer { didAccessValue(forKey: "id") }
+
+            if let existingId = primitiveId {
+                return existingId
+            }
+
+            let newId = UUID()
+            primitiveId = newId
+            return newId
+        }
+        set {
+            willChangeValue(forKey: "id")
+            primitiveId = newValue
+            didChangeValue(forKey: "id")
+        }
+    }
+
     @NSManaged public var name: String
     @NSManaged public var isSmartCollection: Bool
     @NSManaged public var predicate: String?
@@ -694,7 +717,32 @@ public extension CDCollection {
 
 @objc(CDLibrary)
 public class CDLibrary: NSManagedObject, Identifiable {
-    @NSManaged public var id: UUID
+    // Use private primitive accessor to handle CloudKit sync where UUID might be nil
+    @NSManaged private var primitiveId: UUID?
+
+    /// Computed id that ensures a valid UUID is always returned.
+    /// If CloudKit syncs a record with nil UUID, a new one is generated.
+    public var id: UUID {
+        get {
+            willAccessValue(forKey: "id")
+            defer { didAccessValue(forKey: "id") }
+
+            if let existingId = primitiveId {
+                return existingId
+            }
+
+            // Generate and save a UUID if nil (CloudKit sync edge case)
+            let newId = UUID()
+            primitiveId = newId
+            return newId
+        }
+        set {
+            willChangeValue(forKey: "id")
+            primitiveId = newValue
+            didChangeValue(forKey: "id")
+        }
+    }
+
     @NSManaged public var name: String
     @NSManaged public var bibFilePath: String?         // Path to .bib file (may be nil for new libraries)
     @NSManaged public var papersDirectoryPath: String? // Path to Papers folder
@@ -705,7 +753,7 @@ public class CDLibrary: NSManagedObject, Identifiable {
     @NSManaged public var sortOrder: Int16             // For sidebar ordering (drag-and-drop)
     @NSManaged public var isInbox: Bool                // Is this the special Inbox library?
     @NSManaged public var isSystemLibrary: Bool        // Is this a system library? (e.g., Exploration)
-    @NSManaged public var isArchiveLibrary: Bool       // Is this the Archive library for Inbox triage?
+    @NSManaged public var isKeepLibrary: Bool           // Is this the Keep library for Inbox triage?
     @NSManaged public var isDismissedLibrary: Bool     // Is this the Dismissed library for Inbox triage?
 
     // Relationships
@@ -772,7 +820,30 @@ public extension CDLibrary {
 
 @objc(CDSmartSearch)
 public class CDSmartSearch: NSManagedObject, Identifiable {
-    @NSManaged public var id: UUID
+    // Use private primitive accessor to handle CloudKit sync where UUID might be nil
+    @NSManaged private var primitiveId: UUID?
+
+    /// Computed id that ensures a valid UUID is always returned.
+    public var id: UUID {
+        get {
+            willAccessValue(forKey: "id")
+            defer { didAccessValue(forKey: "id") }
+
+            if let existingId = primitiveId {
+                return existingId
+            }
+
+            let newId = UUID()
+            primitiveId = newId
+            return newId
+        }
+        set {
+            willChangeValue(forKey: "id")
+            primitiveId = newValue
+            didChangeValue(forKey: "id")
+        }
+    }
+
     @NSManaged public var name: String
     @NSManaged public var query: String
     @NSManaged public var sourceIDs: String?           // JSON array of source IDs
@@ -933,7 +1004,32 @@ public class CDDismissedPaper: NSManagedObject, Identifiable {
 /// Supports read/write operations with two-way sync.
 @objc(CDSciXLibrary)
 public class CDSciXLibrary: NSManagedObject, Identifiable {
-    @NSManaged public var id: UUID
+    // Use private primitive accessor to handle CloudKit sync where UUID might be nil
+    @NSManaged private var primitiveId: UUID?
+
+    /// Computed id that ensures a valid UUID is always returned.
+    /// If CloudKit syncs a record with nil UUID, a new one is generated.
+    public var id: UUID {
+        get {
+            willAccessValue(forKey: "id")
+            defer { didAccessValue(forKey: "id") }
+
+            if let existingId = primitiveId {
+                return existingId
+            }
+
+            // Generate and save a UUID if nil (CloudKit sync edge case)
+            let newId = UUID()
+            primitiveId = newId
+            return newId
+        }
+        set {
+            willChangeValue(forKey: "id")
+            primitiveId = newValue
+            didChangeValue(forKey: "id")
+        }
+    }
+
     @NSManaged public var remoteID: String                  // SciX library ID from API
     @NSManaged public var name: String
     @NSManaged public var descriptionText: String?

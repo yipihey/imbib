@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreData
 import OSLog
 
 // MARK: - Enrichment Coordinator
@@ -205,6 +206,68 @@ public actor EnrichmentCoordinator {
         let requests: [(publicationID: UUID, identifiers: [IdentifierType: String])] = arxivPapers.map { paper in
             (paper.id, paper.enrichmentIdentifiers)
         }
+
+        // Use ADS batch enrichment (single API call)
+        let results = await adsSource.enrichBatch(requests: requests)
+
+        // Save successful results
+        var successCount = 0
+        for (pubID, result) in results {
+            if case .success(let enrichment) = result {
+                await repository.saveEnrichmentResult(publicationID: pubID, result: enrichment)
+                successCount += 1
+            }
+        }
+
+        Logger.enrichment.infoCapture(
+            "Immediate ADS enrichment complete: \(successCount)/\(arxivPapers.count) papers resolved",
+            category: "enrichment"
+        )
+
+        return successCount
+    }
+
+    /// Immediately enrich a batch of papers by their IDs.
+    ///
+    /// This variant takes UUIDs instead of CDPublication objects, making it safe to call
+    /// from non-main-actor contexts (e.g., actors). The publications are fetched on the
+    /// main actor internally.
+    ///
+    /// - Parameter publicationIDs: UUIDs of publications to enrich
+    /// - Returns: Number of papers successfully enriched
+    @discardableResult
+    public func enrichBatchByIDs(_ publicationIDs: [UUID]) async -> Int {
+        guard !publicationIDs.isEmpty else { return 0 }
+
+        // Fetch publications and extract Sendable data on main actor in one call
+        let arxivPapers: [(id: UUID, identifiers: [IdentifierType: String])] = await MainActor.run {
+            let request = NSFetchRequest<CDPublication>(entityName: "Publication")
+            request.predicate = NSPredicate(format: "id IN %@", publicationIDs)
+            guard let papers = try? PersistenceController.shared.viewContext.fetch(request) else {
+                return []
+            }
+
+            // Filter and extract Sendable data in the same block
+            return papers.compactMap { paper in
+                guard paper.fields["eprint"] != nil && paper.bibcodeNormalized == nil else {
+                    return nil
+                }
+                return (paper.id, paper.enrichmentIdentifiers)
+            }
+        }
+
+        guard !arxivPapers.isEmpty else {
+            Logger.enrichment.debug("No papers need immediate ADS enrichment")
+            return 0
+        }
+
+        Logger.enrichment.infoCapture(
+            "Immediate ADS enrichment by IDs: \(arxivPapers.count) papers",
+            category: "enrichment"
+        )
+
+        // Build batch request
+        let requests = arxivPapers.map { ($0.id, $0.identifiers) }
 
         // Use ADS batch enrichment (single API call)
         let results = await adsSource.enrichBatch(requests: requests)

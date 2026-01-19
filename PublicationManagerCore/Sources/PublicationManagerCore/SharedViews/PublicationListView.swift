@@ -156,8 +156,8 @@ public struct PublicationListView: View {
 
     // MARK: - Inbox Triage Callbacks
 
-    /// Called when archive to library is requested (Inbox: adds to library AND removes from Inbox)
-    public var onArchiveToLibrary: ((Set<UUID>, CDLibrary) async -> Void)?
+    /// Called when keep to library is requested (Inbox: adds to library AND removes from Inbox)
+    public var onKeepToLibrary: ((Set<UUID>, CDLibrary) async -> Void)?
 
     /// Called when dismiss is requested (Inbox: remove from Inbox)
     public var onDismiss: ((Set<UUID>) async -> Void)?
@@ -225,6 +225,9 @@ public struct PublicationListView: View {
 
     /// Whether PDF search is in progress
     @State private var isPDFSearching: Bool = false
+
+    /// Whether the search field is expanded (collapsed shows only magnifying glass icon)
+    @State private var isSearchExpanded: Bool = false
 
     /// Cached row data - rebuilt when publications change
     @State private var rowDataCache: [UUID: PublicationRowData] = [:]
@@ -363,7 +366,7 @@ public struct PublicationListView: View {
         onFileDrop: ((CDPublication, [NSItemProvider]) -> Void)? = nil,
         onDownloadPDFs: ((Set<UUID>) -> Void)? = nil,
         // Inbox triage callbacks
-        onArchiveToLibrary: ((Set<UUID>, CDLibrary) async -> Void)? = nil,
+        onKeepToLibrary: ((Set<UUID>, CDLibrary) async -> Void)? = nil,
         onDismiss: ((Set<UUID>) async -> Void)? = nil,
         onToggleStar: ((Set<UUID>) async -> Void)? = nil,
         onMuteAuthor: ((String) -> Void)? = nil,
@@ -409,7 +412,7 @@ public struct PublicationListView: View {
         self.onFileDrop = onFileDrop
         self.onDownloadPDFs = onDownloadPDFs
         // Inbox triage
-        self.onArchiveToLibrary = onArchiveToLibrary
+        self.onKeepToLibrary = onKeepToLibrary
         self.onDismiss = onDismiss
         self.onToggleStar = onToggleStar
         self.onMuteAuthor = onMuteAuthor
@@ -661,75 +664,6 @@ public struct PublicationListView: View {
 
     private var inlineToolbar: some View {
         HStack(spacing: 12) {
-            // Search field
-            HStack {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
-                TextField("Search publications", text: $searchQuery)
-                    .textFieldStyle(.plain)
-                if !searchQuery.isEmpty {
-                    Button {
-                        searchQuery = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Clear search")
-                }
-            }
-            .padding(6)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-            .help("Filter by title, author, or cite key")
-
-            // Scope picker (search across different sources)
-            Menu {
-                ForEach(FilterScope.allCases) { scope in
-                    Button {
-                        filterScope = scope
-                    } label: {
-                        if scope == filterScope {
-                            Label(scope.rawValue, systemImage: "checkmark")
-                        } else {
-                            Text(scope.rawValue)
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 2) {
-                    Text(filterScope.rawValue)
-                        .font(.caption)
-                    Image(systemName: "chevron.down")
-                        .font(.caption2)
-                }
-                .foregroundColor(filterScope == .current ? Color.secondary : Color.accentColor)
-            }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
-            .help("Search scope: \(filterScope.rawValue)")
-
-            // PDF search toggle
-            Button {
-                searchInPDFs.toggle()
-                if searchInPDFs && !searchQuery.isEmpty {
-                    triggerPDFSearch()
-                } else if !searchInPDFs {
-                    pdfSearchMatches.removeAll()
-                    filterCache.invalidate()
-                }
-            } label: {
-                HStack(spacing: 2) {
-                    Image(systemName: "doc.text.magnifyingglass")
-                    if isPDFSearching {
-                        ProgressView()
-                            .controlSize(.mini)
-                    }
-                }
-            }
-            .foregroundStyle(searchInPDFs ? .blue : .secondary)
-            .help(searchInPDFs ? "Disable PDF content search" : "Include PDF content in search")
-            .buttonStyle(.plain)
-
             // Refresh button (only shown when onRefresh callback is provided)
             if let onRefresh = onRefresh {
                 if isRefreshing {
@@ -761,6 +695,107 @@ public struct PublicationListView: View {
                 .foregroundStyle(.secondary)
                 .help("Import BibTeX")
                 .buttonStyle(.plain)
+            }
+
+            // Collapsible search section (moved to right side)
+            if isSearchExpanded {
+                // Expanded: show full search field with options
+                HStack(spacing: 8) {
+                    // PDF search toggle
+                    Button {
+                        searchInPDFs.toggle()
+                        if searchInPDFs && !searchQuery.isEmpty {
+                            triggerPDFSearch()
+                        } else if !searchInPDFs {
+                            pdfSearchMatches.removeAll()
+                            filterCache.invalidate()
+                        }
+                    } label: {
+                        HStack(spacing: 2) {
+                            Image(systemName: "doc.text.magnifyingglass")
+                            if isPDFSearching {
+                                ProgressView()
+                                    .controlSize(.mini)
+                            }
+                        }
+                    }
+                    .foregroundStyle(searchInPDFs ? .blue : .secondary)
+                    .help(searchInPDFs ? "Disable PDF content search" : "Include PDF content in search")
+                    .buttonStyle(.plain)
+
+                    // Scope picker (search across different sources)
+                    Menu {
+                        ForEach(FilterScope.allCases) { scope in
+                            Button {
+                                filterScope = scope
+                            } label: {
+                                if scope == filterScope {
+                                    Label(scope.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Text(scope.rawValue)
+                                }
+                            }
+                        }
+                    } label: {
+                        HStack(spacing: 2) {
+                            Text(filterScope.rawValue)
+                                .font(.caption)
+                            Image(systemName: "chevron.down")
+                                .font(.caption2)
+                        }
+                        .foregroundColor(filterScope == .current ? Color.secondary : Color.accentColor)
+                    }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+                    .help("Search scope: \(filterScope.rawValue)")
+
+                    // Search field
+                    HStack {
+                        TextField("Search publications", text: $searchQuery)
+                            .textFieldStyle(.plain)
+                        if !searchQuery.isEmpty {
+                            Button {
+                                searchQuery = ""
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                            .help("Clear search")
+                        }
+                    }
+                    .padding(6)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                    .help("Filter by title, author, or cite key")
+
+                    // Collapse button
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            isSearchExpanded = false
+                            // Clear search when collapsing
+                            if searchQuery.isEmpty {
+                                searchInPDFs = false
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Collapse search")
+                }
+            } else {
+                // Collapsed: show magnifying glass icon that expands on tap
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isSearchExpanded = true
+                    }
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(searchQuery.isEmpty && !searchInPDFs ? .secondary : .blue)
+                }
+                .buttonStyle(.plain)
+                .help("Expand search")
             }
 
             // Sort menu - click same option again to toggle ascending/descending
@@ -1187,19 +1222,19 @@ public struct PublicationListView: View {
             }
         }
 
-        // MARK: Archive/Triage Actions
+        // MARK: Keep/Triage Actions
 
-        // Archive to Library (adds to target library AND removes from current library)
+        // Keep to Library (adds to target library AND removes from current library)
         // Available for all views, not just Inbox
-        if let onArchiveToLibrary = onArchiveToLibrary, !allLibraries.isEmpty {
-            // Filter out current library and Inbox from archive targets
-            let archiveLibraries = allLibraries.filter { $0.id != library?.id && !$0.isInbox }
-            if !archiveLibraries.isEmpty {
-                Menu("Archive to Library") {
-                    ForEach(archiveLibraries, id: \.id) { targetLibrary in
+        if let onKeepToLibrary = onKeepToLibrary, !allLibraries.isEmpty {
+            // Filter out current library and Inbox from keep targets
+            let keepLibraries = allLibraries.filter { $0.id != library?.id && !$0.isInbox }
+            if !keepLibraries.isEmpty {
+                Menu("Keep to Library") {
+                    ForEach(keepLibraries, id: \.id) { targetLibrary in
                         Button(targetLibrary.displayName) {
                             Task {
-                                await onArchiveToLibrary(ids, targetLibrary)
+                                await onKeepToLibrary(ids, targetLibrary)
                             }
                         }
                     }
@@ -1278,17 +1313,32 @@ public struct PublicationListView: View {
     /// This is extracted to a helper method to avoid "expression too complex" compiler errors.
     @ViewBuilder
     private func makePublicationRow(data rowData: PublicationRowData, index: Int) -> some View {
+        #if os(iOS)
+        // On iOS, List selection doesn't work without edit mode.
+        // Use a tap gesture to manually update the selection.
+        rowContent(data: rowData, index: index)
+            .contentShape(Rectangle())  // Make entire row tappable
+            .onTapGesture {
+                selection = [rowData.id]
+            }
+        #else
+        rowContent(data: rowData, index: index)
+        #endif
+    }
+
+    @ViewBuilder
+    private func rowContent(data rowData: PublicationRowData, index: Int) -> some View {
         let deleteHandler: (() -> Void)? = onDelete != nil ? {
             Task { await onDelete?([rowData.id]) }
         } : nil
 
-        let archiveHandler: (() -> Void)? = {
-            guard onArchiveToLibrary != nil else { return nil }
+        let keepHandler: (() -> Void)? = {
+            guard onKeepToLibrary != nil else { return nil }
             let nonInboxLibraries = allLibraries.filter { !$0.isInbox }
             guard !nonInboxLibraries.isEmpty else { return nil }
             return {
                 if let targetLibrary = nonInboxLibraries.first {
-                    Task { await onArchiveToLibrary?([rowData.id], targetLibrary) }
+                    Task { await onKeepToLibrary?([rowData.id], targetLibrary) }
                 }
             }
         }()
@@ -1384,11 +1434,10 @@ public struct PublicationListView: View {
         MailStylePublicationRow(
             data: rowData,
             settings: listViewSettings,
-            rowNumber: index + 1,
             onToggleRead: toggleReadHandler,
             onCategoryTap: onCategoryTap,
             onDelete: deleteHandler,
-            onArchive: archiveHandler,
+            onKeep: keepHandler,
             onDismiss: dismissHandler,
             isInInbox: isInInbox,
             onOpenPDF: openPDFHandler,

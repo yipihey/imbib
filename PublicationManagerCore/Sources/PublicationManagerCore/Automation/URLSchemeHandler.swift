@@ -312,10 +312,10 @@ public actor URLSchemeHandler {
             await postNotification(.toggleReadStatus, userInfo: userInfo.merging(["markAs": "unread"]) { _, new in new })
         case .delete:
             await postNotification(.deleteSelectedPapers, userInfo: userInfo)
-        case .archive(let libraryID):
+        case .keep(let libraryID):
             var info = userInfo
             if let id = libraryID { info["libraryID"] = id.uuidString }
-            await postNotification(.archiveToLibrary, userInfo: info)
+            await postNotification(.keepToLibrary, userInfo: info)
         case .addToCollection(let collectionID):
             await postNotification(.addToCollection, userInfo: userInfo.merging(["collectionID": collectionID.uuidString]) { _, new in new })
         case .removeFromCollection(let collectionID):
@@ -349,8 +349,8 @@ public actor URLSchemeHandler {
             await postNotification(.markAllAsRead)
         case .delete:
             await postNotification(.deleteSelectedPapers)
-        case .archive:
-            await postNotification(.archiveToLibrary)
+        case .keep:
+            await postNotification(.keepToLibrary)
         case .copy:
             await postNotification(.copyPublications)
         case .cut:
@@ -372,8 +372,8 @@ public actor URLSchemeHandler {
         switch action {
         case .show:
             await postNotification(.showInbox)
-        case .archive:
-            await postNotification(.inboxArchive)
+        case .keep:
+            await postNotification(.inboxKeep)
         case .dismiss:
             await postNotification(.inboxDismiss)
         case .toggleStar:

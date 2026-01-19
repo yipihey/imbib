@@ -662,17 +662,64 @@ public struct PDFViewerWithControls: View {
     @State private var searchResults: [PDFSelection] = []
     @State private var currentSearchIndex: Int = 0
     @State private var isSearching: Bool = false
+    @State private var isSearchVisible: Bool = false  // iOS: expandable search bar
 
     // Annotation state
     @State private var hasSelection: Bool = false
     @State private var hasUnsavedAnnotations: Bool = false
     @State private var highlightColor: HighlightColor = .yellow
-    @State private var showAnnotationToolbar: Bool = true
+    @State private var showAnnotationToolbar: Bool = false
     @State private var selectedAnnotationTool: AnnotationTool? = nil
     @State private var pdfViewReference: PDFView? = nil
 
+    // iOS fullscreen state
+    #if os(iOS)
+    @Binding private var isFullscreen: Bool
+    @State private var showBackButton: Bool = true
+    @State private var hideBackButtonTask: Task<Void, Never>?
+    #endif
+
     // MARK: - Initialization
 
+    #if os(iOS)
+    public init(url: URL, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false), onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
+        self.source = .url(url)
+        self.publicationID = publicationID
+        self.linkedFile = nil
+        self._isFullscreen = isFullscreen
+        self.onCorruptPDF = onCorruptPDF
+    }
+
+    public init(data: Data, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false)) {
+        self.source = .data(data)
+        self.publicationID = publicationID
+        self.linkedFile = nil
+        self._isFullscreen = isFullscreen
+        self.onCorruptPDF = nil
+    }
+
+    public init(linkedFile: CDLinkedFile, library: CDLibrary? = nil, publicationID: UUID? = nil, isFullscreen: Binding<Bool> = .constant(false), onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
+        // Normalize unicode to match how PDFManager saved the file
+        let normalizedPath = linkedFile.relativePath.precomposedStringWithCanonicalMapping
+
+        if let library, let bibURL = library.resolveURL() {
+            let baseURL = bibURL.deletingLastPathComponent()
+            let fileURL = baseURL.appendingPathComponent(normalizedPath)
+            Logger.files.debugCapture("PDFViewerWithControls resolving path: \(fileURL.path)", category: "pdf")
+            self.source = .url(fileURL)
+        } else {
+            let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+                .appendingPathComponent("imbib")
+            let fileURL = appSupport.appendingPathComponent(normalizedPath)
+            Logger.files.debugCapture("PDFViewerWithControls resolving path (fallback): \(fileURL.path)", category: "pdf")
+            self.source = .url(fileURL)
+        }
+        self.publicationID = publicationID
+        self.linkedFile = linkedFile
+        self._isFullscreen = isFullscreen
+        self.onCorruptPDF = onCorruptPDF
+    }
+    #else
     public init(url: URL, publicationID: UUID? = nil, onCorruptPDF: ((CDLinkedFile) -> Void)? = nil) {
         self.source = .url(url)
         self.publicationID = publicationID
@@ -707,50 +754,35 @@ public struct PDFViewerWithControls: View {
         self.linkedFile = linkedFile
         self.onCorruptPDF = onCorruptPDF
     }
+    #endif
+
+    // Toolbar position for alignment
+    @AppStorage("annotationToolbarPosition") private var toolbarPositionRaw: String = "top"
+
+    private var toolbarPosition: AnnotationToolbarPosition {
+        AnnotationToolbarPosition(rawValue: toolbarPositionRaw) ?? .top
+    }
+
+    /// Padding for the toolbar based on its position
+    private var toolbarPadding: EdgeInsets {
+        switch toolbarPosition {
+        case .top: return EdgeInsets(top: 8, leading: 0, bottom: 0, trailing: 0)
+        case .bottom: return EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0)
+        case .left: return EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 0)
+        case .right: return EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 8)
+        }
+    }
 
     // MARK: - Body
 
     public var body: some View {
-        VStack(spacing: 0) {
-            ZStack(alignment: .top) {
-                // PDF Content
-                Group {
-                    if isLoading {
-                        ProgressView("Loading PDF...")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    } else if let error {
-                        errorView(error)
-                    } else if let document = pdfDocument {
-                        ControlledPDFKitView(
-                            document: document,
-                            currentPage: $currentPage,
-                            scaleFactor: scaleFactorBinding,
-                            hasSelection: $hasSelection,
-                            pdfViewRef: { pdfViewReference = $0 }
-                        )
-                    } else {
-                        errorView(.documentNotLoaded)
-                    }
-                }
-
-                // Floating annotation toolbar
-                if showAnnotationToolbar && pdfDocument != nil {
-                    AnnotationToolbar(
-                        selectedTool: $selectedAnnotationTool,
-                        highlightColor: $highlightColor,
-                        hasSelection: hasSelection,
-                        onHighlight: highlightSelection,
-                        onUnderline: underlineSelection,
-                        onStrikethrough: strikethroughSelection,
-                        onAddNote: addNoteAtSelection
-                    )
-                    .padding(.top, 8)
-                }
-            }
-
-            // Toolbar
-            if pdfDocument != nil {
-                pdfToolbar
+        #if os(iOS)
+        // iOS: Support fullscreen mode
+        ZStack {
+            if isFullscreen {
+                fullscreenPDFView
+            } else {
+                normalPDFView
             }
         }
         .task {
@@ -765,8 +797,60 @@ public struct PDFViewerWithControls: View {
         .onDisappear {
             savePositionImmediately()
         }
-        // Keyboard navigation from menu/notifications
+        #else
+        // macOS: Always show normal view
+        normalPDFView
+        #endif
+    }
+
+    // MARK: - Normal PDF View
+
+    private var normalPDFView: some View {
+        VStack(spacing: 0) {
+            ZStack(alignment: toolbarPosition.alignment) {
+                // PDF Content
+                pdfContent
+                    #if os(iOS)
+                    .onTapGesture {
+                        enterFullscreen()
+                    }
+                    #endif
+
+                // Floating annotation toolbar
+                if showAnnotationToolbar && pdfDocument != nil {
+                    AnnotationToolbar(
+                        selectedTool: $selectedAnnotationTool,
+                        highlightColor: $highlightColor,
+                        hasSelection: hasSelection,
+                        onHighlight: highlightSelection,
+                        onUnderline: underlineSelection,
+                        onStrikethrough: strikethroughSelection,
+                        onAddNote: addNoteAtSelection
+                    )
+                    .padding(toolbarPadding)
+                }
+            }
+
+            // Toolbar
+            if pdfDocument != nil {
+                pdfToolbar
+            }
+        }
+        // macOS: modifiers here since body returns normalPDFView directly
+        // iOS: modifiers are on the body's ZStack to apply to both fullscreen and normal views
         #if os(macOS)
+        .task {
+            await loadDocument()
+        }
+        .onChange(of: currentPage) { _, newPage in
+            schedulePositionSave()
+        }
+        .onChange(of: scaleFactor) { _, newScale in
+            schedulePositionSave()
+        }
+        .onDisappear {
+            savePositionImmediately()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .pdfPageDown)) { _ in
             pageDown()
         }
@@ -790,6 +874,112 @@ public struct PDFViewerWithControls: View {
         }
         #endif
     }
+
+    // MARK: - PDF Content
+
+    @ViewBuilder
+    private var pdfContent: some View {
+        if isLoading {
+            ProgressView("Loading PDF...")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let error {
+            errorView(error)
+        } else if let document = pdfDocument {
+            ControlledPDFKitView(
+                document: document,
+                currentPage: $currentPage,
+                scaleFactor: scaleFactorBinding,
+                hasSelection: $hasSelection,
+                pdfViewRef: { pdfViewReference = $0 }
+            )
+        } else {
+            errorView(.documentNotLoaded)
+        }
+    }
+
+    // MARK: - iOS Fullscreen Mode
+
+    #if os(iOS)
+    private var fullscreenPDFView: some View {
+        ZStack(alignment: .topLeading) {
+            // Full PDF content
+            pdfContent
+                .ignoresSafeArea()
+                .onTapGesture {
+                    // Show back button and reset hide timer
+                    showBackButtonTemporarily()
+                }
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { _ in
+                            showBackButtonTemporarily()
+                        }
+                )
+
+            // Floating back button
+            if showBackButton {
+                Button {
+                    exitFullscreen()
+                } label: {
+                    Image(systemName: "chevron.left.circle.fill")
+                        .font(.system(size: 36))
+                        .foregroundStyle(.white, .black.opacity(0.6))
+                        .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                }
+                .padding(.top, 60)  // Account for status bar
+                .padding(.leading, 20)
+                .transition(.opacity)
+            }
+        }
+        .background(Color.black)
+        .animation(.easeInOut(duration: 0.3), value: showBackButton)
+        .onAppear {
+            showBackButtonTemporarily()
+        }
+        .statusBarHidden(true)
+    }
+
+    private func enterFullscreen() {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            isFullscreen = true
+            showBackButton = true
+        }
+        scheduleHideBackButton()
+    }
+
+    private func exitFullscreen() {
+        hideBackButtonTask?.cancel()
+        withAnimation(.easeInOut(duration: 0.3)) {
+            isFullscreen = false
+        }
+    }
+
+    private func showBackButtonTemporarily() {
+        // Cancel existing hide task
+        hideBackButtonTask?.cancel()
+
+        // Show button
+        withAnimation {
+            showBackButton = true
+        }
+
+        // Schedule hide
+        scheduleHideBackButton()
+    }
+
+    private func scheduleHideBackButton() {
+        hideBackButtonTask?.cancel()
+        hideBackButtonTask = Task {
+            try? await Task.sleep(for: .seconds(3))
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                withAnimation {
+                    showBackButton = false
+                }
+            }
+        }
+    }
+    #endif
 
     // MARK: - Page Navigation
 
@@ -975,6 +1165,154 @@ public struct PDFViewerWithControls: View {
     // MARK: - Toolbar
 
     private var pdfToolbar: some View {
+        #if os(iOS)
+        // iOS: Compact toolbar with essential controls, scrollable for overflow
+        VStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    // Page Navigation
+                    HStack(spacing: 6) {
+                        Button {
+                            goToPreviousPage()
+                        } label: {
+                            Image(systemName: "chevron.left")
+                        }
+                        .disabled(currentPage <= 1)
+
+                        Text("\(currentPage)/\(totalPages)")
+                            .font(.caption)
+                            .monospacedDigit()
+
+                        Button {
+                            goToNextPage()
+                        } label: {
+                            Image(systemName: "chevron.right")
+                        }
+                        .disabled(currentPage >= totalPages)
+                    }
+
+                    Divider()
+                        .frame(height: 20)
+
+                    // Zoom Controls
+                    HStack(spacing: 6) {
+                        Button {
+                            zoomOut()
+                        } label: {
+                            Image(systemName: "minus.magnifyingglass")
+                        }
+                        .disabled(scaleFactor <= 0.25)
+
+                        Text("\(Int(scaleFactor * 100))%")
+                            .font(.caption)
+                            .monospacedDigit()
+
+                        Button {
+                            zoomIn()
+                        } label: {
+                            Image(systemName: "plus.magnifyingglass")
+                        }
+                        .disabled(scaleFactor >= 4.0)
+                    }
+
+                    Divider()
+                        .frame(height: 20)
+
+                    // Annotation controls
+                    HStack(spacing: 6) {
+                        Button {
+                            showAnnotationToolbar.toggle()
+                        } label: {
+                            Image(systemName: showAnnotationToolbar ? "pencil.tip.crop.circle.fill" : "pencil.tip.crop.circle")
+                        }
+
+                        if hasUnsavedAnnotations {
+                            Button {
+                                saveAnnotations()
+                            } label: {
+                                Image(systemName: "square.and.arrow.down")
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                    }
+
+                    Divider()
+                        .frame(height: 20)
+
+                    // Search toggle
+                    Button {
+                        withAnimation {
+                            isSearchVisible.toggle()
+                        }
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+
+                    // Open externally
+                    if case .url(let url) = source {
+                        Button {
+                            openInExternalApp(url: url)
+                        } label: {
+                            Image(systemName: "arrow.up.forward.app")
+                        }
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+            }
+            .background(.bar)
+
+            // Search bar (expandable)
+            if isSearchVisible {
+                HStack(spacing: 8) {
+                    TextField("Search in PDF...", text: $searchQuery)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit {
+                            performSearch()
+                        }
+
+                    if !searchQuery.isEmpty {
+                        Button {
+                            clearSearch()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if !searchResults.isEmpty {
+                        Text("\(currentSearchIndex + 1)/\(searchResults.count)")
+                            .font(.caption)
+                            .monospacedDigit()
+
+                        Button {
+                            previousSearchResult()
+                        } label: {
+                            Image(systemName: "chevron.up")
+                        }
+                        .disabled(currentSearchIndex <= 0)
+
+                        Button {
+                            nextSearchResult()
+                        } label: {
+                            Image(systemName: "chevron.down")
+                        }
+                        .disabled(currentSearchIndex >= searchResults.count - 1)
+                    }
+
+                    if isSearching {
+                        ProgressView()
+                            .controlSize(.small)
+                    }
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 8)
+                .background(.bar)
+            }
+        }
+        #else
+        // macOS: Full horizontal toolbar
         HStack(spacing: 16) {
             // Page Navigation
             HStack(spacing: 8) {
@@ -1120,6 +1458,7 @@ public struct PDFViewerWithControls: View {
         .padding(.horizontal)
         .padding(.vertical, 8)
         .background(.bar)
+        #endif
     }
 
     // MARK: - Loading

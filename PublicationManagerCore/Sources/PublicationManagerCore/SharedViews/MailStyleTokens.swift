@@ -121,8 +121,8 @@ public enum MailStyleTokens {
 
     // MARK: - Line Limits
 
-    /// Maximum lines for title
-    public static let titleLineLimit = 1
+    /// Maximum lines for title (nil = unlimited)
+    public static let titleLineLimit: Int? = nil
 
     /// Maximum lines for abstract preview
     public static let abstractLineLimit = 2

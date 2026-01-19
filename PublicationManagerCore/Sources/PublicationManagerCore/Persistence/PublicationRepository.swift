@@ -1223,7 +1223,7 @@ public actor PublicationRepository {
 
     /// Add publications to a library (publications can belong to multiple libraries)
     ///
-    /// When adding to a non-Inbox library, posts `.publicationArchivedToLibrary`
+    /// When adding to a non-Inbox library, posts `.publicationKeptToLibrary`
     /// notification to trigger auto-removal from Inbox.
     public func addToLibrary(_ publications: [CDPublication], library: CDLibrary) async {
         let context = persistenceController.viewContext
@@ -1241,7 +1241,7 @@ public actor PublicationRepository {
             await MainActor.run {
                 for publication in publications {
                     NotificationCenter.default.post(
-                        name: .publicationArchivedToLibrary,
+                        name: .publicationKeptToLibrary,
                         object: publication
                     )
                 }

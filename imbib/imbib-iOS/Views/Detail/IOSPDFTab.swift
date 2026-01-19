@@ -24,6 +24,7 @@ private enum PDFTabState: Equatable {
 struct IOSPDFTab: View {
     let publication: CDPublication
     let libraryID: UUID
+    @Binding var isFullscreen: Bool
 
     @Environment(LibraryManager.self) private var libraryManager
 
@@ -43,7 +44,8 @@ struct IOSPDFTab: View {
                     PDFViewerWithControls(
                         linkedFile: linkedFile,
                         library: library,
-                        publicationID: publication.id
+                        publicationID: publication.id,
+                        isFullscreen: $isFullscreen
                     )
                 }
 

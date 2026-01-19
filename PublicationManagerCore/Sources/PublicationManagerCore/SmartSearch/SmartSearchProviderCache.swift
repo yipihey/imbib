@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreData
 
 // MARK: - Smart Search Provider Cache
 
@@ -47,5 +48,48 @@ public actor SmartSearchProviderCache {
     /// Invalidate all cached providers
     public func invalidateAll() {
         providers.removeAll()
+    }
+
+    /// Get or create a provider by smart search ID.
+    ///
+    /// This variant fetches the CDSmartSearch internally on the main actor, making it safe
+    /// to call from non-main-actor contexts. Returns nil if the smart search doesn't exist.
+    ///
+    /// - Parameters:
+    ///   - smartSearchID: UUID of the smart search
+    ///   - sourceManager: Source manager for searches
+    ///   - repository: Publication repository for persistence
+    /// - Returns: Provider or nil if smart search not found
+    public func getOrCreateByID(
+        smartSearchID: UUID,
+        sourceManager: SourceManager,
+        repository: PublicationRepository
+    ) async -> SmartSearchProvider? {
+        // Check cache first
+        if let existing = providers[smartSearchID] {
+            return existing
+        }
+
+        // Fetch smart search on main actor and create provider
+        let smartSearch: CDSmartSearch? = await MainActor.run {
+            let request = NSFetchRequest<CDSmartSearch>(entityName: "SmartSearch")
+            request.predicate = NSPredicate(format: "id == %@", smartSearchID as CVarArg)
+            request.fetchLimit = 1
+            return try? PersistenceController.shared.viewContext.fetch(request).first
+        }
+
+        guard let smartSearch else { return nil }
+
+        // Create provider on main actor (since CDSmartSearch is accessed)
+        let provider = await MainActor.run {
+            SmartSearchProvider(
+                from: smartSearch,
+                sourceManager: sourceManager,
+                repository: repository
+            )
+        }
+
+        providers[smartSearchID] = provider
+        return provider
     }
 }

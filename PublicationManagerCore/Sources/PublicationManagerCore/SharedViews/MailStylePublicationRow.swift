@@ -80,11 +80,10 @@ public struct MailStylePublicationRow: View, Equatable {
     // MARK: - Equatable
 
     public static func == (lhs: MailStylePublicationRow, rhs: MailStylePublicationRow) -> Bool {
-        // Only compare data, settings, and rowNumber - closures don't affect visual output
+        // Only compare data and settings - closures don't affect visual output
         // Also compare isInInbox, hasPDF, and collections count as they affect display
         lhs.data == rhs.data &&
         lhs.settings == rhs.settings &&
-        lhs.rowNumber == rhs.rowNumber &&
         lhs.isInInbox == rhs.isInInbox &&
         lhs.hasPDF == rhs.hasPDF &&
         lhs.collections.count == rhs.collections.count
@@ -102,9 +101,6 @@ public struct MailStylePublicationRow: View, Equatable {
     /// List view settings controlling display options
     public var settings: ListViewSettings = .default
 
-    /// 1-indexed row number for display (independent of sort order)
-    public var rowNumber: Int?
-
     /// Action when toggle read/unread is requested
     public var onToggleRead: (() -> Void)?
 
@@ -119,8 +115,8 @@ public struct MailStylePublicationRow: View, Equatable {
     /// Action when delete is requested (swipe left)
     public var onDelete: (() -> Void)?
 
-    /// Action when archive is requested (swipe right)
-    public var onArchive: (() -> Void)?
+    /// Action when keep is requested (swipe right)
+    public var onKeep: (() -> Void)?
 
     /// Action when dismiss is requested (swipe left, Inbox only)
     public var onDismiss: (() -> Void)?
@@ -216,13 +212,12 @@ public struct MailStylePublicationRow: View, Equatable {
     public init(
         data: PublicationRowData,
         settings: ListViewSettings = .default,
-        rowNumber: Int? = nil,
         onToggleRead: (() -> Void)? = nil,
         onCategoryTap: ((String) -> Void)? = nil,
         onFileDrop: (([NSItemProvider]) -> Void)? = nil,
         // Swipe actions (iOS)
         onDelete: (() -> Void)? = nil,
-        onArchive: (() -> Void)? = nil,
+        onKeep: (() -> Void)? = nil,
         onDismiss: (() -> Void)? = nil,
         isInInbox: Bool = false,
         // Context menu actions
@@ -248,13 +243,12 @@ public struct MailStylePublicationRow: View, Equatable {
     ) {
         self.data = data
         self.settings = settings
-        self.rowNumber = rowNumber
         self.onToggleRead = onToggleRead
         self.onCategoryTap = onCategoryTap
         self.onFileDrop = onFileDrop
         // Swipe actions
         self.onDelete = onDelete
-        self.onArchive = onArchive
+        self.onKeep = onKeep
         self.onDismiss = onDismiss
         self.isInInbox = isInInbox
         // Context menu
@@ -288,42 +282,6 @@ public struct MailStylePublicationRow: View, Equatable {
 
     private var rowContent: some View {
         HStack(alignment: .top, spacing: MailStyleTokens.dotContentSpacing) {
-            // Row number and counts column (subtle, minimal width)
-            if rowNumber != nil || data.referenceCount > 0 || data.citationCount > 0 {
-                VStack(alignment: .trailing, spacing: 1) {
-                    // Row number
-                    if let number = rowNumber {
-                        Text("\(number)")
-                            .font(.system(size: 9, design: .monospaced))
-                            .foregroundStyle(.quaternary)
-                    }
-
-                    // Reference count (if > 0)
-                    if data.referenceCount > 0 {
-                        HStack(spacing: 1) {
-                            Image(systemName: "doc.text")
-                                .font(.system(size: 7))
-                            Text("\(data.referenceCount)")
-                                .font(.system(size: 8, design: .monospaced))
-                        }
-                        .foregroundStyle(.quaternary)
-                    }
-
-                    // Citation count (if > 0)
-                    if data.citationCount > 0 {
-                        HStack(spacing: 1) {
-                            Image(systemName: "quote.bubble")
-                                .font(.system(size: 7))
-                            Text("\(data.citationCount)")
-                                .font(.system(size: 8, design: .monospaced))
-                        }
-                        .foregroundStyle(.quaternary)
-                    }
-                }
-                .frame(minWidth: 16, alignment: .trailing)
-                .padding(.top, 4)
-            }
-
             // Themed dot for unread (conditional)
             if settings.showUnreadIndicator {
                 Circle()
@@ -437,14 +395,14 @@ public struct MailStylePublicationRow: View, Equatable {
                 .tint(.orange)
             }
         }
-        // Swipe RIGHT (.leading) = Archive + Toggle Read
+        // Swipe RIGHT (.leading) = Keep + Toggle Read
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
-            // Archive (green, leftmost)
-            if let onArchive = onArchive {
+            // Keep (green, leftmost)
+            if let onKeep = onKeep {
                 Button {
-                    onArchive()
+                    onKeep()
                 } label: {
-                    Label("Archive", systemImage: "archivebox")
+                    Label("Keep", systemImage: "checkmark.circle")
                 }
                 .tint(.green)
             }
@@ -716,11 +674,11 @@ public struct MailStylePublicationRow: View, Equatable {
 
     @ViewBuilder
     private var inboxActionsSection: some View {
-        if let onArchive = onArchive {
+        if let onKeep = onKeep {
             Button {
-                onArchive()
+                onKeep()
             } label: {
-                Label("Archive to Library", systemImage: "archivebox")
+                Label("Keep to Library", systemImage: "checkmark.circle")
             }
         }
 

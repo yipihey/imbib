@@ -240,23 +240,28 @@ struct IOSSidebarView: View {
                 content()
             }
         } header: {
-            HStack(spacing: 4) {
-                // Collapse/expand button
-                Button {
+            // Make entire header tappable for better iOS UX
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
                     toggleSectionCollapsed(sectionType)
-                } label: {
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 12)
                 }
-                .buttonStyle(.plain)
+            } label: {
+                HStack(spacing: 6) {
+                    // Chevron indicator
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
 
-                // Section title
-                Text(sectionType.displayName)
+                    // Section title
+                    Text(sectionType.displayName)
+                        .foregroundStyle(.primary)
 
-                Spacer()
+                    Spacer()
+                }
+                .contentShape(Rectangle())  // Make entire row tappable
             }
+            .buttonStyle(.plain)
         }
     }
 

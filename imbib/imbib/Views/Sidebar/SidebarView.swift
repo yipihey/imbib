@@ -401,7 +401,7 @@ struct SidebarView: View {
     /// Libraries section content (without Section wrapper)
     @ViewBuilder
     private var librariesSectionContent: some View {
-        // Filter out special libraries: Inbox, Dismissed, Archive (which has its own place or is shown in regular flow)
+        // Filter out special libraries: Inbox, Dismissed, Keep (which has its own place or is shown in regular flow)
         ForEach(libraryManager.libraries.filter { !$0.isInbox && !$0.isDismissedLibrary }, id: \.id) { library in
             libraryDisclosureGroup(for: library)
         }

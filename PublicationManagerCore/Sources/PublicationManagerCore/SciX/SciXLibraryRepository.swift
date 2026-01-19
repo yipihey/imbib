@@ -24,11 +24,39 @@ public final class SciXLibraryRepository: ObservableObject {
 
     @Published public private(set) var libraries: [CDSciXLibrary] = []
 
+    /// Observer for CloudKit remote change notifications
+    private var cloudKitObserver: (any NSObjectProtocol)?
+
     // MARK: - Initialization
 
     public init(context: NSManagedObjectContext? = nil) {
         self.context = context ?? PersistenceController.shared.viewContext
+        setupCloudKitObserver()
         loadLibraries()
+    }
+
+    // MARK: - CloudKit Sync
+
+    /// Set up observer for CloudKit remote changes to trigger deduplication
+    private func setupCloudKitObserver() {
+        cloudKitObserver = NotificationCenter.default.addObserver(
+            forName: .cloudKitDataDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Logger.scix.debug("CloudKit changes detected, reloading SciX libraries")
+            Task { @MainActor in
+                self?.loadLibraries()
+            }
+        }
+    }
+
+    /// Remove the CloudKit observer when no longer needed
+    public func removeObserver() {
+        if let observer = cloudKitObserver {
+            NotificationCenter.default.removeObserver(observer)
+            cloudKitObserver = nil
+        }
     }
 
     // MARK: - Loading
@@ -42,11 +70,104 @@ public final class SciXLibraryRepository: ObservableObject {
         ]
 
         do {
-            libraries = try context.fetch(request)
+            var fetched = try context.fetch(request)
+
+            // Deduplicate by remoteID (CloudKit may sync duplicates from multiple devices)
+            fetched = deduplicateByRemoteID(fetched)
+
+            libraries = fetched
             Logger.scix.debug("Loaded \(self.libraries.count) SciX libraries from cache")
         } catch {
             Logger.scix.error("Failed to load SciX libraries: \(error)")
             libraries = []
+        }
+    }
+
+    /// Deduplicate libraries by remoteID, keeping the most recently synced one.
+    ///
+    /// When CloudKit syncs CDSciXLibrary entities between devices, duplicates can occur
+    /// because each device creates entries independently based on the ADS remoteID.
+    /// This method identifies duplicates and deletes all but the most recent one.
+    private func deduplicateByRemoteID(_ libraries: [CDSciXLibrary]) -> [CDSciXLibrary] {
+        // Group libraries by remoteID
+        var groupedByRemoteID: [String: [CDSciXLibrary]] = [:]
+        for library in libraries {
+            let remoteID = library.remoteID
+            groupedByRemoteID[remoteID, default: []].append(library)
+        }
+
+        var result: [CDSciXLibrary] = []
+        var didDeleteDuplicates = false
+
+        for (remoteID, group) in groupedByRemoteID {
+            if group.count == 1 {
+                // No duplicates for this remoteID
+                result.append(group[0])
+            } else {
+                // Multiple libraries with same remoteID - keep the one with most recent lastSyncDate
+                // If no sync date, prefer the one with pending changes, or the oldest dateCreated
+                let sorted = group.sorted { lib1, lib2 in
+                    // Priority 1: Has pending changes (keep local edits)
+                    let hasChanges1 = !(lib1.pendingChanges?.isEmpty ?? true)
+                    let hasChanges2 = !(lib2.pendingChanges?.isEmpty ?? true)
+                    if hasChanges1 != hasChanges2 {
+                        return hasChanges1  // Prefer one with pending changes
+                    }
+
+                    // Priority 2: Most recent sync date
+                    if let date1 = lib1.lastSyncDate, let date2 = lib2.lastSyncDate {
+                        return date1 > date2
+                    } else if lib1.lastSyncDate != nil {
+                        return true
+                    } else if lib2.lastSyncDate != nil {
+                        return false
+                    }
+
+                    // Priority 3: Oldest dateCreated (was created first)
+                    return lib1.dateCreated < lib2.dateCreated
+                }
+
+                // Keep the first (best) one
+                let keeper = sorted[0]
+                result.append(keeper)
+
+                // Delete the rest
+                for duplicate in sorted.dropFirst() {
+                    Logger.scix.info("Deleting duplicate SciX library: '\(duplicate.name)' (remoteID: \(remoteID), keeping library with UUID: \(keeper.id))")
+
+                    // Move any publications from duplicate to keeper
+                    if let publications = duplicate.publications {
+                        for publication in publications {
+                            publication.scixLibraries?.remove(duplicate)
+                            publication.scixLibraries?.insert(keeper)
+                        }
+                    }
+
+                    // Move any pending changes from duplicate to keeper (merge)
+                    if let pendingChanges = duplicate.pendingChanges {
+                        for change in pendingChanges {
+                            change.library = keeper
+                        }
+                    }
+
+                    context.delete(duplicate)
+                    didDeleteDuplicates = true
+                }
+            }
+        }
+
+        // Save if we deleted duplicates
+        if didDeleteDuplicates {
+            save()
+            Logger.scix.info("Deduplicated SciX libraries, removed \(libraries.count - result.count) duplicates")
+        }
+
+        // Re-sort by sortOrder and name
+        return result.sorted { lib1, lib2 in
+            if lib1.sortOrder != lib2.sortOrder {
+                return lib1.sortOrder < lib2.sortOrder
+            }
+            return (lib1.name) < (lib2.name)
         }
     }
 

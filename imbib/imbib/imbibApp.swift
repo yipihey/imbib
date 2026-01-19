@@ -491,10 +491,10 @@ struct AppCommands: Commands {
 
             Divider()
 
-            Button("Archive to Library") {
-                NotificationCenter.default.post(name: .archiveToLibrary, object: nil)
+            Button("Keep to Library") {
+                NotificationCenter.default.post(name: .keepToLibrary, object: nil)
             }
-            .keyboardShortcut("a", modifiers: [.control, .command])
+            .keyboardShortcut("k", modifiers: [.control, .command])
 
             Button("Dismiss from Inbox") {
                 NotificationCenter.default.post(name: .dismissFromInbox, object: nil)
